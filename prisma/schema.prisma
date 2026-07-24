@@ -1,0 +1,198 @@
+// StrideVote data model. Postgres via Prisma. All access through DATABASE_URL so
+// the same schema runs on local Docker, AWS RDS/Aurora, Azure Database for
+// PostgreSQL, or Neon with no code change.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---- Auth.js (NextAuth v5) core tables + StrideVote user fields ----
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  // StrideVote profile
+  phone    String? @unique
+  initials String?
+  homeLat  Float?
+  homeLng  Float?
+  area     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts    Account[]
+  sessions    Session[]
+  memberships CampaignMembership[]
+  checkouts   ListCheckout[]
+  watches     ListWatch[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---- Channel-agnostic OTP store (phone SMS + WhatsApp). Email uses the
+// Auth.js VerificationToken magic-link flow, not this table. ----
+model OtpChallenge {
+  id          String    @id @default(cuid())
+  channel     String // "sms" | "whatsapp"
+  destination String // E.164 phone number
+  codeHash    String
+  expiresAt   DateTime
+  attempts    Int       @default(0)
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([destination])
+}
+
+// ---- Campaigns ----
+model Campaign {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  name         String
+  office       String
+  district     String
+  tags         String[]
+  color        String
+  centroidLat  Float?
+  centroidLng  Float?
+  volunteers   Int      @default(0)
+  boundary     Json? // polygon: number[][] of [lat, lng]
+  pickupType   String? // "locker" | "address"
+  pickupLabel  String?
+  pickupDetail String?
+
+  createdAt DateTime @default(now())
+
+  contacts    CampaignContact[]
+  memberships CampaignMembership[]
+  listLinks   ListCampaign[]
+}
+
+model CampaignContact {
+  id         String  @id @default(cuid())
+  campaignId String
+  name       String
+  role       String
+  phone      String?
+  email      String?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
+model CampaignMembership {
+  id          String    @id @default(cuid())
+  userId      String
+  campaignId  String
+  status      String // "active" | "pending"
+  joinedAt    DateTime?
+  requestedAt DateTime?
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, campaignId])
+}
+
+// ---- Lists (turf) sourced from external platforms ----
+model List {
+  id           String  @id @default(cuid())
+  slug         String  @unique
+  name         String
+  neighborhood String
+  source       String // "minivan" | "civibyte" | "manual"
+  sourceRef    String? // Minivan list-number OR Civibyte URL
+  doorsCount   Int     @default(0)
+  distanceMi   Float?
+  centroidLat  Float?
+  centroidLng  Float?
+  boundary     Json? // polygon: number[][] of [lat, lng]
+  data         Json    @default("{}") // flexible per-platform payload (+ coords)
+
+  createdAt DateTime @default(now())
+
+  campaignLinks ListCampaign[]
+  checkouts     ListCheckout[]
+  watches       ListWatch[]
+}
+
+model ListCampaign {
+  id         String @id @default(cuid())
+  listId     String
+  campaignId String
+
+  list     List     @relation(fields: [listId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, campaignId])
+}
+
+model ListCheckout {
+  id            String    @id @default(cuid())
+  listId        String
+  userId        String
+  status        String    @default("active") // "active" | "released"
+  checkedOutAt  DateTime  @default(now())
+  releasedAt    DateTime?
+  progressDone  Int       @default(0)
+  progressTotal Int       @default(0)
+
+  list List @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([listId, status])
+  @@index([userId, status])
+}
+
+model ListWatch {
+  id        String   @id @default(cuid())
+  userId    String
+  listId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  list List @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listId])
+}
