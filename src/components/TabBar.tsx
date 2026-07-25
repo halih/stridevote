@@ -10,11 +10,14 @@ const TABS: { href: string; label: string; icon: IconName }[] = [
   { href: "/stats", label: "Stats", icon: "bars" },
 ];
 
-export function TabBar() {
+export function TabBar({ canManage = false }: { canManage?: boolean }) {
   const pathname = usePathname();
+  const tabs = canManage
+    ? [...TABS, { href: "/manage", label: "Manage", icon: "shield" as IconName }]
+    : TABS;
   return (
     <nav className="tabbar">
-      {TABS.map((t) => {
+      {tabs.map((t) => {
         const active = pathname.startsWith(t.href);
         return (
           <Link key={t.href} href={t.href} className={`tab-btn${active ? " active" : ""}`}>

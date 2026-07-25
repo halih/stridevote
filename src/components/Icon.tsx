@@ -24,6 +24,11 @@ const PATHS: Record<string, string> = {
   door: "M6 21V5a2 2 0 012-2h8a2 2 0 012 2v16 M4 21h16 M14 12h.01",
   mail: "M4 5h16v14H4z M4 7l8 6 8-6",
   bars: "M4 20V10 M12 20V4 M20 20v-7",
+  shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z",
+  plus: "M12 5v14 M5 12h14",
+  trash: "M4 7h16 M6 7l1 13h10l1-13 M9 7V4h6v3 M10 11v6 M14 11v6",
+  pencil: "M12 20h9 M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z",
+  x: "M18 6L6 18 M6 6l12 12",
 };
 
 export type IconName = keyof typeof PATHS;

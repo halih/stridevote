@@ -1,0 +1,444 @@
+"use client";
+
+import Link from "next/link";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import type { CampaignAdminView, MemberRow } from "@/lib/admin-data";
+import { ASSIGNABLE_ROLES, ROLES, roleLabel, type RoleName } from "@/lib/roles";
+import { Icon } from "@/components/Icon";
+import { BottomSheet } from "@/components/BottomSheet";
+import { useToast } from "@/components/Toast";
+import { CampaignForm, type CampaignFormValues } from "@/components/manage/CampaignForm";
+import {
+  addMember,
+  approveMembership,
+  createList,
+  denyMembership,
+  setMemberRoles,
+} from "@/lib/admin-actions";
+
+type Tab = "members" | "lists" | "settings";
+
+function RoleToggle({
+  selected,
+  onChange,
+}: {
+  selected: RoleName[];
+  onChange: (roles: RoleName[]) => void;
+}) {
+  function toggle(role: RoleName) {
+    onChange(selected.includes(role) ? selected.filter((r) => r !== role) : [...selected, role]);
+  }
+  return (
+    <div className="role-toggle">
+      {ASSIGNABLE_ROLES.map((role) => (
+        <button
+          type="button"
+          key={role}
+          className={`role-option${selected.includes(role) ? " on" : ""}`}
+          onClick={() => toggle(role)}
+        >
+          <b>{ROLES[role].label}</b>
+          <span>{ROLES[role].description}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [pending, startTransition] = useTransition();
+  const [tab, setTab] = useState<Tab>(
+    view.perms.approve || view.perms.add || view.perms.assignRoles ? "members" : "lists",
+  );
+
+  const [editMember, setEditMember] = useState<MemberRow | null>(null);
+  const [editRoles, setEditRoles] = useState<RoleName[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addContact, setAddContact] = useState("");
+  const [addRoles, setAddRoles] = useState<RoleName[]>(["canvasser"]);
+  const [listOpen, setListOpen] = useState(false);
+
+  function run(action: () => Promise<{ ok: boolean; message: string }>, after?: () => void) {
+    startTransition(async () => {
+      const res = await action();
+      toast(res.message);
+      if (res.ok) {
+        after?.();
+        router.refresh();
+      }
+    });
+  }
+
+  function openEditRoles(m: MemberRow) {
+    setEditMember(m);
+    setEditRoles(m.roles.filter((r): r is RoleName => (ASSIGNABLE_ROLES as string[]).includes(r)));
+  }
+
+  function submitAddMember() {
+    const contact = addContact.trim();
+    const payload = contact.includes("@")
+      ? { email: contact, roles: addRoles }
+      : { phone: contact, roles: addRoles };
+    run(() => addMember(view.id, payload), () => {
+      setAddOpen(false);
+      setAddContact("");
+      setAddRoles(["canvasser"]);
+    });
+  }
+
+  const tabs: { id: Tab; label: string; show: boolean; badge?: number }[] = [
+    {
+      id: "members",
+      label: "Members",
+      show: view.perms.approve || view.perms.add || view.perms.assignRoles,
+      badge: view.pending.length,
+    },
+    { id: "lists", label: "Lists", show: view.perms.manageLists },
+    { id: "settings", label: "Settings", show: view.perms.editProfile },
+  ];
+  const visibleTabs = tabs.filter((t) => t.show);
+
+  return (
+    <>
+      <div className="segmented manage-tabs">
+        {visibleTabs.map((t) => (
+          <button key={t.id} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)}>
+            {t.label}
+            {t.badge ? <span className="count-badge">{t.badge}</span> : null}
+          </button>
+        ))}
+      </div>
+
+      {tab === "members" ? (
+        <>
+          {view.perms.approve && view.pending.length ? (
+            <section className="section">
+              <div className="section-head">
+                <span className="eyebrow">Pending requests</span>
+              </div>
+              <div className="card">
+                {view.pending.map((m) => (
+                  <div key={m.userId} className="member-row">
+                    <div className="member-info">
+                      <p className="member-name">{m.name}</p>
+                      <p className="member-contact">
+                        {m.contact}
+                        {m.requestedAt ? ` · requested ${m.requestedAt}` : ""}
+                      </p>
+                    </div>
+                    <div className="member-actions">
+                      <button
+                        className="btn btn-primary btn-sm"
+                        disabled={pending}
+                        onClick={() => run(() => approveMembership(view.id, m.userId))}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        className="btn btn-outline btn-sm"
+                        disabled={pending}
+                        onClick={() => run(() => denyMembership(view.id, m.userId))}
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="section">
+            <div className="section-head">
+              <span className="eyebrow">Members</span>
+              {view.perms.add ? (
+                <button className="btn btn-ghost btn-sm" onClick={() => setAddOpen(true)}>
+                  <Icon name="plus" size={14} /> Add
+                </button>
+              ) : null}
+            </div>
+            <div className="card">
+              {view.members.length ? (
+                view.members.map((m) => (
+                  <div key={m.userId} className="member-row">
+                    <div className="member-info">
+                      <p className="member-name">{m.name}</p>
+                      <p className="member-contact">{m.contact}</p>
+                      <div className="role-chips">
+                        {m.roles.map((r) => (
+                          <span key={r} className="role-chip">
+                            {roleLabel(r)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    {view.perms.assignRoles ? (
+                      <div className="member-actions">
+                        <button className="btn btn-outline btn-sm" onClick={() => openEditRoles(m)}>
+                          <Icon name="pencil" size={13} /> Roles
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))
+              ) : (
+                <div className="empty-state">No active members yet.</div>
+              )}
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      {tab === "lists" ? (
+        <section className="section">
+          <div className="section-head">
+            <span className="eyebrow">Lists</span>
+            {view.perms.manageLists ? (
+              <button className="btn btn-ghost btn-sm" onClick={() => setListOpen(true)}>
+                <Icon name="plus" size={14} /> New list
+              </button>
+            ) : null}
+          </div>
+          <div className="stack">
+            {view.lists.length ? (
+              view.lists.map((l) => (
+                <div key={l.id} className="card list-card">
+                  <div className="list-top">
+                    <div>
+                      <p className="list-name">{l.name}</p>
+                      <p className="list-loc">{l.neighborhood}</p>
+                    </div>
+                    <span className="source-chip">{l.source}</span>
+                  </div>
+                  <div className="camp-meta" style={{ marginTop: 10, paddingTop: 10 }}>
+                    <span className="meta-stat">
+                      <b>{l.doorsCount}</b> doors
+                    </span>
+                    <span className="meta-stat">
+                      <b>{l.activeCheckouts}</b> checked out
+                    </span>
+                  </div>
+                  <div className="card-footer-row">
+                    <Link href={`/manage/lists/${l.id}`} className="btn btn-outline btn-sm">
+                      <Icon name="pencil" size={13} /> Edit list
+                    </Link>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state">No lists yet. Create one to get canvassers started.</div>
+            )}
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "settings" && view.perms.editProfile ? (
+        <section className="section">
+          <div className="section-head">
+            <span className="eyebrow">Campaign profile</span>
+          </div>
+          <div className="card">
+            <CampaignForm
+              mode="edit"
+              campaignId={view.id}
+              initial={campaignToForm(view)}
+            />
+          </div>
+        </section>
+      ) : null}
+
+      {/* Edit roles sheet */}
+      <BottomSheet open={!!editMember} onClose={() => setEditMember(null)}>
+        {editMember ? (
+          <>
+            <h2>Roles for {editMember.name}</h2>
+            <p className="sheet-sub">Roles are cumulative. Choose everything this member can do.</p>
+            <RoleToggle selected={editRoles} onChange={setEditRoles} />
+            <div className="form-actions">
+              <button className="btn btn-outline" onClick={() => setEditMember(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={pending || !editRoles.length}
+                onClick={() =>
+                  run(() => setMemberRoles(view.id, editMember.userId, editRoles), () =>
+                    setEditMember(null),
+                  )
+                }
+              >
+                Save roles
+              </button>
+            </div>
+          </>
+        ) : null}
+      </BottomSheet>
+
+      {/* Add member sheet */}
+      <BottomSheet open={addOpen} onClose={() => setAddOpen(false)}>
+        <h2>Add member</h2>
+        <p className="sheet-sub">
+          Invite by email or phone. They&apos;ll be linked when they first sign in.
+        </p>
+        <div className="form-field">
+          <label className="field-label">Email or phone</label>
+          <input
+            className="field"
+            value={addContact}
+            placeholder="name@email.org or +1 555 123 4567"
+            onChange={(e) => setAddContact(e.target.value)}
+          />
+        </div>
+        {view.perms.assignRoles ? (
+          <>
+            <label className="field-label" style={{ marginTop: 12 }}>
+              Roles
+            </label>
+            <RoleToggle selected={addRoles} onChange={setAddRoles} />
+          </>
+        ) : null}
+        <div className="form-actions">
+          <button className="btn btn-outline" onClick={() => setAddOpen(false)}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={pending || !addContact.trim()}
+            onClick={submitAddMember}
+          >
+            Add member
+          </button>
+        </div>
+      </BottomSheet>
+
+      {/* New list sheet */}
+      <BottomSheet open={listOpen} onClose={() => setListOpen(false)}>
+        <NewListForm
+          pending={pending}
+          onCancel={() => setListOpen(false)}
+          onSubmit={(input) => run(() => createList(view.id, input), () => setListOpen(false))}
+        />
+      </BottomSheet>
+    </>
+  );
+}
+
+function campaignToForm(view: CampaignAdminView): Partial<CampaignFormValues> {
+  return {
+    name: view.name,
+    office: view.office,
+    district: view.district,
+    color: view.color,
+    tags: view.tags.join(", "),
+    volunteers: String(view.volunteers),
+    centroidLat: view.centroidLat != null ? String(view.centroidLat) : "",
+    centroidLng: view.centroidLng != null ? String(view.centroidLng) : "",
+    pickupType: (view.pickupType as CampaignFormValues["pickupType"]) ?? "",
+    pickupLabel: view.pickupLabel ?? "",
+    pickupDetail: view.pickupDetail ?? "",
+    contactName: view.contact?.name ?? "",
+    contactRole: view.contact?.role ?? "",
+    contactPhone: view.contact?.phone ?? "",
+    contactEmail: view.contact?.email ?? "",
+  };
+}
+
+function NewListForm({
+  pending,
+  onCancel,
+  onSubmit,
+}: {
+  pending: boolean;
+  onCancel: () => void;
+  onSubmit: (input: {
+    name: string;
+    neighborhood: string;
+    source: "minivan" | "civibyte" | "manual";
+    sourceRef: string;
+    doorsCount: number;
+  }) => void;
+}) {
+  const [name, setName] = useState("");
+  const [neighborhood, setNeighborhood] = useState("");
+  const [source, setSource] = useState<"minivan" | "civibyte" | "manual">("manual");
+  const [sourceRef, setSourceRef] = useState("");
+  const [doors, setDoors] = useState("0");
+
+  return (
+    <>
+      <h2>New list</h2>
+      <p className="sheet-sub">Turf sourced from Minivan, Civibyte, or entered manually.</p>
+      <div className="form">
+        <div className="form-field">
+          <label className="field-label">List name</label>
+          <input className="field" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="form-field">
+          <label className="field-label">Neighborhood</label>
+          <input
+            className="field"
+            value={neighborhood}
+            onChange={(e) => setNeighborhood(e.target.value)}
+          />
+        </div>
+        <div className="form-two">
+          <div className="form-field">
+            <label className="field-label">Source</label>
+            <select
+              className="field"
+              value={source}
+              onChange={(e) => setSource(e.target.value as typeof source)}
+            >
+              <option value="manual">Manual</option>
+              <option value="minivan">Minivan</option>
+              <option value="civibyte">Civibyte</option>
+            </select>
+          </div>
+          <div className="form-field">
+            <label className="field-label">Doors</label>
+            <input
+              className="field"
+              type="number"
+              min={0}
+              value={doors}
+              onChange={(e) => setDoors(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="form-field">
+          <label className="field-label">
+            {source === "minivan" ? "List number" : source === "civibyte" ? "List URL" : "Reference"}
+          </label>
+          <input
+            className="field"
+            value={sourceRef}
+            onChange={(e) => setSourceRef(e.target.value)}
+          />
+        </div>
+        <div className="form-actions">
+          <button className="btn btn-outline" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={pending || !name.trim() || !neighborhood.trim()}
+            onClick={() =>
+              onSubmit({
+                name: name.trim(),
+                neighborhood: neighborhood.trim(),
+                source,
+                sourceRef: sourceRef.trim(),
+                doorsCount: Number(doors) || 0,
+              })
+            }
+          >
+            Create list
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}

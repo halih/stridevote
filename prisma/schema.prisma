@@ -20,11 +20,12 @@ model User {
   emailVerified DateTime?
   image         String?
   // StrideVote profile
-  phone    String? @unique
-  initials String?
-  homeLat  Float?
-  homeLng  Float?
-  area     String?
+  phone           String? @unique
+  initials        String?
+  homeLat         Float?
+  homeLng         Float?
+  area            String?
+  isPlatformAdmin Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -126,6 +127,7 @@ model CampaignMembership {
   userId      String
   campaignId  String
   status      String // "active" | "pending"
+  roles       String[] @default(["canvasser"]) // see src/lib/roles.ts
   joinedAt    DateTime?
   requestedAt DateTime?
 

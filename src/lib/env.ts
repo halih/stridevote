@@ -13,11 +13,19 @@ function parseChannels(raw: string | undefined): AuthChannel[] {
   return picked.length ? picked : ["email"];
 }
 
+function parseEmails(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 export const env = {
   isDev: process.env.NODE_ENV !== "production",
   appName: "StrideVote",
   authUrl: process.env.AUTH_URL ?? "http://localhost:3000",
   authChannels: parseChannels(process.env.AUTH_CHANNELS),
+  platformAdminEmails: parseEmails(process.env.PLATFORM_ADMIN_EMAILS),
   mapTileUrl:
     process.env.NEXT_PUBLIC_MAP_TILE_URL ??
     "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",

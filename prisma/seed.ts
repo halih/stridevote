@@ -204,6 +204,7 @@ async function main() {
       homeLat: DEMO.homeLat,
       homeLng: DEMO.homeLng,
       emailVerified: new Date(),
+      isPlatformAdmin: true,
     },
   });
 
@@ -242,11 +243,24 @@ async function main() {
           userId: demo.id,
           campaignId: created.id,
           status: c.membership.status,
+          roles: c.membership.status === "active" ? ["admin", "canvasser"] : ["canvasser"],
           joinedAt: "joinedAt" in c.membership ? c.membership.joinedAt : null,
           requestedAt: "requestedAt" in c.membership ? c.membership.requestedAt : null,
         },
       });
     }
+  }
+
+  // Pending join requests on a campaign the demo admin owns, so the approve /
+  // decline flow in the Manage console has something to act on.
+  const imraanId = campaignIdBySlug["imraan"];
+  if (imraanId) {
+    await prisma.campaignMembership.createMany({
+      data: [
+        { userId: priya.id, campaignId: imraanId, status: "pending", roles: ["canvasser"], requestedAt: new Date("2026-07-20") },
+        { userId: tom.id, campaignId: imraanId, status: "pending", roles: ["canvasser"], requestedAt: new Date("2026-07-22") },
+      ],
+    });
   }
 
   // Real, mapped lists for the demo user's active campaigns.

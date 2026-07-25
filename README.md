@@ -67,6 +67,39 @@ cloud SDKs are baked into the app.
 | `SMTP_URL`                | Optional — enables live email delivery via SMTP.               |
 | `EMAIL_FROM`              | From-address for magic-link emails.                            |
 | `NEXT_PUBLIC_MAP_TILE_URL`| Optional — override the OpenStreetMap tile URL.                |
+| `PLATFORM_ADMIN_EMAILS`   | CSV of emails granted platform super-admin (create/administer all campaigns). |
+
+## Campaign administration
+
+Users with management access see a **Manage** tab. Access is permission-based and
+driven entirely by campaign membership roles — no separate admin tables.
+
+**Roles are cumulative.** A member can hold several roles per campaign (e.g. both
+`admin` and `canvasser`), and each role grants a set of permissions. Roles and their
+permissions are defined in one place — [src/lib/roles.ts](src/lib/roles.ts) — so
+adding a role needs **no migration** (`CampaignMembership.roles` is a `String[]`).
+
+| Role        | Grants                                                                 |
+| ----------- | ---------------------------------------------------------------------- |
+| `canvasser` | Check out this campaign's lists.                                       |
+| `admin`     | Approve/add members, assign roles, manage lists, edit campaign profile.|
+
+The Manage console ([/manage](src/app/(app)/manage)) lets an admin:
+
+- **Members** — approve/decline join requests, add members by email/phone, and set
+  each member's roles (a campaign admin may grant any role, including `admin`).
+- **Lists** — create lists, edit their detail, link them to one or more campaigns,
+  and delete them (blocked while checkouts are active).
+- **Settings** — edit the campaign profile, tags, pickup, and primary contact.
+
+**Platform super-admins** (via `PLATFORM_ADMIN_EMAILS` or `User.isPlatformAdmin`)
+implicitly hold every permission on every campaign and are the only users who can
+**create new campaigns**. Authorization helpers live in
+[src/lib/authz.ts](src/lib/authz.ts); server actions in
+[src/lib/admin-actions.ts](src/lib/admin-actions.ts) re-check permissions on every call.
+
+The seeded `demo@stridevote.local` user is a platform admin, is an `admin` on two
+campaigns, and has two pending join requests waiting to demo the approval flow.
 
 ## Cloud portability (AWS ↔ Azure)
 
