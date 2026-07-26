@@ -87,7 +87,6 @@ export function CanvassView({
       {view === "map" && mapPolys.length ? (
         <div className="card" style={{ padding: 0, marginBottom: 14 }}>
           <Map
-            heightPx={220}
             polygons={mapPolys}
             home={home ? { lat: home.lat, lng: home.lng, inside: true } : undefined}
             caption="Shaded areas are list territory, not exact walking boundaries"

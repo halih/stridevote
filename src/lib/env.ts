@@ -29,6 +29,7 @@ export const env = {
   mapTileUrl:
     process.env.NEXT_PUBLIC_MAP_TILE_URL ??
     "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  geocoderUrl: process.env.GEOCODER_URL ?? "https://nominatim.openstreetmap.org",
 };
 
 export function channelEnabled(channel: AuthChannel): boolean {

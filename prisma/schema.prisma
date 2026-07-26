@@ -20,11 +20,18 @@ model User {
   emailVerified DateTime?
   image         String?
   // StrideVote profile
+  firstName       String?
+  lastName        String?
   phone           String? @unique
   initials        String?
   homeLat         Float?
   homeLng         Float?
   area            String?
+  addressLine     String?
+  city            String?
+  state           String?
+  postalCode      String?
+  locationSource  String? // "address" | "city" | "zip" | "gps"
   isPlatformAdmin Boolean @default(false)
 
   createdAt DateTime @default(now())
@@ -99,6 +106,9 @@ model Campaign {
   centroidLat  Float?
   centroidLng  Float?
   volunteers   Int      @default(0)
+  regionType   String? // "state" | "county" | "city" | "legislative" | "congressional"
+  regionName   String?
+  regionState  String?  @default("WA")
   boundary     Json? // polygon: number[][] of [lat, lng]
   pickupType   String? // "locker" | "address"
   pickupLabel  String?

@@ -34,7 +34,6 @@ export function CampaignSheet({
 
           {c.boundary && c.boundary.length ? (
             <Map
-              heightPx={170}
               polygons={[{ points: c.boundary, color: c.color, fillOpacity: 0.16 }]}
               home={
                 c.centroidLat != null && c.homeInside != null
@@ -43,10 +42,10 @@ export function CampaignSheet({
               }
               caption={
                 c.homeInside == null
-                  ? "Illustrative outline, not official data"
+                  ? "Campaign region"
                   : c.homeInside
-                    ? "Your home is inside this district · illustrative outline"
-                    : "Your home is outside this district · illustrative outline"
+                    ? "You're inside this campaign's region"
+                    : "You're outside this campaign's region"
               }
             />
           ) : null}

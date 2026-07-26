@@ -24,7 +24,10 @@ const LeafletMap = dynamic(() => import("./LeafletMap").then((m) => m.LeafletMap
 
 export function Map(props: MapProps) {
   return (
-    <div className="fakemap" style={{ height: props.heightPx }}>
+    <div
+      className="fakemap"
+      style={{ width: "100%", aspectRatio: props.aspectRatio ?? 4 / 3 }}
+    >
       <LeafletMap {...props} />
       {props.caption ? <span className="map-caption">{props.caption}</span> : null}
     </div>

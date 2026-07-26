@@ -19,7 +19,8 @@ export interface MapHome {
 }
 
 export interface MapProps {
-  heightPx: number;
+  /** Width-to-height ratio. Defaults to 4:3. */
+  aspectRatio?: number;
   polygons?: MapPolygon[];
   markers?: MapMarker[];
   home?: MapHome;

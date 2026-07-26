@@ -280,7 +280,7 @@ a { color: inherit; }
   border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 28px 24px;
 }
 .login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
-.login-brand img { height: 34px; }
+.login-brand img { height: 34px; width: auto; }
 .login-title { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
 .login-sub { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 20px; line-height: 1.4; }
 .field-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); display: block; margin-bottom: 6px; }

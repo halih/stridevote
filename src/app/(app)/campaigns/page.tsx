@@ -10,13 +10,14 @@ export default async function CampaignsPage() {
 
   const board = await getCampaignBoard(user);
   const initials = user.initials || initialsFor(user.name);
-  const area = user.area ?? "Your area";
+  const area = user.area ?? "Set your location";
+  const hasLocation = user.homeLat != null && user.homeLng != null;
 
   return (
     <>
       <TopBar title="Campaigns" subtitle={area} initials={initials} />
       <div className="content">
-        <CampaignsView board={board} />
+        <CampaignsView board={board} hasLocation={hasLocation} />
       </div>
     </>
   );

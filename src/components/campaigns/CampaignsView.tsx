@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CampaignBoard, CampaignVM } from "@/lib/data";
 import { Icon } from "@/components/Icon";
@@ -11,7 +12,13 @@ import { fmt } from "@/lib/format";
 
 const RADII = [1, 5, 10, 25];
 
-export function CampaignsView({ board }: { board: CampaignBoard }) {
+export function CampaignsView({
+  board,
+  hasLocation,
+}: {
+  board: CampaignBoard;
+  hasLocation: boolean;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -35,6 +42,17 @@ export function CampaignsView({ board }: { board: CampaignBoard }) {
 
   return (
     <>
+      {!hasLocation ? (
+        <Link href="/profile" className="card" style={{ display: "block", marginBottom: 16, padding: "14px 16px", textDecoration: "none" }}>
+          <p className="camp-name" style={{ marginBottom: 4 }}>
+            <Icon name="home" size={15} /> Set your location
+          </p>
+          <p className="section-sub" style={{ margin: 0 }}>
+            Add your location to your profile to see campaigns and turf nearest to you.
+          </p>
+        </Link>
+      ) : null}
+
       <section className="section">
         <div className="section-head">
           <span className="eyebrow">My campaigns</span>

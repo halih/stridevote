@@ -38,6 +38,9 @@ const DEMO = {
   homeLng: -122.3455,
 };
 
+// The single platform super-admin. No other user carries isPlatformAdmin.
+const SUPER_ADMIN_EMAIL = "halih@hotmail.com";
+
 const CAMPAIGNS = [
   {
     slug: "imraan",
@@ -184,6 +187,17 @@ const LISTS = [
 ] as const;
 
 async function main() {
+  // Safety guard: this seed wipes all data and creates dev-only fixtures (e.g.
+  // demo@stridevote.local, a non-deliverable .local address). Never run it
+  // against a production database. Override deliberately with ALLOW_PROD_SEED=1.
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_PROD_SEED !== "1") {
+    console.error(
+      "Refusing to seed: NODE_ENV=production. This resets all data and adds dev-only\n" +
+        "fixtures. Set ALLOW_PROD_SEED=1 only if you truly intend to wipe + seed prod.",
+    );
+    process.exit(1);
+  }
+
   console.log("Resetting StrideVote seed data…");
   await prisma.listWatch.deleteMany();
   await prisma.listCheckout.deleteMany();
@@ -203,6 +217,17 @@ async function main() {
       area: DEMO.area,
       homeLat: DEMO.homeLat,
       homeLng: DEMO.homeLng,
+      emailVerified: new Date(),
+    },
+  });
+
+  // Platform super-admin: can create and administer every campaign. Seeding
+  // fresh guarantees this is the only user with the flag.
+  await prisma.user.create({
+    data: {
+      email: SUPER_ADMIN_EMAIL,
+      name: "Halih",
+      initials: "HA",
       emailVerified: new Date(),
       isPlatformAdmin: true,
     },
@@ -333,8 +358,10 @@ async function main() {
     }
   }
 
-  console.log(`Seeded ${CAMPAIGNS.length} campaigns and demo user ${DEMO.email}.`);
-  console.log("Sign in (dev) with that email — the magic link prints on the login screen.");
+  console.log(`Seeded ${CAMPAIGNS.length} campaigns.`);
+  console.log(`Platform super-admin: ${SUPER_ADMIN_EMAIL}`);
+  console.log(`Demo canvasser / campaign admin: ${DEMO.email}`);
+  console.log("Sign in (dev) with either email — the magic link prints on the login screen.");
 }
 
 main()

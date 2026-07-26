@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/free-port.mjs",
     "dev": "next dev",
+    "stop": "node scripts/free-port.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -37,6 +39,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
+    "kill-port": "^2.0.1",
     "prisma": "^6.19.3",
     "tsx": "^4.19.2",
     "typescript": "^5"

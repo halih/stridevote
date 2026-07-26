@@ -1,24 +1,9 @@
-"use client";
-
-import { useTransition } from "react";
-import { doSignOut } from "@/lib/actions";
+import Link from "next/link";
 
 export function AccountButton({ initials }: { initials: string }) {
-  const [pending, startTransition] = useTransition();
   return (
-    <button
-      className="avatar"
-      title="Account"
-      disabled={pending}
-      onClick={() => {
-        if (window.confirm("Sign out of StrideVote?")) {
-          startTransition(() => {
-            void doSignOut();
-          });
-        }
-      }}
-    >
+    <Link className="avatar" href="/profile" title="Your profile">
       {initials}
-    </button>
+    </Link>
   );
 }

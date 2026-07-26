@@ -36,7 +36,6 @@ export function ListSheets({
             </p>
             {l.boundary && l.boundary.length ? (
               <Map
-                heightPx={240}
                 polygons={[{ points: l.boundary, color: "#9aa2ad", fillOpacity: 0.08 }]}
               />
             ) : (

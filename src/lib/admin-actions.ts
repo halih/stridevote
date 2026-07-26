@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
-import { can, getManageableCampaignIds, isPlatformAdmin } from "@/lib/authz";
+import { can, canManageAnything, getManageableCampaignIds, isPlatformAdmin } from "@/lib/authz";
 import { ASSIGNABLE_ROLES, DEFAULT_ROLES, normalizeRoles } from "@/lib/roles";
 import { normalizePhone } from "@/lib/phone";
+import { geocodeRegion, type RegionType } from "@/lib/geocode";
 
 export interface AdminResult {
   ok: boolean;
@@ -69,6 +70,13 @@ const profileSchema = z.object({
   volunteers: z.number().int().min(0).default(0),
   centroidLat: z.number().nullable().optional(),
   centroidLng: z.number().nullable().optional(),
+  regionType: z
+    .enum(["state", "county", "city", "legislative", "congressional"])
+    .nullable()
+    .optional(),
+  regionName: z.string().nullable().optional(),
+  regionState: z.string().nullable().optional(),
+  boundary: z.array(z.array(z.number())).nullable().optional(),
   pickupType: z.enum(["locker", "address"]).nullable().optional(),
   pickupLabel: z.string().nullable().optional(),
   pickupDetail: z.string().nullable().optional(),
@@ -103,6 +111,10 @@ export async function createCampaign(input: unknown): Promise<AdminResult> {
       volunteers: d.volunteers,
       centroidLat: d.centroidLat ?? null,
       centroidLng: d.centroidLng ?? null,
+      regionType: d.regionType ?? null,
+      regionName: d.regionName ?? null,
+      regionState: d.regionState ?? null,
+      boundary: d.boundary ?? undefined,
       pickupType: d.pickupType ?? null,
       pickupLabel: d.pickupLabel ?? null,
       pickupDetail: d.pickupDetail ?? null,
@@ -154,6 +166,10 @@ export async function updateCampaignProfile(
       volunteers: d.volunteers,
       centroidLat: d.centroidLat ?? null,
       centroidLng: d.centroidLng ?? null,
+      regionType: d.regionType ?? null,
+      regionName: d.regionName ?? null,
+      regionState: d.regionState ?? null,
+      boundary: d.boundary ?? undefined,
       pickupType: d.pickupType ?? null,
       pickupLabel: d.pickupLabel ?? null,
       pickupDetail: d.pickupDetail ?? null,
@@ -177,6 +193,66 @@ export async function updateCampaignProfile(
 
   revalidateCampaign(campaign.slug);
   return { ok: true, message: "Campaign updated" };
+}
+
+export interface RegionResolveResult {
+  ok: boolean;
+  message: string;
+  centroidLat?: number;
+  centroidLng?: number;
+  boundary?: [number, number][] | null;
+  label?: string;
+  hasBoundary?: boolean;
+}
+
+const regionResolveSchema = z.object({
+  regionType: z.enum(["state", "county", "city", "legislative", "congressional"]),
+  regionName: z.string().min(1, "Enter a region name"),
+  regionState: z.string().default("WA"),
+});
+
+/** Resolve a campaign's geographic region to a boundary polygon for preview. */
+export async function geocodeCampaignRegion(input: unknown): Promise<RegionResolveResult> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, message: "Please sign in." };
+  if (!(await canManageAnything(user))) return { ok: false, message: "Not allowed." };
+
+  const parsed = regionResolveSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid region." };
+  }
+  const { regionType, regionName, regionState } = parsed.data;
+
+  try {
+    const region = await geocodeRegion(
+      regionType as RegionType["type"],
+      regionName,
+      regionState || "WA",
+    );
+    if (!region) {
+      return {
+        ok: false,
+        message:
+          regionType === "legislative" || regionType === "congressional"
+            ? `Couldn't find ${regionType === "legislative" ? "LD" : "CD"} ${regionName} in ${regionState || "WA"}. Try a number like 32.`
+            : "Couldn't find that region. Try a different name.",
+      };
+    }
+    return {
+      ok: true,
+      message: region.hasBoundary
+        ? "Region resolved"
+        : "Found a center point, but no boundary outline is available for this region.",
+      centroidLat: region.centroidLat,
+      centroidLng: region.centroidLng,
+      boundary: region.boundary,
+      label: region.label,
+      hasBoundary: region.hasBoundary,
+    };
+  } catch (err) {
+    console.error("geocodeCampaignRegion failed", err);
+    return { ok: false, message: "Region lookup failed. Please try again." };
+  }
 }
 
 // ---- Membership ----

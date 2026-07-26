@@ -79,6 +79,10 @@ export interface CampaignAdminView {
   volunteers: number;
   centroidLat: number | null;
   centroidLng: number | null;
+  regionType: string | null;
+  regionName: string | null;
+  regionState: string | null;
+  boundary: [number, number][] | null;
   pickupType: string | null;
   pickupLabel: string | null;
   pickupDetail: string | null;
@@ -143,6 +147,12 @@ export async function getCampaignAdminView(
     volunteers: campaign.volunteers,
     centroidLat: campaign.centroidLat,
     centroidLng: campaign.centroidLng,
+    regionType: campaign.regionType,
+    regionName: campaign.regionName,
+    regionState: campaign.regionState,
+    boundary: Array.isArray(campaign.boundary)
+      ? (campaign.boundary as [number, number][])
+      : null,
     pickupType: campaign.pickupType,
     pickupLabel: campaign.pickupLabel,
     pickupDetail: campaign.pickupDetail,

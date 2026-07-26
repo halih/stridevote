@@ -245,6 +245,7 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
               mode="edit"
               campaignId={view.id}
               initial={campaignToForm(view)}
+              initialBoundary={view.boundary}
             />
           </div>
         </section>
@@ -334,6 +335,9 @@ function campaignToForm(view: CampaignAdminView): Partial<CampaignFormValues> {
     color: view.color,
     tags: view.tags.join(", "),
     volunteers: String(view.volunteers),
+    regionType: (view.regionType as CampaignFormValues["regionType"]) || "state",
+    regionName: view.regionName ?? "",
+    regionState: view.regionState ?? "WA",
     centroidLat: view.centroidLat != null ? String(view.centroidLat) : "",
     centroidLng: view.centroidLng != null ? String(view.centroidLng) : "",
     pickupType: (view.pickupType as CampaignFormValues["pickupType"]) ?? "",
