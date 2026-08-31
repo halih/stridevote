@@ -71,6 +71,12 @@ export async function getCampaignBoard(user: User): Promise<CampaignBoard> {
       contacts: { take: 1 },
       memberships: { where: { userId: user.id } },
       listLinks: {
+        where: {
+          OR: [
+            { visibility: "volunteers" },
+            { visibility: "assigned", assignedUserId: user.id },
+          ],
+        },
         include: {
           list: { include: { checkouts: { where: { status: "active" } } } },
         },
@@ -203,11 +209,30 @@ export async function getCanvassBoard(user: User): Promise<ListVM[]> {
   if (!activeIds.length) return [];
 
   const lists = await prisma.list.findMany({
-    where: { campaignLinks: { some: { campaignId: { in: activeIds } } } },
+    where: {
+      campaignLinks: {
+        some: {
+          campaignId: { in: activeIds },
+          OR: [
+            { visibility: "volunteers" },
+            { visibility: "assigned", assignedUserId: user.id },
+          ],
+        },
+      },
+    },
     include: {
       checkouts: { where: { status: "active" }, include: { user: true } },
       watches: { where: { userId: user.id } },
-      campaignLinks: { include: { campaign: true } },
+      campaignLinks: {
+        where: {
+          campaignId: { in: activeIds },
+          OR: [
+            { visibility: "volunteers" },
+            { visibility: "assigned", assignedUserId: user.id },
+          ],
+        },
+        include: { campaign: true },
+      },
     },
   });
 

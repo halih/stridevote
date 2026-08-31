@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getSessionUser, initialsFor } from "@/lib/session";
-import { getListEditView } from "@/lib/admin-data";
-import { TopBar } from "@/components/TopBar";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { Icon } from "@/components/Icon";
 import { ListEditView } from "@/components/manage/ListEditView";
+import { getListEditView } from "@/lib/admin-data";
+import { getSessionUser } from "@/lib/session";
 
 export default async function EditListPage({
   params,
@@ -18,14 +18,12 @@ export default async function EditListPage({
   const list = await getListEditView(id, user);
   if (!list) notFound();
 
-  const initials = user.initials || initialsFor(user.name);
-
   return (
     <>
-      <TopBar title="Edit list" subtitle={list.name} initials={initials} />
-      <div className="content">
-        <Link href="/manage" className="back-link">
-          <Icon name="chevronLeft" size={15} /> Manage
+      <AdminPageHeader title="Edit list" subtitle={list.name} />
+      <div className="admin-content admin-content-narrow">
+        <Link href="/admin" className="back-link">
+          <Icon name="chevronLeft" size={15} /> Campaigns
         </Link>
         <ListEditView list={list} />
       </div>

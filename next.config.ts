@@ -8,6 +8,20 @@ const nextConfig: NextConfig = {
   // Keep Prisma's engine out of the bundler's module trace (it does dynamic
   // fs/engine loading); it's loaded from node_modules at runtime instead.
   serverExternalPackages: ["@prisma/client", "prisma"],
+  async redirects() {
+    return [
+      {
+        source: "/manage",
+        destination: "/admin",
+        permanent: true,
+      },
+      {
+        source: "/manage/:path*",
+        destination: "/admin/:path*",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

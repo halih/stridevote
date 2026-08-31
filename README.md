@@ -22,7 +22,7 @@ Prerequisites: Node 20.19+ (or 22) and Docker.
 
 ```bash
 # 1. install deps
-npm install --legacy-peer-deps
+npm install
 
 # 2. environment
 cp .env.example .env        # the defaults work with the Docker db below
@@ -71,8 +71,9 @@ cloud SDKs are baked into the app.
 
 ## Campaign administration
 
-Users with management access see a **Manage** tab. Access is permission-based and
-driven entirely by campaign membership roles — no separate admin tables.
+Users with management access can switch to the desktop-first `/admin` console
+from their profile menu. Access is permission-based and driven entirely by
+campaign membership roles — no separate admin tables.
 
 **Roles are cumulative.** A member can hold several roles per campaign (e.g. both
 `admin` and `canvasser`), and each role grants a set of permissions. Roles and their
@@ -82,15 +83,28 @@ adding a role needs **no migration** (`CampaignMembership.roles` is a `String[]`
 | Role        | Grants                                                                 |
 | ----------- | ---------------------------------------------------------------------- |
 | `canvasser` | Check out this campaign's lists.                                       |
-| `admin`     | Approve/add members, assign roles, manage lists, edit campaign profile.|
+| `admin`     | Manage members, voters, lists/turfs, campaign settings, and deletion.  |
 
-The Manage console ([/manage](src/app/(app)/manage)) lets an admin:
+The desktop-first admin console at `/admin` lets an admin:
 
 - **Members** — approve/decline join requests, add members by email/phone, and set
   each member's roles (a campaign admin may grant any role, including `admin`).
 - **Lists** — create lists, edit their detail, link them to one or more campaigns,
   and delete them (blocked while checkouts are active).
+- **Turf map** — view the campaign district, draw turf polygons, and share each
+  turf with all volunteers, assign it to one volunteer, or keep it private.
+- **Voters** — search and filter authorized voter-file records by name,
+  precinct, age, gender, and election history.
 - **Settings** — edit the campaign profile, tags, pickup, and primary contact.
+
+Admins can switch between every campaign they administer from the campaign
+context selector. Platform super-admins can additionally create campaigns.
+Campaign admins can delete campaigns after a typed confirmation; deletion is
+blocked while campaign-only lists have active checkouts.
+
+Voter records are intentionally not bundled with the app. Washington campaigns
+must import an authorized Secretary of State VRDB extract and comply with its
+political-use-only restrictions.
 
 **Platform super-admins** (via `PLATFORM_ADMIN_EMAILS` or `User.isPlatformAdmin`)
 implicitly hold every permission on every campaign and are the only users who can

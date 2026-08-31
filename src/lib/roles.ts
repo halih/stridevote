@@ -8,7 +8,9 @@ export type Permission =
   | "members:add"
   | "members:assign_roles"
   | "lists:manage"
+  | "voters:view"
   | "campaign:edit"
+  | "campaign:delete"
   | "canvass:checkout"
   | "campaign:create";
 
@@ -34,7 +36,9 @@ export const ROLES: Record<RoleName, RoleDef> = {
       "members:add",
       "members:assign_roles",
       "lists:manage",
+      "voters:view",
       "campaign:edit",
+      "campaign:delete",
       "canvass:checkout",
     ],
   },

@@ -47,6 +47,7 @@ export interface AdminPerms {
   add: boolean;
   assignRoles: boolean;
   manageLists: boolean;
+  deleteCampaign: boolean;
 }
 
 export interface MemberRow {
@@ -65,8 +66,16 @@ export interface AdminListRow {
   source: string;
   sourceRef: string | null;
   doorsCount: number;
+  boundary: [number, number][] | null;
+  centroidLat: number | null;
+  centroidLng: number | null;
+  visibility: TurfVisibility;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
   activeCheckouts: number;
 }
+
+export type TurfVisibility = "volunteers" | "assigned" | "draft";
 
 export interface CampaignAdminView {
   id: string;
@@ -108,6 +117,7 @@ export async function getCampaignAdminView(
       memberships: { include: { user: true } },
       listLinks: {
         include: {
+          assignedUser: true,
           list: { include: { checkouts: { where: { status: "active" }, select: { id: true } } } },
         },
       },
@@ -122,9 +132,15 @@ export async function getCampaignAdminView(
     add: await can(user, campaign.id, "members:add"),
     assignRoles: await can(user, campaign.id, "members:assign_roles"),
     manageLists: await can(user, campaign.id, "lists:manage"),
+    deleteCampaign: await can(user, campaign.id, "campaign:delete"),
   };
   const hasAny =
-    perms.editProfile || perms.approve || perms.add || perms.assignRoles || perms.manageLists;
+    perms.editProfile ||
+    perms.approve ||
+    perms.add ||
+    perms.assignRoles ||
+    perms.manageLists ||
+    perms.deleteCampaign;
   if (!hasAny) return null;
 
   const toRow = (m: (typeof campaign.memberships)[number]): MemberRow => ({
@@ -174,6 +190,16 @@ export async function getCampaignAdminView(
       source: ll.list.source,
       sourceRef: ll.list.sourceRef,
       doorsCount: ll.list.doorsCount,
+      boundary: Array.isArray(ll.list.boundary)
+        ? (ll.list.boundary as [number, number][])
+        : null,
+      centroidLat: ll.list.centroidLat,
+      centroidLng: ll.list.centroidLng,
+      visibility: ll.visibility as TurfVisibility,
+      assignedUserId: ll.assignedUserId,
+      assignedUserName: ll.assignedUser
+        ? ll.assignedUser.name ?? contactLabel(ll.assignedUser)
+        : null,
       activeCheckouts: ll.list.checkouts.length,
     })),
   };

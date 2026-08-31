@@ -65,7 +65,7 @@ export function ListEditView({ list }: { list: ListEditData }) {
 
   function remove() {
     if (!window.confirm("Delete this list? This cannot be undone.")) return;
-    run(() => deleteList(list.id), () => router.push("/manage"));
+    run(() => deleteList(list.id), () => router.push("/admin"));
   }
 
   return (

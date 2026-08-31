@@ -47,3 +47,32 @@ export function pointInPolygon(
   }
   return inside;
 }
+
+/** Area-weighted centroid for a [lat, lng] polygon, with an average fallback. */
+export function polygonCentroid(
+  polygon: [number, number][],
+): [number, number] | null {
+  if (polygon.length < 3) return null;
+
+  let twiceArea = 0;
+  let xSum = 0;
+  let ySum = 0;
+  for (let i = 0; i < polygon.length; i++) {
+    const [y1, x1] = polygon[i];
+    const [y2, x2] = polygon[(i + 1) % polygon.length];
+    const cross = x1 * y2 - x2 * y1;
+    twiceArea += cross;
+    xSum += (x1 + x2) * cross;
+    ySum += (y1 + y2) * cross;
+  }
+
+  if (Math.abs(twiceArea) < 1e-12) {
+    const [lat, lng] = polygon.reduce(
+      ([latSum, lngSum], [lat, lng]) => [latSum + lat, lngSum + lng],
+      [0, 0],
+    );
+    return [lat / polygon.length, lng / polygon.length];
+  }
+
+  return [ySum / (3 * twiceArea), xSum / (3 * twiceArea)];
+}

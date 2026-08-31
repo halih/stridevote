@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { CampaignAdminView, MemberRow } from "@/lib/admin-data";
 import { ASSIGNABLE_ROLES, ROLES, roleLabel, type RoleName } from "@/lib/roles";
 import { Icon } from "@/components/Icon";
 import { BottomSheet } from "@/components/BottomSheet";
 import { useToast } from "@/components/Toast";
 import { CampaignForm, type CampaignFormValues } from "@/components/manage/CampaignForm";
+import { CampaignTurfManager } from "@/components/manage/CampaignTurfManager";
+import { DeleteCampaignButton } from "@/components/manage/DeleteCampaignButton";
 import {
   addMember,
   approveMembership,
@@ -17,7 +19,7 @@ import {
   setMemberRoles,
 } from "@/lib/admin-actions";
 
-type Tab = "members" | "lists" | "settings";
+type Tab = "members" | "turfs" | "lists" | "settings";
 
 function RoleToggle({
   selected,
@@ -48,11 +50,23 @@ function RoleToggle({
 
 export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
-  const [tab, setTab] = useState<Tab>(
-    view.perms.approve || view.perms.add || view.perms.assignRoles ? "members" : "lists",
-  );
+  const [tab, setTab] = useState<Tab>(() => {
+    const requested = searchParams.get("section");
+    if (
+      requested === "members" ||
+      requested === "turfs" ||
+      requested === "lists" ||
+      requested === "settings"
+    ) {
+      return requested;
+    }
+    return view.perms.approve || view.perms.add || view.perms.assignRoles
+      ? "members"
+      : "lists";
+  });
 
   const [editMember, setEditMember] = useState<MemberRow | null>(null);
   const [editRoles, setEditRoles] = useState<RoleName[]>([]);
@@ -96,23 +110,51 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
       show: view.perms.approve || view.perms.add || view.perms.assignRoles,
       badge: view.pending.length,
     },
+    { id: "turfs", label: "Turf map", show: view.perms.manageLists },
     { id: "lists", label: "Lists", show: view.perms.manageLists },
     { id: "settings", label: "Settings", show: view.perms.editProfile },
   ];
   const visibleTabs = tabs.filter((t) => t.show);
+  const activeTab = visibleTabs.some((item) => item.id === tab)
+    ? tab
+    : visibleTabs[0]?.id;
 
   return (
     <>
-      <div className="segmented manage-tabs">
-        {visibleTabs.map((t) => (
-          <button key={t.id} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)}>
-            {t.label}
-            {t.badge ? <span className="count-badge">{t.badge}</span> : null}
-          </button>
-        ))}
-      </div>
+      <div className="campaign-admin-workspace">
+        <aside className="campaign-section-nav" aria-label="Campaign sections">
+          {visibleTabs.map((t) => (
+            <button
+              type="button"
+              key={t.id}
+              className={activeTab === t.id ? "active" : ""}
+              onClick={() => setTab(t.id)}
+            >
+              <Icon
+                name={
+                  t.id === "members"
+                    ? "users"
+                    : t.id === "turfs"
+                      ? "map"
+                      : t.id === "lists"
+                        ? "list"
+                        : "pencil"
+                }
+                size={17}
+              />
+              {t.label}
+              {t.badge ? <span className="count-badge">{t.badge}</span> : null}
+            </button>
+          ))}
+          <Link href={`/admin/${view.slug}/voters`}>
+            <Icon name="contact" size={17} />
+            Voters
+          </Link>
+        </aside>
 
-      {tab === "members" ? (
+        <div className="campaign-admin-panel">
+
+      {activeTab === "members" ? (
         <>
           {view.perms.approve && view.pending.length ? (
             <section className="section">
@@ -192,7 +234,19 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
         </>
       ) : null}
 
-      {tab === "lists" ? (
+      {activeTab === "turfs" && view.perms.manageLists ? (
+        <CampaignTurfManager
+          campaignId={view.id}
+          campaignName={view.name}
+          districtName={view.district}
+          districtBoundary={view.boundary}
+          campaignColor={view.color}
+          turfs={view.lists}
+          volunteers={view.members}
+        />
+      ) : null}
+
+      {activeTab === "lists" ? (
         <section className="section">
           <div className="section-head">
             <span className="eyebrow">Lists</span>
@@ -222,7 +276,7 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                     </span>
                   </div>
                   <div className="card-footer-row">
-                    <Link href={`/manage/lists/${l.id}`} className="btn btn-outline btn-sm">
+                    <Link href={`/admin/lists/${l.id}`} className="btn btn-outline btn-sm">
                       <Icon name="pencil" size={13} /> Edit list
                     </Link>
                   </div>
@@ -235,7 +289,7 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
         </section>
       ) : null}
 
-      {tab === "settings" && view.perms.editProfile ? (
+      {activeTab === "settings" && view.perms.editProfile ? (
         <section className="section">
           <div className="section-head">
             <span className="eyebrow">Campaign profile</span>
@@ -248,8 +302,22 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
               initialBoundary={view.boundary}
             />
           </div>
+          {view.perms.deleteCampaign ? (
+            <div className="danger-zone">
+              <div>
+                <b>Delete campaign</b>
+                <p>Permanently remove this campaign and its private data.</p>
+              </div>
+              <DeleteCampaignButton
+                campaignId={view.id}
+                campaignName={view.name}
+              />
+            </div>
+          ) : null}
         </section>
       ) : null}
+        </div>
+      </div>
 
       {/* Edit roles sheet */}
       <BottomSheet open={!!editMember} onClose={() => setEditMember(null)}>

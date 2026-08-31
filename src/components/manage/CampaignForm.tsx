@@ -180,7 +180,7 @@ export function CampaignForm({
           : await updateCampaignProfile(campaignId!, input);
       toast(res.message);
       if (res.ok) {
-        if (mode === "create" && res.slug) router.push(`/manage/${res.slug}`);
+        if (mode === "create" && res.slug) router.push(`/admin/${res.slug}`);
         else router.refresh();
       }
     });

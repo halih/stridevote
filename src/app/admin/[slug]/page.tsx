@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getSessionUser, initialsFor } from "@/lib/session";
-import { getCampaignAdminView } from "@/lib/admin-data";
-import { TopBar } from "@/components/TopBar";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { Icon } from "@/components/Icon";
 import { ManageCampaignView } from "@/components/manage/ManageCampaignView";
+import { getCampaignAdminView } from "@/lib/admin-data";
+import { getSessionUser } from "@/lib/session";
 
-export default async function ManageCampaignPage({
+export default async function AdminCampaignPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
@@ -18,14 +18,15 @@ export default async function ManageCampaignPage({
   const view = await getCampaignAdminView(slug, user);
   if (!view) notFound();
 
-  const initials = user.initials || initialsFor(user.name);
-
   return (
     <>
-      <TopBar title={view.name} subtitle={`${view.office} · ${view.district}`} initials={initials} />
-      <div className="content">
-        <Link href="/manage" className="back-link">
-          <Icon name="chevronLeft" size={15} /> Manage
+      <AdminPageHeader
+        title={view.name}
+        subtitle={`${view.office} · ${view.district}`}
+      />
+      <div className="admin-content">
+        <Link href="/admin" className="back-link">
+          <Icon name="chevronLeft" size={15} /> Campaigns
         </Link>
         <ManageCampaignView view={view} />
       </div>

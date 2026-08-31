@@ -5,14 +5,21 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
 import { can, canManageAnything, getManageableCampaignIds, isPlatformAdmin } from "@/lib/authz";
-import { ASSIGNABLE_ROLES, DEFAULT_ROLES, normalizeRoles } from "@/lib/roles";
+import {
+  ASSIGNABLE_ROLES,
+  DEFAULT_ROLES,
+  normalizeRoles,
+  permissionsForRoles,
+} from "@/lib/roles";
 import { normalizePhone } from "@/lib/phone";
 import { geocodeRegion, type RegionType } from "@/lib/geocode";
+import { pointInPolygon, polygonCentroid } from "@/lib/geo";
 
 export interface AdminResult {
   ok: boolean;
   message: string;
   slug?: string;
+  id?: string;
 }
 
 function fail(message: string): AdminResult {
@@ -40,8 +47,8 @@ async function uniqueSlug(
 }
 
 function revalidateCampaign(slug?: string) {
-  revalidatePath("/manage");
-  if (slug) revalidatePath(`/manage/${slug}`);
+  revalidatePath("/admin");
+  if (slug) revalidatePath(`/admin/${slug}`);
   revalidatePath("/campaigns");
   revalidatePath("/canvass");
 }
@@ -193,6 +200,50 @@ export async function updateCampaignProfile(
 
   revalidateCampaign(campaign.slug);
   return { ok: true, message: "Campaign updated" };
+}
+
+export async function deleteCampaign(campaignId: string): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "campaign:delete"))) return fail("Not allowed.");
+
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    include: { listLinks: { select: { listId: true } } },
+  });
+  if (!campaign) return fail("Campaign not found.");
+
+  const listIds = campaign.listLinks.map((link) => link.listId);
+  const exclusiveActiveCheckouts = await prisma.listCheckout.count({
+    where: {
+      status: "active",
+      listId: { in: listIds },
+      list: {
+        campaignLinks: {
+          none: { campaignId: { not: campaignId } },
+        },
+      },
+    },
+  });
+  if (exclusiveActiveCheckouts > 0) {
+    return fail("Release active checkouts before deleting this campaign.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.campaign.delete({ where: { id: campaignId } });
+    await tx.list.deleteMany({
+      where: {
+        id: { in: listIds },
+        campaignLinks: { none: {} },
+        checkouts: { none: { status: "active" } },
+      },
+    });
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/campaigns");
+  revalidatePath("/canvass");
+  return { ok: true, message: `Deleted ${campaign.name}` };
 }
 
 export interface RegionResolveResult {
@@ -385,6 +436,18 @@ export async function setMemberRoles(
 }
 
 // ---- Lists ----
+const boundarySchema = z
+  .array(
+    z.tuple([
+      z.number().finite().min(-90).max(90),
+      z.number().finite().min(-180).max(180),
+    ]),
+  )
+  .min(3, "Draw at least three points.")
+  .max(500, "Turf boundary is too detailed.");
+
+const turfVisibilitySchema = z.enum(["volunteers", "assigned", "draft"]);
+
 const listSchema = z.object({
   name: z.string().min(1, "Name is required"),
   neighborhood: z.string().min(1, "Neighborhood is required"),
@@ -396,6 +459,155 @@ const listSchema = z.object({
   centroidLng: z.number().nullable().optional(),
 });
 export type ListInput = z.input<typeof listSchema>;
+
+const turfSchema = z.object({
+  name: z.string().trim().min(1, "Name is required"),
+  neighborhood: z.string().trim().min(1, "Area is required"),
+  doorsCount: z.number().int().min(0).default(0),
+  boundary: boundarySchema,
+  visibility: turfVisibilitySchema.default("draft"),
+  assignedUserId: z.string().nullable().optional(),
+});
+
+async function validateTurfAssignment(
+  campaignId: string,
+  visibility: z.infer<typeof turfVisibilitySchema>,
+  assignedUserId?: string | null,
+): Promise<string | null> {
+  if (visibility !== "assigned") return null;
+  if (!assignedUserId) return "Choose a volunteer.";
+
+  const membership = await prisma.campaignMembership.findUnique({
+    where: { userId_campaignId: { userId: assignedUserId, campaignId } },
+  });
+  if (
+    !membership ||
+    membership.status !== "active" ||
+    !permissionsForRoles(membership.roles).has("canvass:checkout")
+  ) {
+    return "That volunteer is not active on this campaign.";
+  }
+  return null;
+}
+
+export async function createTurf(
+  campaignId: string,
+  input: unknown,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
+
+  const parsed = turfSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid turf");
+  const data = parsed.data;
+
+  const assignmentError = await validateTurfAssignment(
+    campaignId,
+    data.visibility,
+    data.assignedUserId,
+  );
+  if (assignmentError) return fail(assignmentError);
+
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) return fail("Campaign not found.");
+  const districtBoundary = Array.isArray(campaign.boundary)
+    ? (campaign.boundary as [number, number][])
+    : null;
+  if (
+    districtBoundary?.length &&
+    data.boundary.some((point) => !pointInPolygon(point, districtBoundary))
+  ) {
+    return fail("Keep the entire turf inside the campaign district.");
+  }
+
+  const centroid = polygonCentroid(data.boundary);
+  const slug = await uniqueSlug(slugify(data.name), async (value) =>
+    Boolean(await prisma.list.findUnique({ where: { slug: value } })),
+  );
+  const list = await prisma.list.create({
+    data: {
+      slug,
+      name: data.name,
+      neighborhood: data.neighborhood,
+      source: "manual",
+      doorsCount: data.doorsCount,
+      boundary: data.boundary,
+      centroidLat: centroid?.[0] ?? null,
+      centroidLng: centroid?.[1] ?? null,
+      campaignLinks: {
+        create: [
+          {
+            campaignId,
+            visibility: data.visibility,
+            assignedUserId:
+              data.visibility === "assigned" ? data.assignedUserId : null,
+          },
+        ],
+      },
+    },
+  });
+
+  revalidateCampaign(campaign.slug);
+  return { ok: true, message: `Created ${data.name}`, id: list.id };
+}
+
+export async function setTurfAccess(
+  campaignId: string,
+  listId: string,
+  visibility: unknown,
+  assignedUserId?: string | null,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
+
+  const parsedVisibility = turfVisibilitySchema.safeParse(visibility);
+  if (!parsedVisibility.success) return fail("Choose a valid sharing option.");
+  const assignmentError = await validateTurfAssignment(
+    campaignId,
+    parsedVisibility.data,
+    assignedUserId,
+  );
+  if (assignmentError) return fail(assignmentError);
+
+  const link = await prisma.listCampaign.findUnique({
+    where: { listId_campaignId: { listId, campaignId } },
+    include: {
+      campaign: true,
+      list: {
+        include: {
+          checkouts: {
+            where: { status: "active" },
+            select: { userId: true },
+          },
+        },
+      },
+    },
+  });
+  if (!link) return fail("Turf not found in this campaign.");
+  const activeCheckout = link.list.checkouts[0];
+  if (
+    activeCheckout &&
+    (parsedVisibility.data === "draft" ||
+      (parsedVisibility.data === "assigned" &&
+        assignedUserId !== activeCheckout.userId))
+  ) {
+    return fail("Release the active checkout before restricting this turf.");
+  }
+
+  await prisma.listCampaign.update({
+    where: { id: link.id },
+    data: {
+      visibility: parsedVisibility.data,
+      assignedUserId:
+        parsedVisibility.data === "assigned" ? assignedUserId : null,
+    },
+  });
+
+  revalidateCampaign(link.campaign.slug);
+  return { ok: true, message: "Turf access updated" };
+}
 
 export async function createList(
   campaignId: string,
@@ -456,7 +668,7 @@ export async function updateList(listId: string, input: unknown): Promise<AdminR
     },
   });
 
-  revalidatePath("/manage");
+  revalidatePath("/admin");
   revalidatePath("/canvass");
   return { ok: true, message: "List updated" };
 }
@@ -472,7 +684,7 @@ export async function deleteList(listId: string): Promise<AdminResult> {
   if (active > 0) return fail("Release active checkouts before deleting this list.");
 
   await prisma.list.delete({ where: { id: listId } });
-  revalidatePath("/manage");
+  revalidatePath("/admin");
   revalidatePath("/canvass");
   return { ok: true, message: "List deleted" };
 }
@@ -499,7 +711,7 @@ export async function setListCampaigns(
     }),
   ]);
 
-  revalidatePath("/manage");
+  revalidatePath("/admin");
   revalidatePath("/canvass");
   return { ok: true, message: "List links updated" };
 }

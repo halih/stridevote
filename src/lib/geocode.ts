@@ -3,12 +3,13 @@ import { env } from "@/lib/env";
 import waSldu from "@/data/wa-sldu.json";
 import waCd from "@/data/wa-cd.json";
 
-// Geocoding: Nominatim for address/city/county/state. WA legislative and
-// congressional districts use bundled Census TIGER GeoJSON (the live TIGER
-// API is flaky from Node/Next). Other states fall back to live TIGER.
+// Geocoding: Nominatim for address/city/county/state. Legislative and
+// congressional districts use high-precision Census TIGER geometry. Bundled
+// Washington geometry is retained as an offline fallback.
 
 const USER_AGENT = "StrideVote/1.0 (campaign canvassing app)";
-const MAX_BOUNDARY_POINTS = 200;
+const MAX_BOUNDARY_POINTS = 2000;
+const TIGER_MAX_OFFSET_DEGREES = "0.00003"; // roughly 2–3 meters in Washington
 
 const TIGER_LEGISLATIVE =
   "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Legislative/MapServer";
@@ -269,12 +270,58 @@ function geojsonToBoundary(geojson: { type: string; coordinates: unknown }): [nu
   return downsample(ringToBoundary(outer), MAX_BOUNDARY_POINTS);
 }
 
+function perpendicularDistance(
+  point: [number, number],
+  start: [number, number],
+  end: [number, number],
+): number {
+  const [y, x] = point;
+  const [y1, x1] = start;
+  const [y2, x2] = end;
+  if (x1 === x2 && y1 === y2) return Math.hypot(x - x1, y - y1);
+  const numerator = Math.abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1);
+  return numerator / Math.hypot(y2 - y1, x2 - x1);
+}
+
+function simplifyRdp(
+  points: [number, number][],
+  tolerance: number,
+): [number, number][] {
+  if (points.length <= 2) return points;
+  let maxDistance = 0;
+  let splitAt = 0;
+  for (let i = 1; i < points.length - 1; i++) {
+    const distance = perpendicularDistance(
+      points[i],
+      points[0],
+      points[points.length - 1],
+    );
+    if (distance > maxDistance) {
+      maxDistance = distance;
+      splitAt = i;
+    }
+  }
+  if (maxDistance <= tolerance) return [points[0], points[points.length - 1]];
+  const left = simplifyRdp(points.slice(0, splitAt + 1), tolerance);
+  const right = simplifyRdp(points.slice(splitAt), tolerance);
+  return [...left.slice(0, -1), ...right];
+}
+
 function downsample(points: [number, number][], max: number): [number, number][] {
   if (points.length <= max) return points;
-  const step = points.length / max;
-  const out: [number, number][] = [];
-  for (let i = 0; i < max; i++) out.push(points[Math.floor(i * step)]);
-  return out;
+  let low = 0;
+  let high = 0.01;
+  let result = points;
+  for (let i = 0; i < 24; i++) {
+    const tolerance = (low + high) / 2;
+    const simplified = simplifyRdp(points, tolerance);
+    if (simplified.length > max) low = tolerance;
+    else {
+      high = tolerance;
+      result = simplified;
+    }
+  }
+  return result;
 }
 
 function centroidOf(boundary: [number, number][]): { lat: number; lng: number } {
@@ -337,7 +384,8 @@ async function tigerQuery(layer: number, where: string, outFields: string): Prom
   url.searchParams.set("outFields", outFields);
   url.searchParams.set("returnGeometry", "true");
   url.searchParams.set("outSR", "4326");
-  url.searchParams.set("maxAllowableOffset", "0.008");
+  url.searchParams.set("maxAllowableOffset", TIGER_MAX_OFFSET_DEGREES);
+  url.searchParams.set("geometryPrecision", "6");
   url.searchParams.set("f", "geojson");
 
   const res = await fetch(url, {
@@ -362,18 +410,21 @@ async function geocodeLegislative(name: string, state: string): Promise<RegionRe
   const label = `${stateName(state)} Legislative District ${Number(num)}`;
   const sldu = num.padStart(3, "0");
 
-  if (st === "WA" || st === "WASHINGTON") {
-    return lookupLocalDistrict(waSldu as LocalFeatureCollection, "SLDU", sldu, label);
-  }
-
   const fips = stateFips(state);
   if (!fips) return null;
-  const feature = await tigerQuery(
-    1,
-    `STATE='${fips}' AND SLDU='${sldu}'`,
-    "NAME,STATE,SLDU,BASENAME,INTPTLAT,INTPTLON",
-  );
-  return feature ? regionFromFeature(feature, label) : null;
+  try {
+    const feature = await tigerQuery(
+      1,
+      `STATE='${fips}' AND SLDU='${sldu}'`,
+      "NAME,STATE,SLDU,BASENAME,INTPTLAT,INTPTLON",
+    );
+    if (feature) return regionFromFeature(feature, label);
+  } catch {
+    // The live service occasionally times out; WA has an offline fallback.
+  }
+  return st === "WA" || st === "WASHINGTON"
+    ? lookupLocalDistrict(waSldu as LocalFeatureCollection, "SLDU", sldu, label)
+    : null;
 }
 
 /** Resolve a US House district. WA uses bundled data; others use live TIGER. */
@@ -384,18 +435,21 @@ async function geocodeCongressional(name: string, state: string): Promise<Region
   const label = `${stateName(state)} Congressional District ${Number(num)}`;
   const cd = num.padStart(2, "0");
 
-  if (st === "WA" || st === "WASHINGTON") {
-    return lookupLocalDistrict(waCd as LocalFeatureCollection, "CD119", cd, label);
-  }
-
   const fips = stateFips(state);
   if (!fips) return null;
-  const feature = await tigerQuery(
-    0,
-    `STATE='${fips}' AND CD119='${cd}'`,
-    "NAME,STATE,CD119,BASENAME,INTPTLAT,INTPTLON",
-  );
-  return feature ? regionFromFeature(feature, label) : null;
+  try {
+    const feature = await tigerQuery(
+      0,
+      `STATE='${fips}' AND CD119='${cd}'`,
+      "NAME,STATE,CD119,BASENAME,INTPTLAT,INTPTLON",
+    );
+    if (feature) return regionFromFeature(feature, label);
+  } catch {
+    // The live service occasionally times out; WA has an offline fallback.
+  }
+  return st === "WA" || st === "WASHINGTON"
+    ? lookupLocalDistrict(waCd as LocalFeatureCollection, "CD119", cd, label)
+    : null;
 }
 
 /**

@@ -42,6 +42,7 @@ model User {
   memberships CampaignMembership[]
   checkouts   ListCheckout[]
   watches     ListWatch[]
+  assignedTurfs ListCampaign[] @relation("AssignedTurfs")
 }
 
 model Account {
@@ -119,6 +120,7 @@ model Campaign {
   contacts    CampaignContact[]
   memberships CampaignMembership[]
   listLinks   ListCampaign[]
+  voterLinks  CampaignVoter[]
 }
 
 model CampaignContact {
@@ -170,14 +172,19 @@ model List {
 }
 
 model ListCampaign {
-  id         String @id @default(cuid())
-  listId     String
-  campaignId String
+  id             String  @id @default(cuid())
+  listId         String
+  campaignId     String
+  visibility     String  @default("volunteers") // "volunteers" | "assigned" | "draft"
+  assignedUserId String?
 
-  list     List     @relation(fields: [listId], references: [id], onDelete: Cascade)
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  list         List     @relation(fields: [listId], references: [id], onDelete: Cascade)
+  campaign     Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  assignedUser User?    @relation("AssignedTurfs", fields: [assignedUserId], references: [id], onDelete: SetNull)
 
   @@unique([listId, campaignId])
+  @@index([campaignId, visibility])
+  @@index([assignedUserId])
 }
 
 model ListCheckout {
@@ -207,4 +214,51 @@ model ListWatch {
   list List @relation(fields: [listId], references: [id], onDelete: Cascade)
 
   @@unique([userId, listId])
+}
+
+// ---- Public voter-file records (restricted to political use) ----
+model Voter {
+  id                    String   @id @default(cuid())
+  stateVoterId          String   @unique
+  firstName             String
+  middleName            String?
+  lastName              String
+  suffix                String?
+  yearOfBirth           Int?
+  gender                String?
+  registrationAddress   String
+  city                   String
+  state                  String
+  postalCode             String
+  countyCode             String?
+  precinctCode           String?
+  precinctPart           String?
+  legislativeDistrict   String?
+  congressionalDistrict String?
+  registrationDate      DateTime?
+  electionsVoted        String[] @default([])
+  lat                    Float?
+  lng                    Float?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  campaignLinks CampaignVoter[]
+
+  @@index([lastName, firstName])
+  @@index([precinctCode])
+  @@index([legislativeDistrict])
+  @@index([congressionalDistrict])
+}
+
+model CampaignVoter {
+  id         String   @id @default(cuid())
+  campaignId String
+  voterId    String
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  voter    Voter    @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, voterId])
+  @@index([campaignId])
 }
