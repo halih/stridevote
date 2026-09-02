@@ -1,7 +1,6 @@
-import Link from "next/link";
+import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { Icon } from "@/components/Icon";
 import { ManageCampaignView } from "@/components/manage/ManageCampaignView";
 import { getCampaignAdminView } from "@/lib/admin-data";
 import { getSessionUser } from "@/lib/session";
@@ -25,10 +24,9 @@ export default async function AdminCampaignPage({
         subtitle={`${view.office} · ${view.district}`}
       />
       <div className="admin-content">
-        <Link href="/admin" className="back-link">
-          <Icon name="chevronLeft" size={15} /> Campaigns
-        </Link>
-        <ManageCampaignView view={view} />
+        <Suspense>
+          <ManageCampaignView view={view} />
+        </Suspense>
       </div>
     </>
   );

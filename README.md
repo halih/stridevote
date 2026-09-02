@@ -68,6 +68,7 @@ cloud SDKs are baked into the app.
 | `EMAIL_FROM`              | From-address for magic-link emails.                            |
 | `NEXT_PUBLIC_MAP_TILE_URL`| Optional — override the OpenStreetMap tile URL.                |
 | `PLATFORM_ADMIN_EMAILS`   | CSV of emails granted platform super-admin (create/administer all campaigns). |
+| `MAPBOX_ACCESS_TOKEN`     | Optional — refine household coords at list/turf generation (`permanent=true` to store). |
 
 ## Campaign administration
 
@@ -105,6 +106,76 @@ blocked while campaign-only lists have active checkouts.
 Voter records are intentionally not bundled with the app. Washington campaigns
 must import an authorized Secretary of State VRDB extract and comply with its
 political-use-only restrictions.
+
+```bash
+npm run voters:import -- "/path/to/09.2026.WA.zip"
+npm run voters:import-history -- "/path/to/WA SOS Elections Drop"
+```
+
+`voters:import` loads Active voters for the campaign's legislative district
+(the demo campaign is LD 32). Use `--all` for a statewide load, `--status all`
+to include Inactive records, or `--no-campaign` to skip campaign linking.
+
+`voters:import-history` stores every matching SOS ballot row in `VoterHistory`
+(2007–present). It accepts a folder of biennial `*Voting_History.zip` files,
+a VRDB zip that contains a history file, or a loose `.txt`. By default it
+keeps rows for voters already in the database; pass `--all` to keep
+statewide history even when the voter is not imported yet.
+
+History is classified from Washington election dates as general, primary,
+presidential primary, or special. Likely-primary and likely-general flags mean
+the voter participated in more than 66% of the applicable regular elections
+held since they registered.
+
+Only elections with a complete statewide ballot list count toward those rates.
+A biennial history file lists every ballot for its elections, but the VRDB
+`LastVoted` column gives only each voter's most recent ballot — so it is
+complete for the newest election and partial for any older election the history
+files have not caught up to. Partial elections are excluded from both the
+numerator and the denominator. Imports rebuild these rates automatically; they
+can also be refreshed independently with `npm run voters:rebuild-propensity`.
+
+### Saved filters vs generated lists
+
+**Saved filters** are campaign-shared named presets of the voter directory criteria
+(search, precinct, age, audience checkboxes, etc.). On the Voters page, **Load** and
+**Save** sit beside Apply / Clear: Load opens a dialog of saved presets, Save can
+overwrite an existing one or create a new named filter. Loading re-applies the
+criteria against **current** voter data — it does not freeze voter IDs. Pagination
+is never stored. Any member with `voters:view` or `lists:manage` may manage them.
+
+**Generated lists** are snapshots created from the **Turf map** when cutting a
+polygon (all campaign voters or a saved filter as the seed). If **any**
+voter at an address matches the seed, that **household/door** is included and
+**every campaign voter at that household** is written to `ListVoter` (including
+non-matching roommates). `List.doorsCount` is the household count. Generated
+lists default to private `draft`; existing turf visibility / assignment controls
+remain the publishing step.
+
+### Household geocoding
+
+Addresses are normalized into `Household` rows (`npm run households:rebuild`).
+Units stay distinct doors; street abbreviations and casing collapse.
+
+1. **Census (bulk baseline)** — free US Census batch API, no API key.
+   `npm run households:geocode-census` is resumable (`geocodeStatus`, `--limit`,
+   `--status`). Results land in `censusLat` / `censusLng` with match quality.
+   Public Nominatim is **not** used for bulk voter geocoding.
+2. **Mapbox (list/turf refinement)** — optional `MAPBOX_ACCESS_TOKEN`. At
+   generation time, Census coords shrink candidates (bbox + polygon buffer);
+   Mapbox refines doors still missing `mapboxLat` / `mapboxLng`. Households that
+   already have Mapbox coords are **reused** and not re-billed. The adapter
+   requests `permanent=true` so refined points may be stored under Mapbox terms;
+   temporary results must not be written. Generation still works without a
+   permanent-capable token, but then Mapbox must be re-called and coords are not
+   persisted. UI flows require an explicit confirmation before consuming Mapbox
+   calls. Unresolved doors are excluded from turf generation rather than
+   silently assigned.
+
+```bash
+npm run households:rebuild -- --campaign count-binface
+npm run households:geocode-census -- --limit 5000
+```
 
 **Platform super-admins** (via `PLATFORM_ADMIN_EMAILS` or `User.isPlatformAdmin`)
 implicitly hold every permission on every campaign and are the only users who can
@@ -167,5 +238,11 @@ These are stubbed with clear seams so they can be turned on later:
 | `npm run start`          | Start the production server          |
 | `npm run prisma:migrate` | Create/apply a dev migration         |
 | `npm run prisma:deploy`  | Apply migrations (production)        |
-| `npm run db:seed`        | Seed campaigns, lists, and demo user |
-| `npm run db:reset`       | Reset the database and reseed        |
+| `npm run db:seed`              | Seed campaigns, lists, and demo user |
+| `npm run db:reset`             | Reset the database and reseed        |
+| `npm run voters:import`        | Load a WA SOS VRDB zip into `Voter`   |
+| `npm run voters:import-history` | Load SOS voting-history files (2007+) |
+| `npm run voters:rebuild-propensity` | Recalculate likely-voter rates |
+| `npm run households:rebuild`   | Normalize addresses into `Household` rows |
+| `npm run households:geocode-census` | Resumable Census batch geocoding |
+| `npm test`                     | Unit tests (filters, addresses, geo) |

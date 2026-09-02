@@ -100,6 +100,7 @@ export interface CampaignAdminView {
   members: MemberRow[];
   pending: MemberRow[];
   lists: AdminListRow[];
+  savedFilters: Array<{ id: string; name: string }>;
 }
 
 function contactLabel(u: { name: string | null; email: string | null; phone: string | null }): string {
@@ -202,6 +203,13 @@ export async function getCampaignAdminView(
         : null,
       activeCheckouts: ll.list.checkouts.length,
     })),
+    savedFilters: (
+      await prisma.savedVoterFilter.findMany({
+        where: { campaignId: campaign.id },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      })
+    ),
   };
 }
 
@@ -217,6 +225,7 @@ export interface ListEditView {
   centroidLng: number | null;
   linkedCampaignIds: string[];
   campaignOptions: { id: string; name: string }[];
+  activeCheckouts: number;
 }
 
 export async function getListEditView(
@@ -225,7 +234,7 @@ export async function getListEditView(
 ): Promise<ListEditView | null> {
   const list = await prisma.list.findUnique({
     where: { id: listId },
-    include: { campaignLinks: true },
+    include: { campaignLinks: true, _count: { select: { checkouts: { where: { status: "active" } } } } },
   });
   if (!list) return null;
 
@@ -262,5 +271,6 @@ export async function getListEditView(
     centroidLng: list.centroidLng,
     linkedCampaignIds: linkedIds,
     campaignOptions,
+    activeCheckouts: list._count.checkouts,
   };
 }

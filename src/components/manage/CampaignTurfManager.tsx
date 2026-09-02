@@ -31,6 +31,7 @@ export function CampaignTurfManager({
   campaignColor,
   turfs,
   volunteers,
+  savedFilters,
 }: {
   campaignId: string;
   campaignName: string;
@@ -39,6 +40,7 @@ export function CampaignTurfManager({
   campaignColor: string;
   turfs: AdminListRow[];
   volunteers: MemberRow[];
+  savedFilters: Array<{ id: string; name: string }>;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -49,6 +51,9 @@ export function CampaignTurfManager({
   const [doors, setDoors] = useState("0");
   const [visibility, setVisibility] = useState<TurfVisibility>("draft");
   const [assignedUserId, setAssignedUserId] = useState("");
+  const [voterSource, setVoterSource] = useState<"all" | "saved">("all");
+  const [savedFilterId, setSavedFilterId] = useState("");
+  const [confirmMapbox, setConfirmMapbox] = useState(false);
   const [resetKey, setResetKey] = useState(0);
 
   if (!districtBoundary?.length) {
@@ -72,6 +77,10 @@ export function CampaignTurfManager({
         boundary,
         visibility,
         assignedUserId: visibility === "assigned" ? assignedUserId : null,
+        voterSource,
+        savedFilterId: voterSource === "saved" ? savedFilterId : null,
+        confirmMapbox,
+        generateVoters: true,
       });
       toast(result.message);
       if (result.ok) {
@@ -79,6 +88,9 @@ export function CampaignTurfManager({
         setDoors("0");
         setVisibility("draft");
         setAssignedUserId("");
+        setVoterSource("all");
+        setSavedFilterId("");
+        setConfirmMapbox(false);
         setBoundary(null);
         setResetKey((value) => value + 1);
         router.refresh();
@@ -165,7 +177,48 @@ export function CampaignTurfManager({
               value={doors}
               onChange={(event) => setDoors(event.target.value)}
             />
+            <p className="field-hint">
+              Overwritten by household count when voters are generated from the polygon.
+            </p>
           </div>
+          <div className="form-field">
+            <label className="field-label">Voter source</label>
+            <select
+              className="field"
+              value={voterSource}
+              onChange={(event) =>
+                setVoterSource(event.target.value as "all" | "saved")
+              }
+            >
+              <option value="all">All campaign voters</option>
+              <option value="saved">Saved filter</option>
+            </select>
+          </div>
+          {voterSource === "saved" ? (
+            <div className="form-field">
+              <label className="field-label">Saved filter</label>
+              <select
+                className="field"
+                value={savedFilterId}
+                onChange={(event) => setSavedFilterId(event.target.value)}
+              >
+                <option value="">Choose a filter…</option>
+                {savedFilters.map((filter) => (
+                  <option key={filter.id} value={filter.id}>
+                    {filter.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          <label className="voter-confirm-mapbox">
+            <input
+              type="checkbox"
+              checked={confirmMapbox}
+              onChange={(event) => setConfirmMapbox(event.target.checked)}
+            />
+            Confirm Mapbox refinement for doors missing stored coords
+          </label>
           <TurfAccessFields
             visibility={visibility}
             assignedUserId={assignedUserId}
@@ -181,7 +234,8 @@ export function CampaignTurfManager({
               !boundary ||
               !name.trim() ||
               !area.trim() ||
-              (visibility === "assigned" && !assignedUserId)
+              (visibility === "assigned" && !assignedUserId) ||
+              (voterSource === "saved" && !savedFilterId)
             }
             onClick={submit}
           >

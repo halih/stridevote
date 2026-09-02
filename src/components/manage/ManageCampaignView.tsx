@@ -15,6 +15,7 @@ import {
   addMember,
   approveMembership,
   createList,
+  deleteList,
   denyMembership,
   setMemberRoles,
 } from "@/lib/admin-actions";
@@ -53,20 +54,16 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
   const searchParams = useSearchParams();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
-  const [tab, setTab] = useState<Tab>(() => {
-    const requested = searchParams.get("section");
-    if (
-      requested === "members" ||
-      requested === "turfs" ||
-      requested === "lists" ||
-      requested === "settings"
-    ) {
-      return requested;
-    }
-    return view.perms.approve || view.perms.add || view.perms.assignRoles
-      ? "members"
-      : "lists";
-  });
+  const requested = searchParams.get("section");
+  const tab: Tab =
+    requested === "members" ||
+    requested === "turfs" ||
+    requested === "lists" ||
+    requested === "settings"
+      ? requested
+      : view.perms.approve || view.perms.add || view.perms.assignRoles
+        ? "members"
+        : "lists";
 
   const [editMember, setEditMember] = useState<MemberRow | null>(null);
   const [editRoles, setEditRoles] = useState<RoleName[]>([]);
@@ -103,12 +100,20 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
     });
   }
 
-  const tabs: { id: Tab; label: string; show: boolean; badge?: number }[] = [
+  function removeList(list: { id: string; name: string; activeCheckouts: number }) {
+    const n = list.activeCheckouts;
+    const warning = n
+      ? `This list has ${n} active checkout${n === 1 ? "" : "s"}. Deleting it will cancel ${n === 1 ? "that checkout" : "those checkouts"} for canvassers. Continue?`
+      : `Delete ${list.name}? This cannot be undone.`;
+    if (!window.confirm(warning)) return;
+    run(() => deleteList(list.id));
+  }
+
+  const tabs: { id: Tab; label: string; show: boolean }[] = [
     {
       id: "members",
       label: "Members",
       show: view.perms.approve || view.perms.add || view.perms.assignRoles,
-      badge: view.pending.length,
     },
     { id: "turfs", label: "Turf map", show: view.perms.manageLists },
     { id: "lists", label: "Lists", show: view.perms.manageLists },
@@ -121,39 +126,6 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
 
   return (
     <>
-      <div className="campaign-admin-workspace">
-        <aside className="campaign-section-nav" aria-label="Campaign sections">
-          {visibleTabs.map((t) => (
-            <button
-              type="button"
-              key={t.id}
-              className={activeTab === t.id ? "active" : ""}
-              onClick={() => setTab(t.id)}
-            >
-              <Icon
-                name={
-                  t.id === "members"
-                    ? "users"
-                    : t.id === "turfs"
-                      ? "map"
-                      : t.id === "lists"
-                        ? "list"
-                        : "pencil"
-                }
-                size={17}
-              />
-              {t.label}
-              {t.badge ? <span className="count-badge">{t.badge}</span> : null}
-            </button>
-          ))}
-          <Link href={`/admin/${view.slug}/voters`}>
-            <Icon name="contact" size={17} />
-            Voters
-          </Link>
-        </aside>
-
-        <div className="campaign-admin-panel">
-
       {activeTab === "members" ? (
         <>
           {view.perms.approve && view.pending.length ? (
@@ -243,6 +215,7 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
           campaignColor={view.color}
           turfs={view.lists}
           volunteers={view.members}
+          savedFilters={view.savedFilters}
         />
       ) : null}
 
@@ -265,7 +238,21 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                       <p className="list-name">{l.name}</p>
                       <p className="list-loc">{l.neighborhood}</p>
                     </div>
-                    <span className="source-chip">{l.source}</span>
+                    <div className="list-top-actions">
+                      <span className="source-chip">{l.source}</span>
+                      {view.perms.manageLists ? (
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          style={{ color: "var(--critical)" }}
+                          aria-label={`Delete ${l.name}`}
+                          disabled={pending}
+                          onClick={() => removeList(l)}
+                        >
+                          <Icon name="trash" size={15} />
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="camp-meta" style={{ marginTop: 10, paddingTop: 10 }}>
                     <span className="meta-stat">
@@ -311,14 +298,12 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
               <DeleteCampaignButton
                 campaignId={view.id}
                 campaignName={view.name}
+                activeCheckouts={view.lists.reduce((n, l) => n + l.activeCheckouts, 0)}
               />
             </div>
           ) : null}
         </section>
       ) : null}
-        </div>
-      </div>
-
       {/* Edit roles sheet */}
       <BottomSheet open={!!editMember} onClose={() => setEditMember(null)}>
         {editMember ? (

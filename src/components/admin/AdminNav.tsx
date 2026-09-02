@@ -1,8 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/Icon";
+
+const SECTIONS = [
+  { id: "members", label: "Members", icon: "users" as const },
+  { id: "voters", label: "Voters", icon: "contact" as const },
+  { id: "turfs", label: "Turf map", icon: "map" as const },
+  { id: "lists", label: "Lists", icon: "list" as const },
+  { id: "settings", label: "Settings", icon: "pencil" as const },
+];
+
+function sectionHref(slug: string, id: string): string {
+  if (id === "voters") return `/admin/${slug}/voters`;
+  return `/admin/${slug}?section=${id}`;
+}
 
 export function AdminNav({
   canCreate,
@@ -12,46 +25,79 @@ export function AdminNav({
   campaigns: { slug: string; name: string }[];
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const candidate = pathname.split("/")[2] ?? "";
   const currentSlug =
     candidate && candidate !== "new" && candidate !== "lists" ? candidate : "";
+  const showSwitcher = canCreate || campaigns.length > 1;
+  const onlyCampaign = campaigns.length === 1 ? campaigns[0] : null;
+  const navSlug = currentSlug || onlyCampaign?.slug || "";
+  const showSections = Boolean(navSlug && (currentSlug || !canCreate));
+
+  function switchCampaign(slug: string) {
+    if (!slug) {
+      router.push("/admin");
+      return;
+    }
+    if (pathname.includes("/voters")) {
+      router.push(`/admin/${slug}/voters`);
+      return;
+    }
+    const section = searchParams.get("section");
+    router.push(section ? `/admin/${slug}?section=${section}` : `/admin/${slug}`);
+  }
+
+  function isActive(id: string): boolean {
+    if (!navSlug) return false;
+    if (id === "voters") return pathname.startsWith(`/admin/${navSlug}/voters`);
+    if (pathname.startsWith(`/admin/${navSlug}/voters`)) return false;
+    if (pathname !== `/admin/${navSlug}`) return false;
+    const section = searchParams.get("section") ?? "members";
+    return section === id;
+  }
 
   return (
     <nav className="admin-nav" aria-label="Admin navigation">
-      <div className="admin-context-switcher">
-        <label htmlFor="admin-campaign-context">Campaign context</label>
-        <select
-          id="admin-campaign-context"
-          value={currentSlug}
-          onChange={(event) =>
-            router.push(event.target.value ? `/admin/${event.target.value}` : "/admin")
-          }
-        >
-          <option value="">All campaigns</option>
-          {campaigns.map((campaign) => (
-            <option key={campaign.slug} value={campaign.slug}>
-              {campaign.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <Link
-        href="/admin"
-        className={pathname === "/admin" ? "active" : ""}
-      >
-        <Icon name="shield" size={18} />
-        Campaigns
-      </Link>
-      {canCreate ? (
-        <Link
-          href="/admin/new"
-          className={pathname === "/admin/new" ? "active" : ""}
-        >
-          <Icon name="plus" size={18} />
-          New campaign
-        </Link>
+      {showSwitcher ? (
+        <div className="admin-context-switcher">
+          <label htmlFor="admin-campaign-context">Select campaign</label>
+          <select
+            id="admin-campaign-context"
+            value={currentSlug}
+            onChange={(event) => switchCampaign(event.target.value)}
+          >
+            {canCreate ? (
+              <option value="">Manage campaigns</option>
+            ) : (
+              <option value="">All campaigns</option>
+            )}
+            {campaigns.map((campaign) => (
+              <option key={campaign.slug} value={campaign.slug}>
+                {campaign.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : onlyCampaign ? (
+        <div className="admin-context-switcher">
+          <span className="admin-context-kicker">Campaign</span>
+          <span className="admin-context-name">{onlyCampaign.name}</span>
+        </div>
       ) : null}
+
+      {showSections
+        ? SECTIONS.map((section) => (
+            <Link
+              key={section.id}
+              href={sectionHref(navSlug, section.id)}
+              className={isActive(section.id) ? "active" : ""}
+            >
+              <Icon name={section.icon} size={18} />
+              {section.label}
+            </Link>
+          ))
+        : null}
     </nav>
   );
 }

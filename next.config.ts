@@ -8,6 +8,13 @@ const nextConfig: NextConfig = {
   // Keep Prisma's engine out of the bundler's module trace (it does dynamic
   // fs/engine loading); it's loaded from node_modules at runtime instead.
   serverExternalPackages: ["@prisma/client", "prisma"],
+  // Next.js blocks HMR / `_next` assets from tunnel hosts unless listed here.
+  allowedDevOrigins: [
+    "duckie-hammad.ngrok.app",
+    "*.ngrok.app",
+    "*.ngrok-free.app",
+    "*.ngrok.io",
+  ],
   async redirects() {
     return [
       {

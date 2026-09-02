@@ -1,15 +1,30 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { ClearVoterFiltersButton } from "@/components/admin/ClearVoterFiltersButton";
+import { SavedFilterControls } from "@/components/admin/SavedFilterControls";
 import { Icon } from "@/components/Icon";
+import { electionTypeLabel } from "@/lib/elections";
 import { getSessionUser } from "@/lib/session";
 import {
+  filtersToSearchParams,
   getCampaignVoterDirectory,
+  sanitizeVoterFilters,
   type VoterFilters,
 } from "@/lib/voter-data";
 
 function one(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+
+function formatElection(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 export default async function CampaignVotersPage({
@@ -31,10 +46,15 @@ export default async function CampaignVotersPage({
     minAge: one(raw.minAge),
     maxAge: one(raw.maxAge),
     election: one(raw.election),
+    likelyPrimary: one(raw.likelyPrimary),
+    likelyGeneral: one(raw.likelyGeneral),
+    newVoter: one(raw.newVoter),
     page: one(raw.page),
   };
   const directory = await getCampaignVoterDirectory(slug, user, filters);
   if (!directory) notFound();
+  const persistableFilters = sanitizeVoterFilters(filters);
+  const formKey = filtersToSearchParams(persistableFilters).toString() || "all";
 
   function pageHref(page: number): string {
     const query = new URLSearchParams();
@@ -46,34 +66,18 @@ export default async function CampaignVotersPage({
   }
 
   const totalPages = Math.max(1, Math.ceil(directory.total / directory.pageSize));
+  const firstRow = (directory.page - 1) * directory.pageSize + 1;
+  const lastRow = firstRow + directory.voters.length - 1;
 
   return (
     <>
       <AdminPageHeader
         title={`${directory.campaign.name} voters`}
-        subtitle={`${directory.total.toLocaleString()} filtered voter${directory.total === 1 ? "" : "s"} · ${directory.campaign.district}`}
+        subtitle={directory.campaign.district}
       />
       <div className="admin-content">
-        <Link href={`/admin/${slug}`} className="back-link">
-          <Icon name="chevronLeft" size={15} /> Campaign
-        </Link>
-
-        <div className="campaign-admin-workspace">
-          <aside className="campaign-section-nav" aria-label="Campaign sections">
-            <Link href={`/admin/${slug}?section=members`}><Icon name="users" size={17} /> Members</Link>
-            <Link href={`/admin/${slug}?section=turfs`}><Icon name="map" size={17} /> Turf map</Link>
-            <Link href={`/admin/${slug}?section=lists`}><Icon name="list" size={17} /> Lists</Link>
-            <Link href={`/admin/${slug}?section=settings`}><Icon name="pencil" size={17} /> Settings</Link>
-            <Link href={`/admin/${slug}/voters`} className="active"><Icon name="contact" size={17} /> Voters</Link>
-          </aside>
-
-          <div className="campaign-admin-panel">
-            <div className="voter-legal-note">
-              Washington voter-file data may be used only for lawful political
-              purposes and must not be used commercially.
-            </div>
-
-            <form className="card voter-filters" method="get">
+            <form key={formKey} className="card voter-filters" method="get">
+              <div className="voter-filter-row">
               <div className="form-field voter-search">
                 <label className="field-label">Search</label>
                 <input
@@ -101,28 +105,97 @@ export default async function CampaignVotersPage({
                   ))}
                 </select>
               </div>
-              <div className="form-field">
+              <div className="form-field voter-election">
                 <label className="field-label">Voted in</label>
                 <select className="field" name="election" defaultValue={filters.election}>
                   <option value="">Any election</option>
                   {directory.elections.map((election) => (
-                    <option key={election} value={election}>{election}</option>
+                    <option key={election.date} value={election.date}>
+                      {formatElection(election.date)} · {electionTypeLabel(election.type)}
+                    </option>
                   ))}
                 </select>
               </div>
-              <div className="form-field">
-                <label className="field-label">Minimum age</label>
+              <div className="form-field voter-age">
+                <label className="field-label">Min age</label>
                 <input className="field" type="number" min={18} name="minAge" defaultValue={filters.minAge} />
               </div>
-              <div className="form-field">
-                <label className="field-label">Maximum age</label>
+              <div className="form-field voter-age">
+                <label className="field-label">Max age</label>
                 <input className="field" type="number" min={18} name="maxAge" defaultValue={filters.maxAge} />
               </div>
+              </div>
+              <div className="voter-filter-row voter-filter-row-audience">
+              <fieldset className="voter-audience-filters">
+                <legend className="field-label">
+                  Include any of
+                </legend>
+                <label>
+                  <input
+                    type="checkbox"
+                    name="likelyPrimary"
+                    value="1"
+                    defaultChecked={filters.likelyPrimary === "1"}
+                  />
+                  <span
+                    className="with-tooltip"
+                    tabIndex={0}
+                    data-tip="More than 66% of complete primaries since they registered"
+                  >
+                    Likely primary
+                  </span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    name="likelyGeneral"
+                    value="1"
+                    defaultChecked={filters.likelyGeneral === "1"}
+                  />
+                  <span
+                    className="with-tooltip"
+                    tabIndex={0}
+                    data-tip="More than 66% of complete generals since they registered"
+                  >
+                    Likely general
+                  </span>
+                </label>
+                <label title="Registered less than a year">
+                  <input
+                    type="checkbox"
+                    name="newVoter"
+                    value="1"
+                    defaultChecked={filters.newVoter === "1"}
+                  />
+                  New voter
+                </label>
+              </fieldset>
               <div className="voter-filter-actions">
-                <button className="btn btn-primary" type="submit">Apply filters</button>
-                <Link className="btn btn-outline" href={`/admin/${slug}/voters`}>Clear</Link>
+                <button className="btn btn-primary btn-sm" type="submit">Apply</button>
+                <ClearVoterFiltersButton slug={slug} />
+                <SavedFilterControls
+                  campaignId={directory.campaign.id}
+                  slug={slug}
+                  currentFilters={persistableFilters}
+                  savedFilters={directory.savedFilters}
+                />
+              </div>
               </div>
             </form>
+
+            <div className="voter-summary">
+              <b>{directory.total.toLocaleString()}</b>
+              <span>
+                {directory.filtered
+                  ? `voter${directory.total === 1 ? "" : "s"} match these filters, out of ${directory.campaignTotal.toLocaleString()} in this campaign`
+                  : `voter${directory.total === 1 ? "" : "s"} in this campaign`}
+              </span>
+              {directory.voters.length ? (
+                <span className="voter-summary-range">
+                  Showing {firstRow.toLocaleString()}–{lastRow.toLocaleString()}
+                </span>
+              ) : null}
+            </div>
 
             {directory.voters.length ? (
               <div className="card voter-table-wrap">
@@ -137,20 +210,25 @@ export default async function CampaignVotersPage({
                   </thead>
                   <tbody>
                     {directory.voters.map((voter) => (
-                      <tr key={voter.id}>
+                      <tr key={voter.id} className="voter-row">
                         <td>
-                          <b>{voter.name}</b>
-                          <span>
-                            {voter.yearOfBirth ? `Born ${voter.yearOfBirth}` : "Birth year unknown"}
-                            {voter.gender ? ` · ${voter.gender}` : ""}
-                          </span>
+                          <Link className="voter-row-link" href={`/admin/${slug}/voters/${voter.id}`}>
+                            <b>{voter.name}</b>
+                            <span>
+                              {voter.yearOfBirth ? `Born ${voter.yearOfBirth}` : "Birth year unknown"}
+                              {voter.gender ? ` · ${voter.gender}` : ""}
+                            </span>
+                          </Link>
                         </td>
                         <td>{voter.address}</td>
                         <td>{voter.precinct ?? "—"}</td>
                         <td>
-                          {voter.electionsVoted.length
-                            ? `${voter.electionsVoted.length} elections`
+                          {voter.electionCount
+                            ? `${voter.electionCount} election${voter.electionCount === 1 ? "" : "s"}`
                             : "No history"}
+                          {voter.lastElection ? (
+                            <span>Last {formatElection(voter.lastElection)}</span>
+                          ) : null}
                         </td>
                       </tr>
                     ))}
@@ -162,8 +240,9 @@ export default async function CampaignVotersPage({
                 <Icon name="users" size={28} />
                 <b>No voter records found</b>
                 <span>
-                  Import an authorized Washington VRDB extract for this district
-                  before using voter filters.
+                  {directory.filtered
+                    ? "No voters match these filters. Try widening or clearing them."
+                    : "Import an authorized Washington VRDB extract for this district before using voter filters."}
                 </span>
               </div>
             )}
@@ -179,8 +258,6 @@ export default async function CampaignVotersPage({
                 ) : <span />}
               </nav>
             ) : null}
-          </div>
-        </div>
       </div>
     </>
   );

@@ -14,6 +14,16 @@ import {
 import { normalizePhone } from "@/lib/phone";
 import { geocodeRegion, type RegionType } from "@/lib/geocode";
 import { pointInPolygon, polygonCentroid } from "@/lib/geo";
+import {
+  generateHouseholdList,
+  previewListGeneration,
+  type ListSourceMode,
+} from "@/lib/list-generation";
+import { mapboxToken } from "@/lib/geocode-mapbox";
+import {
+  sanitizeVoterFilters,
+  type VoterFilters,
+} from "@/lib/voter-filters";
 
 export interface AdminResult {
   ok: boolean;
@@ -214,20 +224,6 @@ export async function deleteCampaign(campaignId: string): Promise<AdminResult> {
   if (!campaign) return fail("Campaign not found.");
 
   const listIds = campaign.listLinks.map((link) => link.listId);
-  const exclusiveActiveCheckouts = await prisma.listCheckout.count({
-    where: {
-      status: "active",
-      listId: { in: listIds },
-      list: {
-        campaignLinks: {
-          none: { campaignId: { not: campaignId } },
-        },
-      },
-    },
-  });
-  if (exclusiveActiveCheckouts > 0) {
-    return fail("Release active checkouts before deleting this campaign.");
-  }
 
   await prisma.$transaction(async (tx) => {
     await tx.campaign.delete({ where: { id: campaignId } });
@@ -235,7 +231,6 @@ export async function deleteCampaign(campaignId: string): Promise<AdminResult> {
       where: {
         id: { in: listIds },
         campaignLinks: { none: {} },
-        checkouts: { none: { status: "active" } },
       },
     });
   });
@@ -460,6 +455,8 @@ const listSchema = z.object({
 });
 export type ListInput = z.input<typeof listSchema>;
 
+const listSourceModeSchema = z.enum(["all", "filters", "saved"]);
+
 const turfSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   neighborhood: z.string().trim().min(1, "Area is required"),
@@ -467,6 +464,24 @@ const turfSchema = z.object({
   boundary: boundarySchema,
   visibility: turfVisibilitySchema.default("draft"),
   assignedUserId: z.string().nullable().optional(),
+  voterSource: listSourceModeSchema.default("all"),
+  savedFilterId: z.string().nullable().optional(),
+  confirmMapbox: z.boolean().optional(),
+  generateVoters: z.boolean().default(true),
+});
+
+const savedFilterSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(80),
+  filters: z.record(z.string()).optional(),
+});
+
+const generateListSchema = z.object({
+  name: z.string().trim().min(1, "Name is required"),
+  neighborhood: z.string().trim().min(1).default("Generated"),
+  mode: listSourceModeSchema,
+  filters: z.record(z.string()).optional(),
+  savedFilterId: z.string().nullable().optional(),
+  confirmMapbox: z.boolean().optional(),
 });
 
 async function validateTurfAssignment(
@@ -521,6 +536,40 @@ export async function createTurf(
     return fail("Keep the entire turf inside the campaign district.");
   }
 
+  if (data.generateVoters) {
+    try {
+      const generated = await generateHouseholdList({
+        campaignId,
+        name: data.name,
+        neighborhood: data.neighborhood,
+        mode: data.voterSource,
+        savedFilterId: data.savedFilterId,
+        boundary: data.boundary,
+        confirmMapbox: data.confirmMapbox ?? false,
+      });
+      await prisma.listCampaign.updateMany({
+        where: { listId: generated.listId, campaignId },
+        data: {
+          visibility: data.visibility,
+          assignedUserId:
+            data.visibility === "assigned" ? data.assignedUserId : null,
+        },
+      });
+      revalidateCampaign(campaign.slug);
+      const excluded =
+        generated.excludedUnresolved > 0
+          ? ` (${generated.excludedUnresolved} unresolved doors excluded)`
+          : "";
+      return {
+        ok: true,
+        message: `Created ${data.name}: ${generated.doorsCount} doors, ${generated.voterCount} voters${excluded}`,
+        id: generated.listId,
+      };
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : "Could not generate turf list");
+    }
+  }
+
   const centroid = polygonCentroid(data.boundary);
   const slug = await uniqueSlug(slugify(data.name), async (value) =>
     Boolean(await prisma.list.findUnique({ where: { slug: value } })),
@@ -550,6 +599,175 @@ export async function createTurf(
 
   revalidateCampaign(campaign.slug);
   return { ok: true, message: `Created ${data.name}`, id: list.id };
+}
+
+export async function saveVoterFilter(
+  campaignId: string,
+  input: unknown,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (
+    !(await can(user, campaignId, "voters:view")) &&
+    !(await can(user, campaignId, "lists:manage"))
+  ) {
+    return fail("Not allowed.");
+  }
+
+  const parsed = savedFilterSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid filter");
+  const filters = sanitizeVoterFilters(parsed.data.filters ?? {});
+  const name = parsed.data.name;
+
+  try {
+    const row = await prisma.savedVoterFilter.upsert({
+      where: { campaignId_name: { campaignId, name } },
+      create: {
+        campaignId,
+        createdById: user.id,
+        name,
+        filters,
+      },
+      update: { filters },
+    });
+    const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+    if (campaign) {
+      revalidatePath(`/admin/${campaign.slug}/voters`);
+      revalidateCampaign(campaign.slug);
+    }
+    return { ok: true, message: `Saved filter “${name}”`, id: row.id };
+  } catch {
+    return fail("Could not save filter (duplicate name?).");
+  }
+}
+
+export async function renameVoterFilter(
+  campaignId: string,
+  filterId: string,
+  nameInput: unknown,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (
+    !(await can(user, campaignId, "voters:view")) &&
+    !(await can(user, campaignId, "lists:manage"))
+  ) {
+    return fail("Not allowed.");
+  }
+
+  const name = z.string().trim().min(1).max(80).safeParse(nameInput);
+  if (!name.success) return fail("Name is required");
+
+  const existing = await prisma.savedVoterFilter.findFirst({
+    where: { id: filterId, campaignId },
+  });
+  if (!existing) return fail("Filter not found.");
+
+  try {
+    await prisma.savedVoterFilter.update({
+      where: { id: filterId },
+      data: { name: name.data },
+    });
+  } catch {
+    return fail("That name is already used on this campaign.");
+  }
+
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (campaign) revalidatePath(`/admin/${campaign.slug}/voters`);
+  return { ok: true, message: "Filter renamed" };
+}
+
+export async function deleteVoterFilter(
+  campaignId: string,
+  filterId: string,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (
+    !(await can(user, campaignId, "voters:view")) &&
+    !(await can(user, campaignId, "lists:manage"))
+  ) {
+    return fail("Not allowed.");
+  }
+
+  const existing = await prisma.savedVoterFilter.findFirst({
+    where: { id: filterId, campaignId },
+  });
+  if (!existing) return fail("Filter not found.");
+
+  await prisma.savedVoterFilter.delete({ where: { id: filterId } });
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (campaign) revalidatePath(`/admin/${campaign.slug}/voters`);
+  return { ok: true, message: `Deleted “${existing.name}”` };
+}
+
+export async function previewGeneratedList(
+  campaignId: string,
+  input: unknown,
+): Promise<AdminResult & { preview?: Awaited<ReturnType<typeof previewListGeneration>> }> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
+
+  const parsed = generateListSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
+
+  try {
+    const preview = await previewListGeneration({
+      campaignId,
+      mode: parsed.data.mode,
+      filters: sanitizeVoterFilters(parsed.data.filters ?? {}) as VoterFilters,
+      savedFilterId: parsed.data.savedFilterId,
+    });
+    const mapboxNote = mapboxToken()
+      ? preview.mapboxNeeded
+        ? ` Mapbox would refine ${preview.mapboxNeeded} door(s) (${preview.mapboxReusable} already stored).`
+        : " All doors already have Mapbox coords."
+      : " MAPBOX_ACCESS_TOKEN is unset; Census coords only.";
+    return {
+      ok: true,
+      message: `${preview.households} doors / ${preview.expandedVoters} voters from ${preview.seedVoters} matches.${mapboxNote}`,
+      preview,
+    };
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "Preview failed");
+  }
+}
+
+export async function generateListFromVoters(
+  campaignId: string,
+  input: unknown,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
+
+  const parsed = generateListSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
+
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) return fail("Campaign not found.");
+
+  try {
+    const generated = await generateHouseholdList({
+      campaignId,
+      name: parsed.data.name,
+      neighborhood: parsed.data.neighborhood,
+      mode: parsed.data.mode as ListSourceMode,
+      filters: sanitizeVoterFilters(parsed.data.filters ?? {}),
+      savedFilterId: parsed.data.savedFilterId,
+      confirmMapbox: parsed.data.confirmMapbox ?? false,
+    });
+    revalidateCampaign(campaign.slug);
+    return {
+      ok: true,
+      message: `Draft list ready: ${generated.doorsCount} doors, ${generated.voterCount} voters`,
+      id: generated.listId,
+      slug: generated.slug,
+    };
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "Could not generate list");
+  }
 }
 
 export async function setTurfAccess(
@@ -677,11 +895,6 @@ export async function deleteList(listId: string): Promise<AdminResult> {
   const user = await getSessionUser();
   if (!user) return fail("Please sign in.");
   if (!(await canManageList(user.id, listId))) return fail("Not allowed.");
-
-  const active = await prisma.listCheckout.count({
-    where: { listId, status: "active" },
-  });
-  if (active > 0) return fail("Release active checkouts before deleting this list.");
 
   await prisma.list.delete({ where: { id: listId } });
   revalidatePath("/admin");

@@ -43,6 +43,7 @@ model User {
   checkouts   ListCheckout[]
   watches     ListWatch[]
   assignedTurfs ListCampaign[] @relation("AssignedTurfs")
+  savedFilters  SavedVoterFilter[]
 }
 
 model Account {
@@ -121,6 +122,7 @@ model Campaign {
   memberships CampaignMembership[]
   listLinks   ListCampaign[]
   voterLinks  CampaignVoter[]
+  savedFilters SavedVoterFilter[]
 }
 
 model CampaignContact {
@@ -169,6 +171,8 @@ model List {
   campaignLinks ListCampaign[]
   checkouts     ListCheckout[]
   watches       ListWatch[]
+  households    ListHousehold[]
+  voters        ListVoter[]
 }
 
 model ListCampaign {
@@ -236,18 +240,52 @@ model Voter {
   legislativeDistrict   String?
   congressionalDistrict String?
   registrationDate      DateTime?
-  electionsVoted        String[] @default([])
+  lastVoted             DateTime? @db.Date
+  electionsVoted        String[] @default([]) // denormalized cache; full history is VoterHistory
+  primaryParticipation  Float?
+  generalParticipation  Float?
+  primaryEligible       Int?
+  primaryVoted          Int?
+  generalEligible       Int?
+  generalVoted          Int?
+  likelyPrimary         Boolean  @default(false)
+  likelyGeneral         Boolean  @default(false)
   lat                    Float?
   lng                    Float?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
   campaignLinks CampaignVoter[]
+  history       VoterHistory[]
+  householdLinks HouseholdVoter[]
+  listLinks     ListVoter[]
 
   @@index([lastName, firstName])
   @@index([precinctCode])
   @@index([legislativeDistrict])
   @@index([congressionalDistrict])
+}
+
+// One SOS ballot record. Older files (2007–2012) have no VoterHistoryID and
+// use WA-prefixed voter IDs; those are stored with a normalized stateVoterId.
+model VoterHistory {
+  id               String    @id @default(cuid())
+  sosHistoryId     String?   @unique
+  stateVoterId     String
+  voterId          String?
+  countyCode       String?
+  countyCodeVoting String?
+  electionDate     DateTime  @db.Date
+  electionType     String    @default("special") // general | primary | presidential_primary | special
+  source           String?
+
+  voter Voter? @relation(fields: [voterId], references: [id], onDelete: SetNull)
+
+  @@unique([stateVoterId, electionDate])
+  @@index([voterId])
+  @@index([electionDate])
+  @@index([electionType, electionDate])
+  @@index([stateVoterId])
 }
 
 model CampaignVoter {
@@ -261,4 +299,90 @@ model CampaignVoter {
 
   @@unique([campaignId, voterId])
   @@index([campaignId])
+}
+
+// Campaign-shared voter directory presets. filters JSON is VoterFilters without page.
+model SavedVoterFilter {
+  id          String   @id @default(cuid())
+  campaignId  String
+  createdById String?
+  name        String
+  filters     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign  Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([campaignId, name])
+  @@index([campaignId])
+}
+
+// One physical door / mailing address. Census coords are bulk baseline;
+// Mapbox coords are optional permanent refinements reused across list generation.
+model Household {
+  id               String   @id @default(cuid())
+  normalizedKey    String   @unique
+  displayAddress   String
+  addressLine      String
+  city             String
+  state            String
+  postalCode       String
+  unit             String?
+  censusLat        Float?
+  censusLng        Float?
+  censusMatch      String? // Exact / Non_Exact / Tie / No_Match
+  mapboxLat        Float?
+  mapboxLng        Float?
+  geocodeStatus    String   @default("pending") // pending | matched | unmatched | ambiguous
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  voters HouseholdVoter[]
+  lists  ListHousehold[]
+
+  @@index([geocodeStatus])
+  @@index([censusLat, censusLng])
+}
+
+model HouseholdVoter {
+  id          String   @id @default(cuid())
+  householdId String
+  voterId     String
+  createdAt   DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  voter     Voter     @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
+  @@unique([voterId])
+  @@index([householdId])
+}
+
+model ListHousehold {
+  id          String   @id @default(cuid())
+  listId      String
+  householdId String
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  list      List      @relation(fields: [listId], references: [id], onDelete: Cascade)
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, householdId])
+  @@index([listId, sortOrder])
+}
+
+model ListVoter {
+  id         String   @id @default(cuid())
+  listId     String
+  voterId    String
+  matchedSeed Boolean @default(false)
+  createdAt  DateTime @default(now())
+
+  list  List  @relation(fields: [listId], references: [id], onDelete: Cascade)
+  voter Voter @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, voterId])
+  @@index([listId])
+  @@index([voterId])
 }

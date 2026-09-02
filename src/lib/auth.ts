@@ -87,6 +87,8 @@ function activeProviders(): Provider[] {
 
 export const authConfig: NextAuthConfig = {
   adapter: PrismaAdapter(prisma),
+  // Honor AUTH_URL / X-Forwarded-Host so magic links match the public tunnel.
+  trustHost: true,
   session: { strategy: "jwt" },
   pages: { signIn: "/login", verifyRequest: "/login?sent=1" },
   providers: activeProviders(),

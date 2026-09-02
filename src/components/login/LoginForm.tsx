@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import type { AuthChannel } from "@/lib/env";
+import { isUndeliverableAddress } from "@/lib/otp/test-address";
 
 interface DevMessage {
   at: number;
@@ -21,12 +22,15 @@ const CHANNEL_LABEL: Record<string, string> = {
 export function LoginForm({
   channels,
   isDev,
+  stubEmail,
 }: {
   channels: AuthChannel[];
   isDev: boolean;
+  stubEmail: boolean;
 }) {
   const emailEnabled = channels.includes("email");
   const phoneChannels = channels.filter((c): c is "sms" | "whatsapp" => c !== "email");
+  const [showLinkOnScreen, setShowLinkOnScreen] = useState(stubEmail);
 
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -40,19 +44,23 @@ export function LoginForm({
 
   const pollDev = useCallback(async () => {
     if (!isDev) return;
+    const to = stage === "otp-sent" ? phone.trim() : email.trim();
+    if (!to) return;
     try {
-      const r = await fetch("/api/dev/inbox", { cache: "no-store" });
+      const r = await fetch(`/api/dev/inbox?to=${encodeURIComponent(to)}`, {
+        cache: "no-store",
+      });
       const j = (await r.json()) as { messages: DevMessage[] };
       setDev(j.messages[0] ?? null);
     } catch {
       /* ignore */
     }
-  }, [isDev]);
+  }, [isDev, stage, email, phone]);
 
   useEffect(() => {
     if (!isDev || stage === "start") return;
     const first = setTimeout(pollDev, 0);
-    const t = setInterval(pollDev, 1500);
+    const t = setInterval(pollDev, 400);
     return () => {
       clearTimeout(first);
       clearInterval(t);
@@ -63,6 +71,8 @@ export function LoginForm({
     e.preventDefault();
     setBusy(true);
     setError("");
+    setDev(null);
+    setShowLinkOnScreen(stubEmail || isUndeliverableAddress(email));
     const res = await signIn("email", {
       email: email.trim(),
       redirect: false,
@@ -116,9 +126,20 @@ export function LoginForm({
 
       {stage === "email-sent" ? (
         <>
-          <h1 className="login-title">Check your email</h1>
+          <h1 className="login-title">
+            {isDev && showLinkOnScreen ? "Test mode" : "Check your email"}
+          </h1>
           <p className="login-sub">
-            We sent a sign-in link to <b>{email}</b>. Open it on this device to continue.
+            {isDev && showLinkOnScreen ? (
+              <>
+                <b>{email}</b> can&apos;t receive mail here, so nothing was sent.
+                Use the sign-in link below.
+              </>
+            ) : (
+              <>
+                We sent a sign-in link to <b>{email}</b>. Open it on this device to continue.
+              </>
+            )}
           </p>
           <button className="btn btn-outline btn-block" onClick={() => setStage("start")}>
             Use a different method
@@ -241,13 +262,32 @@ export function LoginForm({
         </>
       )}
 
-      {isDev && dev && (dev.magicLink || dev.code) ? (
+      {isDev && stage === "email-sent" && (showLinkOnScreen || dev?.magicLink) ? (
         <div className="dev-box">
-          <div className="eyebrow">Dev delivery (no provider configured)</div>
-          {dev.magicLink ? (
-            <a href={dev.magicLink}>Click to sign in →</a>
+          <div className="eyebrow">
+            {showLinkOnScreen ? "Test sign-in link" : "Email delivery failed — use this link"}
+          </div>
+          {dev?.magicLink ? (
+            <a className="btn btn-primary btn-block" href={dev.magicLink}>
+              Sign in as {email}
+            </a>
           ) : (
+            <p className="login-note" style={{ marginTop: 8 }}>
+              Waiting for the test sign-in link…
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      {isDev && stage === "otp-sent" ? (
+        <div className="dev-box">
+          <div className="eyebrow">Test mode — no provider configured</div>
+          {dev?.code ? (
             <div className="dev-code">{dev.code}</div>
+          ) : (
+            <p className="login-note" style={{ marginTop: 8 }}>
+              Waiting for the test code…
+            </p>
           )}
         </div>
       ) : null}

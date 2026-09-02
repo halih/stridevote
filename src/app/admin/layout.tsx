@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { Icon } from "@/components/Icon";
@@ -31,10 +32,12 @@ export default async function AdminLayout({
             </span>
           </Link>
 
-          <AdminNav
-            canCreate={isPlatformAdmin(user)}
-            campaigns={campaigns.map(({ slug, name }) => ({ slug, name }))}
-          />
+          <Suspense>
+            <AdminNav
+              canCreate={isPlatformAdmin(user)}
+              campaigns={campaigns.map(({ slug, name }) => ({ slug, name }))}
+            />
+          </Suspense>
 
           <div className="admin-account">
             <div className="avatar" aria-hidden="true">

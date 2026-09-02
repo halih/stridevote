@@ -1,0 +1,1 @@
+ALTER TABLE "Voter" ADD COLUMN "lastVoted" DATE;

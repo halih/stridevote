@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
+import { emailChannel } from "@/lib/otp/adapters/email";
 import { LoginForm } from "@/components/login/LoginForm";
 
 export default async function LoginPage() {
@@ -9,7 +10,11 @@ export default async function LoginPage() {
 
   return (
     <div className="login-wrap">
-      <LoginForm channels={env.authChannels} isDev={env.isDev} />
+      <LoginForm
+        channels={env.authChannels}
+        isDev={env.isDev}
+        stubEmail={!emailChannel.live}
+      />
     </div>
   );
 }

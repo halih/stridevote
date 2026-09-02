@@ -8,9 +8,11 @@ import { useToast } from "@/components/Toast";
 export function DeleteCampaignButton({
   campaignId,
   campaignName,
+  activeCheckouts = 0,
 }: {
   campaignId: string;
   campaignName: string;
+  activeCheckouts?: number;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -45,6 +47,13 @@ export function DeleteCampaignButton({
               links, and campaign-only turfs. Shared lists remain available to
               their other campaigns.
             </p>
+            {activeCheckouts > 0 ? (
+              <p>
+                This campaign has {activeCheckouts} active checkout
+                {activeCheckouts === 1 ? "" : "s"}. Deleting it will cancel
+                checkouts on campaign-only lists.
+              </p>
+            ) : null}
             <label className="field-label">
               Type <b>{campaignName}</b> to confirm
             </label>

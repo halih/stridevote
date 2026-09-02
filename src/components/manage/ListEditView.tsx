@@ -64,7 +64,10 @@ export function ListEditView({ list }: { list: ListEditData }) {
   }
 
   function remove() {
-    if (!window.confirm("Delete this list? This cannot be undone.")) return;
+    const warning = list.activeCheckouts
+      ? `This list has ${list.activeCheckouts} active checkout${list.activeCheckouts === 1 ? "" : "s"}. Deleting it will cancel ${list.activeCheckouts === 1 ? "that checkout" : "those checkouts"} for canvassers. Continue?`
+      : "Delete this list? This cannot be undone.";
+    if (!window.confirm(warning)) return;
     run(() => deleteList(list.id), () => router.push("/admin"));
   }
 

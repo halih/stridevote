@@ -12,6 +12,9 @@ export default async function AdminPage() {
 
   const campaigns = await getManageableCampaigns(user);
   const canCreate = isPlatformAdmin(user);
+  if (!canCreate && campaigns.length === 1) {
+    redirect(`/admin/${campaigns[0].slug}`);
+  }
 
   return (
     <>
