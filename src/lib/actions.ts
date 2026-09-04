@@ -7,11 +7,31 @@ import { signOut } from "@/lib/auth";
 import { permissionsForRoles } from "@/lib/roles";
 import { ensureActiveProgram } from "@/lib/canvass/programs";
 import { countClosedDoors } from "@/lib/canvass/progress";
+import {
+  applyListSplit,
+  buildSplitPreview,
+} from "@/lib/canvass/list-split-apply";
+import {
+  MIN_SPLIT_DOORS,
+  type SplitHalfKey,
+  type SplitPreview,
+} from "@/lib/canvass/list-split";
 
 export interface ActionResult {
   ok: boolean;
   message: string;
 }
+
+export type SplitPreviewResult =
+  | { ok: true; message: string; preview: SplitPreview }
+  | { ok: false; message: string; preview?: undefined };
+
+export type SplitListResult = ActionResult & {
+  keptListId?: string;
+  releasedListId?: string;
+  keptName?: string;
+  releasedName?: string;
+};
 
 export async function doSignOut(): Promise<void> {
   await signOut({ redirectTo: "/login" });
@@ -222,4 +242,158 @@ export async function toggleWatch(listId: string): Promise<ActionResult> {
 /** Ensure programs exist when campaigns are created elsewhere. */
 export async function ensureCampaignProgram(campaignId: string): Promise<void> {
   await ensureActiveProgram(campaignId);
+}
+
+async function requireOwnedCheckout(
+  userId: string,
+  listId: string,
+  programId?: string,
+) {
+  const list = await prisma.list.findUnique({
+    where: { id: listId },
+    select: {
+      id: true,
+      name: true,
+      source: true,
+      doorsCount: true,
+      campaignLinks: {
+        where: programId ? { programId } : undefined,
+        select: {
+          programId: true,
+          campaignId: true,
+          visibility: true,
+          assignedUserId: true,
+          program: { select: { status: true } },
+        },
+      },
+    },
+  });
+  if (!list) return { ok: false as const, message: "List not found." };
+  if (list.source !== "stridevote") {
+    return {
+      ok: false as const,
+      message: "Only StrideVote lists can be split.",
+    };
+  }
+
+  let resolvedProgramId = programId;
+  if (!resolvedProgramId) {
+    const active = list.campaignLinks.find((l) => l.program.status === "active");
+    resolvedProgramId = active?.programId;
+  }
+  if (!resolvedProgramId) {
+    return {
+      ok: false as const,
+      message: "No active canvass program for this list.",
+    };
+  }
+
+  const access = await canAccessListProgram(userId, listId, resolvedProgramId);
+  if (!access) {
+    return {
+      ok: false as const,
+      message: "This turf is not available to you.",
+    };
+  }
+
+  const checkout = await prisma.listCheckout.findFirst({
+    where: {
+      listId,
+      programId: resolvedProgramId,
+      userId,
+      status: "active",
+    },
+    select: { id: true },
+  });
+  if (!checkout) {
+    return {
+      ok: false as const,
+      message: "Check out this list before splitting it.",
+    };
+  }
+
+  if (list.doorsCount < MIN_SPLIT_DOORS) {
+    return {
+      ok: false as const,
+      message: `Lists need at least ${MIN_SPLIT_DOORS} doors to split.`,
+    };
+  }
+
+  return {
+    ok: true as const,
+    list,
+    programId: resolvedProgramId,
+    checkoutId: checkout.id,
+  };
+}
+
+/** Preview a geographic split without committing. */
+export async function previewListSplit(
+  listId: string,
+  programId?: string,
+): Promise<SplitPreviewResult> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, message: "Please sign in." };
+
+  const gate = await requireOwnedCheckout(user.id, listId, programId);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const built = await buildSplitPreview(
+    listId,
+    gate.programId,
+    gate.list.name,
+  );
+  if (!built.ok) return { ok: false, message: built.message };
+
+  return {
+    ok: true,
+    message: "Preview ready",
+    preview: built.preview,
+  };
+}
+
+/** Commit a geographic split; volunteer keeps `keepHalf` and releases the other. */
+export async function splitList(
+  listId: string,
+  keepHalf: SplitHalfKey,
+  programId?: string,
+): Promise<SplitListResult> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, message: "Please sign in." };
+  if (keepHalf !== "a" && keepHalf !== "b") {
+    return { ok: false, message: "Choose which half to keep." };
+  }
+
+  const gate = await requireOwnedCheckout(user.id, listId, programId);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  try {
+    const result = await applyListSplit({
+      listId,
+      programId: gate.programId,
+      userId: user.id,
+      keepHalf,
+      checkoutId: gate.checkoutId,
+    });
+    if (!result.ok) return { ok: false, message: result.message };
+
+    revalidatePath("/canvass");
+    revalidatePath(`/canvass/${listId}`);
+    if (result.releasedListId) {
+      revalidatePath(`/canvass/${result.releasedListId}`);
+    }
+    return {
+      ok: true,
+      message: result.message,
+      keptListId: result.keptListId,
+      releasedListId: result.releasedListId,
+      keptName: result.keptName,
+      releasedName: result.releasedName,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Split failed.",
+    };
+  }
 }

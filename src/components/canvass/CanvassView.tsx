@@ -6,13 +6,14 @@ import type { ListVM } from "@/lib/data";
 import { Icon } from "@/components/Icon";
 import { Map } from "@/components/map/Map";
 import { useToast } from "@/components/Toast";
-import { checkoutList, releaseList, toggleWatch } from "@/lib/actions";
+import { checkoutList, releaseList, toggleWatch, previewListSplit, splitList } from "@/lib/actions";
 import { ListSheets, type SheetState } from "./ListSheets";
 import { sourceLabel } from "@/lib/format";
 import { externalListOpen } from "@/lib/canvass/external";
-import { downloadPacket, getOutboxCount, purgePacketIfSynced } from "@/lib/canvass/offline-store";
+import { downloadPacket, getOutboxCount, purgePacketIfSynced, deletePacket } from "@/lib/canvass/offline-store";
 import { DEFAULT_ORIGIN, listDistanceMiles, roundMiles } from "@/lib/geo";
 import { useVolunteerLocation } from "@/lib/use-volunteer-location";
+import { MIN_SPLIT_DOORS, type SplitHalfKey } from "@/lib/canvass/list-split";
 
 function statusColor(l: ListVM): string {
   if (l.status === "mine") return "#185FA5";
@@ -117,6 +118,52 @@ export function CanvassView({
     });
   }
 
+  function onSplit(list: ListVM) {
+    startTransition(async () => {
+      try {
+        const pendingLocal = await getOutboxCount(list.id);
+        if (pendingLocal > 0) {
+          toast("Sync your results before splitting this list.");
+          return;
+        }
+      } catch {
+        // IndexedDB unavailable — allow split preview.
+      }
+      const programId = list.programId ?? undefined;
+      const res = await previewListSplit(list.id, programId);
+      if (!res.ok || !res.preview) {
+        toast(res.message);
+        return;
+      }
+      setSheet({ kind: "split", list, preview: res.preview });
+    });
+  }
+
+  function onConfirmSplit(keepHalf: SplitHalfKey) {
+    if (!sheet || sheet.kind !== "split") {
+      toast("Open split again to confirm.");
+      return;
+    }
+    const list = sheet.list;
+    const programId = list.programId ?? sheet.preview.programId;
+    startTransition(async () => {
+      const res = await splitList(list.id, keepHalf, programId);
+      toast(res.message);
+      if (!res.ok) return;
+      setSheet(null);
+      setSub("mine");
+      if (programId) {
+        try {
+          await deletePacket(programId, list.id);
+          await downloadPacket(list.id, programId);
+        } catch {
+          // Packet refresh is best-effort; volunteer can reopen the list.
+        }
+      }
+      router.refresh();
+    });
+  }
+
   function onOpen(list: ListVM) {
     if (!list.nativeCanvass) {
       const ext = externalListOpen(list.source, list.sourceRef);
@@ -209,6 +256,7 @@ export function CanvassView({
               onPickup={() => setSheet({ kind: "pickup", list: l })}
               onCheckout={() => setSheet({ kind: "checkout", list: l })}
               onRelease={() => onRelease(l)}
+              onSplit={() => onSplit(l)}
               onWatch={() => run(() => toggleWatch(l.id))}
               onOpen={() => onOpen(l)}
             />
@@ -226,6 +274,7 @@ export function CanvassView({
         sheet={sheet}
         onClose={() => setSheet(null)}
         onConfirmCheckout={(l) => onCheckout(l)}
+        onConfirmSplit={onConfirmSplit}
         checkoutPending={pending}
         home={location.home}
         you={location.you}
@@ -241,6 +290,7 @@ function ListCard({
   onPickup,
   onCheckout,
   onRelease,
+  onSplit,
   onWatch,
   onOpen,
 }: {
@@ -250,6 +300,7 @@ function ListCard({
   onPickup: () => void;
   onCheckout: () => void;
   onRelease: () => void;
+  onSplit: () => void;
   onWatch: () => void;
   onOpen: () => void;
 }) {
@@ -259,6 +310,10 @@ function ListCard({
     ? externalListOpen(l.source, l.sourceRef)
     : null;
   const hasPickup = l.campaigns.some((c) => c.pickup);
+  const canSplit =
+    l.status === "mine" &&
+    l.nativeCanvass &&
+    l.doorsCount >= MIN_SPLIT_DOORS;
 
   return (
     <div className="card list-card">
@@ -327,6 +382,16 @@ function ListCard({
               <button type="button" className="btn btn-outline btn-sm" onClick={onPreview}>
                 <Icon name="map" size={14} /> Preview
               </button>
+              {canSplit ? (
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  disabled={pending}
+                  onClick={onSplit}
+                >
+                  Split list
+                </button>
+              ) : null}
               {!l.assignedToMe ? (
                 <button className="btn btn-outline btn-sm" disabled={pending} onClick={onRelease}>
                   Release list

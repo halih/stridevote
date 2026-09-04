@@ -45,6 +45,7 @@ model User {
   assignedTurfs ListCampaign[] @relation("AssignedTurfs")
   savedFilters  SavedVoterFilter[]
   attempts    CanvassAttempt[]
+  listSplits  ListSplit[]
 }
 
 model Account {
@@ -178,6 +179,7 @@ model CanvassProgram {
   households    ProgramListHousehold[]
   voters        ProgramListVoter[]
   attempts      CanvassAttempt[]
+  listSplits    ListSplit[]
 
   @@unique([campaignId, name])
   @@index([campaignId, status])
@@ -206,6 +208,10 @@ model List {
   programHouseholds ProgramListHousehold[]
   programVoters     ProgramListVoter[]
   attempts          CanvassAttempt[]
+  redirectsFrom     ListHouseholdRedirect[] @relation("RedirectFrom")
+  redirectsTo       ListHouseholdRedirect[] @relation("RedirectTo")
+  splitsAsSource    ListSplit[] @relation("SplitSource")
+  splitsAsReleased  ListSplit[] @relation("SplitReleased")
 }
 
 // Per-program publish of a list into a campaign (visibility + assignee).
@@ -500,9 +506,50 @@ model Household {
   lists  ListHousehold[]
   programLists ProgramListHousehold[]
   attempts     CanvassAttempt[]
+  redirects    ListHouseholdRedirect[]
 
   @@index([geocodeStatus])
   @@index([censusLat, censusLng])
+}
+
+// Maps a household that left a list during a volunteer split so stale offline
+// packets (still keyed by the old listId) can sync onto the child list.
+model ListHouseholdRedirect {
+  id          String   @id @default(cuid())
+  fromListId  String
+  householdId String
+  toListId    String
+  createdAt   DateTime @default(now())
+
+  fromList  List      @relation("RedirectFrom", fields: [fromListId], references: [id], onDelete: Cascade)
+  toList    List      @relation("RedirectTo", fields: [toListId], references: [id], onDelete: Cascade)
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([fromListId, householdId])
+  @@index([toListId])
+  @@index([householdId])
+}
+
+// Audit row for each volunteer geographic split.
+model ListSplit {
+  id             String   @id @default(cuid())
+  sourceListId   String
+  releasedListId String
+  programId      String
+  userId         String
+  keptHalfKey    String // "a" | "b"
+  axis           String // "lat" | "lng"
+  createdAt      DateTime @default(now())
+
+  sourceList   List           @relation("SplitSource", fields: [sourceListId], references: [id], onDelete: Cascade)
+  releasedList List           @relation("SplitReleased", fields: [releasedListId], references: [id], onDelete: Cascade)
+  program      CanvassProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sourceListId])
+  @@index([releasedListId])
+  @@index([programId])
+  @@index([userId])
 }
 
 model HouseholdVoter {

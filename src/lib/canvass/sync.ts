@@ -7,6 +7,7 @@ import {
   isDoorOutcome,
 } from "@/lib/canvass/outcomes";
 import { refreshCheckoutProgress } from "@/lib/canvass/progress";
+import { resolveSplitRedirect } from "@/lib/canvass/list-split-redirect";
 
 const personResponseSchema = z.object({
   voterId: z.string().min(1),
@@ -109,9 +110,14 @@ async function syncOneAttempt(
     };
   }
 
+  const resolvedListId = await resolveSplitRedirect(
+    input.listId,
+    input.householdId,
+  );
+
   const link = await prisma.listCampaign.findFirst({
     where: {
-      listId: input.listId,
+      listId: resolvedListId,
       programId: input.programId,
       campaignId: input.campaignId,
     },
@@ -129,7 +135,7 @@ async function syncOneAttempt(
     where: {
       programId_listId_householdId: {
         programId: input.programId,
-        listId: input.listId,
+        listId: resolvedListId,
         householdId: input.householdId,
       },
     },
@@ -141,7 +147,7 @@ async function syncOneAttempt(
     (await prisma.listHousehold.findUnique({
       where: {
         listId_householdId: {
-          listId: input.listId,
+          listId: resolvedListId,
           householdId: input.householdId,
         },
       },
@@ -176,8 +182,8 @@ async function syncOneAttempt(
     }
     if (
       prior.programId !== input.programId ||
-      prior.listId !== input.listId ||
-      prior.householdId !== input.householdId
+      prior.householdId !== input.householdId ||
+      (prior.listId !== resolvedListId && prior.listId !== input.listId)
     ) {
       return {
         clientAttemptId: input.clientAttemptId,
@@ -192,7 +198,7 @@ async function syncOneAttempt(
 
   const activeMine = await prisma.listCheckout.findFirst({
     where: {
-      listId: input.listId,
+      listId: resolvedListId,
       programId: input.programId,
       userId,
       status: "active",
@@ -207,7 +213,12 @@ async function syncOneAttempt(
     staleCheckout = true;
     if (checkoutId) {
       const claimed = await prisma.listCheckout.findFirst({
-        where: { id: checkoutId, listId: input.listId, programId: input.programId, userId },
+        where: {
+          id: checkoutId,
+          listId: { in: [resolvedListId, input.listId] },
+          programId: input.programId,
+          userId,
+        },
         select: { id: true },
       });
       if (!claimed) checkoutId = null;
@@ -219,7 +230,7 @@ async function syncOneAttempt(
     const allowed = await prisma.programListVoter.findMany({
       where: {
         programId: input.programId,
-        listId: input.listId,
+        listId: resolvedListId,
         voterId: { in: people.map((p) => p.voterId) },
       },
       select: { voterId: true },
@@ -228,7 +239,7 @@ async function syncOneAttempt(
     if (!allowedIds.size) {
       const live = await prisma.listVoter.findMany({
         where: {
-          listId: input.listId,
+          listId: resolvedListId,
           voterId: { in: people.map((p) => p.voterId) },
         },
         select: { voterId: true },
@@ -250,7 +261,7 @@ async function syncOneAttempt(
     data: {
       clientAttemptId: input.clientAttemptId,
       programId: input.programId,
-      listId: input.listId,
+      listId: resolvedListId,
       householdId: input.householdId,
       checkoutId,
       userId,
