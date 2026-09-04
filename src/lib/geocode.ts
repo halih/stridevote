@@ -2,6 +2,7 @@ import "server-only";
 import { env } from "@/lib/env";
 import waSldu from "@/data/wa-sldu.json";
 import waCd from "@/data/wa-cd.json";
+import { downsamplePolyline } from "@/lib/geo";
 import {
   CENSUS_USER_AGENT,
   TIGER_LEGISLATIVE,
@@ -230,61 +231,7 @@ function geojsonToBoundary(geojson: { type: string; coordinates: unknown }): [nu
     .filter((r) => Array.isArray(r) && r.length >= 3)
     .sort((a, b) => b.length - a.length)[0];
   if (!outer) return null;
-  return downsample(ringToBoundary(outer), MAX_BOUNDARY_POINTS);
-}
-
-function perpendicularDistance(
-  point: [number, number],
-  start: [number, number],
-  end: [number, number],
-): number {
-  const [y, x] = point;
-  const [y1, x1] = start;
-  const [y2, x2] = end;
-  if (x1 === x2 && y1 === y2) return Math.hypot(x - x1, y - y1);
-  const numerator = Math.abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1);
-  return numerator / Math.hypot(y2 - y1, x2 - x1);
-}
-
-function simplifyRdp(
-  points: [number, number][],
-  tolerance: number,
-): [number, number][] {
-  if (points.length <= 2) return points;
-  let maxDistance = 0;
-  let splitAt = 0;
-  for (let i = 1; i < points.length - 1; i++) {
-    const distance = perpendicularDistance(
-      points[i],
-      points[0],
-      points[points.length - 1],
-    );
-    if (distance > maxDistance) {
-      maxDistance = distance;
-      splitAt = i;
-    }
-  }
-  if (maxDistance <= tolerance) return [points[0], points[points.length - 1]];
-  const left = simplifyRdp(points.slice(0, splitAt + 1), tolerance);
-  const right = simplifyRdp(points.slice(splitAt), tolerance);
-  return [...left.slice(0, -1), ...right];
-}
-
-function downsample(points: [number, number][], max: number): [number, number][] {
-  if (points.length <= max) return points;
-  let low = 0;
-  let high = 0.01;
-  let result = points;
-  for (let i = 0; i < 24; i++) {
-    const tolerance = (low + high) / 2;
-    const simplified = simplifyRdp(points, tolerance);
-    if (simplified.length > max) low = tolerance;
-    else {
-      high = tolerance;
-      result = simplified;
-    }
-  }
-  return result;
+  return downsamplePolyline(ringToBoundary(outer), MAX_BOUNDARY_POINTS);
 }
 
 function centroidOf(boundary: [number, number][]): { lat: number; lng: number } {

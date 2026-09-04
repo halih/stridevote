@@ -30,7 +30,7 @@ Remaining work from the post-canvass review. Check an item when you want it next
 ## Cleanup (leftover)
 
 - [ ] Wire or delete `getAttemptLeaderboard`; include `moved` in stats outcome counts
-- [ ] Deduplicate RDP/downsample helpers in `geocode.ts` vs `precinct-geometry.ts`
+- [x] Deduplicate RDP/downsample helpers in `geocode.ts` vs `precinct-geometry.ts`
 
 ## Later / not blocking a WA precinct field test
 
