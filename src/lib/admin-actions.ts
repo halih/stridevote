@@ -99,7 +99,6 @@ const profileSchema = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, "Color must be a hex value")
     .default("#185FA5"),
   tags: z.array(z.string().min(1)).default([]),
-  volunteers: z.number().int().min(0).default(0),
   centroidLat: z.number().nullable().optional(),
   centroidLng: z.number().nullable().optional(),
   regionType: z
@@ -143,7 +142,6 @@ export async function createCampaign(input: unknown): Promise<AdminResult> {
       iconUrl: d.iconUrl ?? null,
       color: d.color,
       tags: d.tags,
-      volunteers: d.volunteers,
       centroidLat: d.centroidLat ?? null,
       centroidLng: d.centroidLng ?? null,
       regionType: d.regionType ?? null,
@@ -204,7 +202,6 @@ export async function updateCampaignProfile(
       iconUrl: d.iconUrl ?? null,
       color: d.color,
       tags: d.tags,
-      volunteers: d.volunteers,
       pickupType: d.pickupType ?? null,
       pickupLabel: d.pickupLabel ?? null,
       pickupAddress: d.pickupAddress ?? null,

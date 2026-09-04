@@ -228,7 +228,6 @@ async function main() {
       district: "32nd Legislative District",
       tags: ["Housing Affordability", "Immigrant Rights", "Transit"],
       color: "#185FA5",
-      volunteers: 8,
       regionType: "legislative",
       regionName: "32",
       regionState: "WA",

@@ -111,7 +111,6 @@ model Campaign {
   color        String
   centroidLat  Float?
   centroidLng  Float?
-  volunteers   Int      @default(0)
   regionType   String? // "state" | "county" | "city" | "legislative" | "congressional"
   regionName   String?
   regionState  String?  @default("WA")

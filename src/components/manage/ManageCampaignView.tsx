@@ -414,7 +414,6 @@ function campaignToForm(view: CampaignAdminView): Partial<CampaignFormValues> {
     iconUrl: view.iconUrl ?? "",
     color: view.color,
     tags: view.tags.join(", "),
-    volunteers: String(view.volunteers),
     regionType: (view.regionType as CampaignFormValues["regionType"]) || "state",
     regionName: view.regionName ?? "",
     regionState: view.regionState ?? "WA",

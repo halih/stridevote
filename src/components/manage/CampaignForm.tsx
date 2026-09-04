@@ -22,7 +22,6 @@ export interface CampaignFormValues {
   iconUrl: string;
   color: string;
   tags: string;
-  volunteers: string;
   regionType: RegionType;
   regionName: string;
   regionState: string;
@@ -46,7 +45,6 @@ const EMPTY: CampaignFormValues = {
   iconUrl: "",
   color: "#185FA5",
   tags: "",
-  volunteers: "0",
   regionType: "state",
   regionName: "",
   regionState: "WA",
@@ -94,7 +92,6 @@ function toInput(v: CampaignFormValues, boundary: [number, number][] | null) {
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean),
-    volunteers: Number(v.volunteers) || 0,
     regionType: v.regionType,
     regionName:
       v.regionType === "state"

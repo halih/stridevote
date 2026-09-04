@@ -26,6 +26,7 @@ import {
   purgePacketIfSynced,
   syncOutbox,
 } from "@/lib/canvass/offline-store";
+import { orderFieldPacketFrom } from "@/lib/canvass/packet-order";
 import { DoorSheet } from "@/components/canvass/DoorSheet";
 import { ListCompleteSheet } from "@/components/canvass/ListCompleteSheet";
 import { MapHelp, type MapHelpItem } from "@/components/map/MapHelp";
@@ -74,6 +75,8 @@ export function WalkView({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const pendingDoorId = useRef<string | null>(null);
+  const gpsOrderedVersion = useRef<string | null>(null);
+  const walkStarted = useRef(false);
 
   const refreshPending = useCallback(async () => {
     try {
@@ -137,6 +140,17 @@ export function WalkView({
   useEffect(() => {
     void load(false);
   }, [load]);
+
+  useEffect(() => {
+    if (!packet || !location.you || gpsOrderedVersion.current === packet.version) {
+      return;
+    }
+    gpsOrderedVersion.current = packet.version;
+    if (walkStarted.current) return;
+    const ordered = orderFieldPacketFrom(packet, location.you);
+    setIndex(0);
+    setPacket(ordered);
+  }, [packet, location.you]);
 
   useEffect(() => {
     function onOnline() {
@@ -226,6 +240,7 @@ export function WalkView({
     people: SyncAttemptInput["people"];
   }) {
     if (!packet) return;
+    walkStarted.current = true;
     if (isPacketExpired(packet) && !navigator.onLine) {
       toast("Offline copy expired — connect to refresh before logging more doors.");
       return;
@@ -325,6 +340,7 @@ export function WalkView({
   }
 
   function focusDoor(door: FieldPacketDoor, openSheet = false) {
+    walkStarted.current = true;
     const idx = filteredDoors.findIndex((d) => d.householdId === door.householdId);
     if (idx >= 0) {
       setIndex(idx);
@@ -341,11 +357,13 @@ export function WalkView({
 
   function goNext() {
     if (!currentDoor || index >= filteredDoors.length - 1) return;
+    walkStarted.current = true;
     setIndex((i) => Math.min(filteredDoors.length - 1, i + 1));
   }
 
   function goPrevious() {
     if (index <= 0) return;
+    walkStarted.current = true;
     setIndex((i) => Math.max(0, i - 1));
   }
 
@@ -621,7 +639,10 @@ export function WalkView({
                     <button
                       type="button"
                       className="btn btn-primary btn-sm"
-                      onClick={() => setSheetDoor(currentDoor)}
+                      onClick={() => {
+                        walkStarted.current = true;
+                        setSheetDoor(currentDoor);
+                      }}
                     >
                       {currentDoor.current ? "Update result" : "Log result"}
                     </button>

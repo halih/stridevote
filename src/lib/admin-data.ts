@@ -96,7 +96,6 @@ export interface CampaignAdminView {
   iconUrl: string | null;
   color: string;
   tags: string[];
-  volunteers: number;
   centroidLat: number | null;
   centroidLng: number | null;
   regionType: string | null;
@@ -205,7 +204,6 @@ export async function getCampaignAdminView(
     iconUrl: campaign.iconUrl,
     color: campaign.color,
     tags: campaign.tags,
-    volunteers: campaign.volunteers,
     centroidLat: campaign.centroidLat,
     centroidLng: campaign.centroidLng,
     regionType: campaign.regionType,

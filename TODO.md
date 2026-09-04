@@ -20,10 +20,10 @@ Remaining work from the post-canvass review. Check an item when you want it next
 
 ## Product / UX for real walking
 
-- [ ] Start walk order from volunteer GPS when available (packet is still server-ordered today)
+- [x] Start walk order from volunteer GPS when available (packet is still server-ordered today)
 - [ ] Ungeocoded doors stay on precinct lists but are obvious on the walk (list-only, not missing)
 - [ ] Hide MiniVAN/Civibyte “create list” unless you are actually importing
-- [ ] Derive campaign volunteer count from memberships (drop the typed `volunteers` field)
+- [x] Derive campaign volunteer count from memberships (drop the typed `volunteers` field)
 - [ ] Partial precinct-batch failures — per-turf results, not “first error only”
 - [ ] Turf overlap warning for drawn polygons
 

@@ -90,6 +90,11 @@ export async function getCampaignBoard(user: User): Promise<CampaignBoard> {
     include: {
       contacts: { take: 1 },
       memberships: { where: { userId: user.id } },
+      _count: {
+        select: {
+          memberships: { where: { status: "active" } },
+        },
+      },
       listLinks: {
         where: {
           OR: [
@@ -171,7 +176,7 @@ export async function getCampaignBoard(user: User): Promise<CampaignBoard> {
       distanceMi,
       joinedAt: membership?.joinedAt ? formatDate(membership.joinedAt) : null,
       requestedAt: membership?.requestedAt ? formatDate(membership.requestedAt) : null,
-      volunteers: c.volunteers,
+      volunteers: c._count.memberships,
       listsTotal,
       listsAvailable,
       doorsRemaining,
