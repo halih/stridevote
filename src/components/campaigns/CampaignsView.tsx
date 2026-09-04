@@ -7,6 +7,7 @@ import type { CampaignBoard, CampaignVM } from "@/lib/data";
 import { Icon } from "@/components/Icon";
 import { useToast } from "@/components/Toast";
 import { requestJoinCampaign } from "@/lib/actions";
+import { useVolunteerLocation } from "@/lib/use-volunteer-location";
 import { CampaignSheet } from "./CampaignSheet";
 import { CampaignIcon } from "./CampaignIcon";
 import { fmt } from "@/lib/format";
@@ -16,15 +17,18 @@ const RADII = [1, 5, 10, 25];
 export function CampaignsView({
   board,
   hasLocation,
+  home,
 }: {
   board: CampaignBoard;
   hasLocation: boolean;
+  home: { lat: number; lng: number } | null;
 }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [radius, setRadius] = useState(5);
   const [sheet, setSheet] = useState<{ campaign: CampaignVM; focusContact: boolean } | null>(null);
+  const location = useVolunteerLocation(home);
 
   const discover = board.discover.filter(
     (c) => c.distanceMi == null || c.distanceMi <= radius,
@@ -219,6 +223,8 @@ export function CampaignsView({
         onClose={() => setSheet(null)}
         onJoin={join}
         joinPending={pending}
+        home={location.home}
+        you={location.you}
       />
     </>
   );

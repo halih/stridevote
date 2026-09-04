@@ -172,10 +172,18 @@ async function main() {
   );
 
   console.log("Resetting StrideVote seed data…");
+  await prisma.canvassPersonResponse.deleteMany();
+  await prisma.canvassAttempt.deleteMany();
+  await prisma.programListVoter.deleteMany();
+  await prisma.programListHousehold.deleteMany();
   await prisma.listWatch.deleteMany();
   await prisma.listCheckout.deleteMany();
   await prisma.listCampaign.deleteMany();
+  await prisma.listVoter.deleteMany();
+  await prisma.listHousehold.deleteMany();
   await prisma.list.deleteMany();
+  await prisma.canvassProgram.deleteMany();
+  await prisma.savedVoterFilter.deleteMany();
   await prisma.campaignVoter.deleteMany();
   // Keep imported VRDB rows; they are re-linked to the demo campaign below.
   await prisma.campaignMembership.deleteMany();
@@ -242,8 +250,33 @@ async function main() {
           },
         ],
       },
+      programs: {
+        create: [
+          {
+            name: "2026 Primary",
+            status: "active",
+            script: "Hi, I'm volunteering for Count Binface. Can I leave you some information?",
+            questions: [
+              {
+                id: "support",
+                type: "support",
+                label: "Support for Binface",
+                required: false,
+              },
+              {
+                id: "volunteer",
+                type: "yes_no",
+                label: "Willing to volunteer?",
+              },
+            ],
+          },
+        ],
+      },
     },
+    include: { programs: true },
   });
+
+  const program = campaign.programs[0];
 
   await prisma.campaignMembership.create({
     data: {
@@ -290,7 +323,9 @@ async function main() {
           center: list.center,
           ...(list.source === "minivan" ? { listNumber: list.sourceRef } : { url: list.sourceRef }),
         },
-        campaignLinks: { create: [{ campaignId: campaign.id }] },
+        campaignLinks: {
+          create: [{ campaignId: campaign.id, programId: program.id }],
+        },
       },
     });
 
@@ -298,6 +333,7 @@ async function main() {
       await prisma.listCheckout.create({
         data: {
           listId: created.id,
+          programId: program.id,
           userId: owners[list.checkout.by],
           status: "active",
           progressDone: list.checkout.progressDone,

@@ -11,7 +11,16 @@ import {
   censusStatusFromMatch,
   parseCensusBatchResponse,
 } from "./geocode-census";
-import { canPersistMapboxCoords } from "./geocode-mapbox";
+import {
+  canPersistMapboxCoords,
+  geocodeMapboxForwardBatch,
+  resultFromMapboxFeature,
+} from "./geocode-mapbox";
+import {
+  packetForOfflineCache,
+  persistableDoorCoords,
+  resolveDoorCoords,
+} from "./canvass/door-coords";
 import { pointInPolygon } from "./geo";
 
 describe("voter filter serialization", () => {
@@ -139,9 +148,93 @@ describe("census batch parsing", () => {
 });
 
 describe("mapbox storage terms", () => {
-  it("only allows permanent results to persist", () => {
-    assert.equal(canPersistMapboxCoords(true), true);
-    assert.equal(canPersistMapboxCoords(false), false);
+  it("never persists Mapbox results (permanent geocoding disabled)", () => {
+    assert.equal(canPersistMapboxCoords(), false);
+  });
+
+  it("uses session Mapbox without replacing stored or census stable coords", () => {
+    const session = resolveDoorCoords({
+      mapboxLat: null,
+      mapboxLng: null,
+      censusLat: 47.6,
+      censusLng: -122.3,
+      session: { lat: 47.61, lng: -122.33 },
+    });
+    assert.equal(session.coordSource, "session-mapbox");
+    assert.equal(session.lat, 47.61);
+    assert.equal(session.stableLat, 47.6);
+    const stored = resolveDoorCoords({
+      mapboxLat: 47.7,
+      mapboxLng: -122.4,
+      censusLat: 47.6,
+      censusLng: -122.3,
+      session: { lat: 1, lng: 2 },
+    });
+    assert.equal(stored.coordSource, "stored-mapbox");
+    assert.equal(stored.lat, 47.7);
+  });
+
+  it("strips session Mapbox coords before durable cache", () => {
+    const door = persistableDoorCoords(
+      resolveDoorCoords({
+        mapboxLat: null,
+        mapboxLng: null,
+        censusLat: 47.6,
+        censusLng: -122.3,
+        session: { lat: 47.61, lng: -122.33 },
+      }),
+    );
+    assert.equal(door.coordSource, "census");
+    assert.equal(door.lat, 47.6);
+    const packet = packetForOfflineCache({
+      doors: [
+        resolveDoorCoords({
+          mapboxLat: null,
+          mapboxLng: null,
+          censusLat: 47.6,
+          censusLng: -122.3,
+          session: { lat: 47.61, lng: -122.33 },
+        }),
+      ],
+    });
+    assert.equal(packet.doors[0]?.coordSource, "census");
+  });
+
+  it("parses a Mapbox feature and batch response", async () => {
+    const parsed = resultFromMapboxFeature({
+      geometry: { coordinates: [-122.33, 47.61] },
+      properties: { full_address: "1 Main St" },
+      relevance: 0.9,
+    });
+    assert.equal(parsed?.lat, 47.61);
+
+    let requested: string | undefined;
+    const fetchImpl: typeof fetch = async (input) => {
+      requested = String(input);
+      return new Response(
+        JSON.stringify({
+          batch: [
+            {
+              features: [
+                { geometry: { coordinates: [-122.3, 47.6] }, properties: {} },
+              ],
+            },
+            { features: [] },
+          ],
+        }),
+        { status: 200 },
+      );
+    };
+    const results = await geocodeMapboxForwardBatch(
+      [
+        { addressLine: "1 Main", city: "Seattle", state: "WA", postalCode: "98101" },
+        { addressLine: "nope", city: "Seattle", state: "WA", postalCode: "98101" },
+      ],
+      { token: "pk.test", fetchImpl },
+    );
+    assert.match(requested ?? "", /permanent=false/);
+    assert.equal(results[0]?.lat, 47.6);
+    assert.equal(results[1], null);
   });
 });
 

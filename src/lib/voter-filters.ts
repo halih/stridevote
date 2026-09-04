@@ -12,6 +12,14 @@ export const voterFiltersSchema = z.object({
   likelyGeneral: z.string().optional(),
   newVoter: z.string().optional(),
   noApartments: z.string().optional(),
+  /** Active canvass program / wave used for canvass filters + history. */
+  programId: z.string().optional(),
+  /** Include voters at doors with any current result in the program. */
+  canvassed: z.string().optional(),
+  /** Exclude voters at doors with any current result in the program. */
+  excludeCanvassed: z.string().optional(),
+  /** Exclude voters at doors whose current result is inaccessible. */
+  excludeInaccessible: z.string().optional(),
   page: z.string().optional(),
 });
 
@@ -19,6 +27,12 @@ export type VoterFilters = z.infer<typeof voterFiltersSchema>;
 
 /** Filters persisted on SavedVoterFilter — page is never stored. */
 export type PersistableVoterFilters = Omit<VoterFilters, "page">;
+
+/** Household ids derived from current program attempts (door-level). */
+export type CanvassAudienceIds = {
+  canvassedHouseholdIds: readonly string[];
+  inaccessibleHouseholdIds: readonly string[];
+};
 
 const FILTER_KEYS = [
   "query",
@@ -31,6 +45,10 @@ const FILTER_KEYS = [
   "likelyGeneral",
   "newVoter",
   "noApartments",
+  "programId",
+  "canvassed",
+  "excludeCanvassed",
+  "excludeInaccessible",
 ] as const;
 
 function positiveInt(value: string | undefined): number | null {
@@ -68,6 +86,14 @@ export function filtersAreActive(filters: VoterFilters): boolean {
   return Object.keys(cleaned).length > 0;
 }
 
+export function needsCanvassAudience(filters: VoterFilters): boolean {
+  return (
+    filters.canvassed === "1" ||
+    filters.excludeCanvassed === "1" ||
+    filters.excludeInaccessible === "1"
+  );
+}
+
 export function filtersToSearchParams(filters: VoterFilters): URLSearchParams {
   const params = new URLSearchParams();
   const cleaned = sanitizeVoterFilters(filters);
@@ -94,6 +120,10 @@ export function searchParamsToFilters(
     likelyGeneral: one(raw.likelyGeneral),
     newVoter: one(raw.newVoter),
     noApartments: one(raw.noApartments),
+    programId: one(raw.programId),
+    canvassed: one(raw.canvassed),
+    excludeCanvassed: one(raw.excludeCanvassed),
+    excludeInaccessible: one(raw.excludeInaccessible),
     page: one(raw.page),
   });
 }
@@ -118,10 +148,18 @@ function apartmentResidenceWhere(): Prisma.VoterWhereInput {
   };
 }
 
+function atHouseholds(ids: readonly string[]): Prisma.VoterWhereInput {
+  if (!ids.length) return { id: { in: [] } };
+  return {
+    householdLinks: { some: { householdId: { in: [...ids] } } },
+  };
+}
+
 export function buildVoterWhere(
   campaignId: string,
   filters: VoterFilters,
   now = new Date(),
+  canvass: CanvassAudienceIds | null = null,
 ): { where: Prisma.VoterWhereInput; filtered: boolean; page: number } {
   const query = filters.query?.trim();
   const minAge = positiveInt(filters.minAge);
@@ -146,6 +184,9 @@ export function buildVoterWhere(
   if (filters.likelyGeneral === "1") audience.push({ likelyGeneral: true });
   if (filters.newVoter === "1") {
     audience.push({ registrationDate: { gte: registeredAfter } });
+  }
+  if (filters.canvassed === "1") {
+    audience.push(atHouseholds(canvass?.canvassedHouseholdIds ?? []));
   }
 
   const where: Prisma.VoterWhereInput = {
@@ -173,6 +214,18 @@ export function buildVoterWhere(
       ...(votedOn ? [{ history: { some: { electionDate: votedOn } } }] : []),
       ...(audience.length ? [{ OR: audience }] : []),
       ...(filters.noApartments === "1" ? [{ NOT: apartmentResidenceWhere() }] : []),
+      ...(filters.excludeCanvassed === "1" &&
+      (canvass?.canvassedHouseholdIds.length ?? 0) > 0
+        ? [{ NOT: atHouseholds(canvass!.canvassedHouseholdIds) }]
+        : []),
+      ...(filters.excludeInaccessible === "1" &&
+      (canvass?.inaccessibleHouseholdIds.length ?? 0) > 0
+        ? [{ NOT: atHouseholds(canvass!.inaccessibleHouseholdIds) }]
+        : []),
+      // Canvass include/exclude without audience data should match nothing / no-op.
+      ...(filters.canvassed === "1" && !canvass
+        ? [{ id: { in: [] } }]
+        : []),
       ...(minAge != null || maxAge != null
         ? [
             {

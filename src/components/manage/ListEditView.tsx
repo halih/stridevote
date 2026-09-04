@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ListEditView as ListEditData } from "@/lib/admin-data";
 import { useToast } from "@/components/Toast";
 import { Map } from "@/components/map/Map";
+import { MapHelp, type MapHelpItem } from "@/components/map/MapHelp";
 import { deleteList, setListCampaigns, updateList } from "@/lib/admin-actions";
+import { doorPinColor, DOOR_PIN_COLORS } from "@/lib/canvass/outcomes";
 import { sourceLabel } from "@/lib/format";
 
 // Doors render two per row, so keep the page a whole number of rows.
@@ -32,14 +34,39 @@ export function ListEditView({ list }: { list: ListEditData }) {
           {
             lat: door.lat,
             lng: door.lng,
-            color: "#2563eb",
+            color: doorPinColor(door.outcome),
             title: `${door.address} · ${door.voters.length} voter${
               door.voters.length === 1 ? "" : "s"
-            }`,
+            }${door.latestOutcome ? ` · ${door.latestOutcome}` : ""}`,
           },
         ]
       : [],
   );
+
+  const mapHelpItems = useMemo((): MapHelpItem[] => {
+    const items: MapHelpItem[] = [
+      {
+        text: `${mapped.length} of ${list.doorsStored} doors mapped`,
+      },
+    ];
+    if (list.doors.some((d) => d.outcome === "contact")) {
+      items.push({ color: DOOR_PIN_COLORS.talked, text: "Talked" });
+    }
+    if (list.doors.some((d) => d.outcome === "lit")) {
+      items.push({ color: DOOR_PIN_COLORS.lit, text: "Lit drop" });
+    }
+    if (
+      list.doors.some(
+        (d) => d.outcome && d.outcome !== "contact" && d.outcome !== "lit",
+      )
+    ) {
+      items.push({ color: DOOR_PIN_COLORS.other, text: "Other result" });
+    }
+    if (list.doors.some((d) => !d.outcome)) {
+      items.push({ color: DOOR_PIN_COLORS.remaining, text: "Not visited" });
+    }
+    return items;
+  }, [list.doors, list.doorsStored, mapped.length]);
 
   function toggleCampaign(id: string) {
     setLinked((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
@@ -139,19 +166,22 @@ export function ListEditView({ list }: { list: ListEditData }) {
           <span className="eyebrow">Doors and voters</span>
           <span className="section-count">
             {list.doorsStored} doors · {list.voterCount} voters
+            {list.programName ? ` · ${list.programName}` : ""}
           </span>
         </div>
         {mapped.length || list.boundary?.length ? (
-          <Map
-            aspectRatio={2.2}
-            polygons={
-              list.boundary?.length
-                ? [{ points: list.boundary, color: "#2563eb", fillOpacity: 0.08 }]
-                : []
-            }
-            markers={mapped}
-            caption={`${mapped.length} of ${list.doorsStored} doors mapped`}
-          />
+          <div className="sheet-map admin-list-map">
+            <Map
+              aspectRatio={2.2}
+              polygons={
+                list.boundary?.length
+                  ? [{ points: list.boundary, color: "#2563eb", fillOpacity: 0.08 }]
+                  : []
+              }
+              markers={mapped}
+            />
+            <MapHelp items={mapHelpItems} />
+          </div>
         ) : null}
         {pageDoors.length ? (
           <div className="list-door-grid">
@@ -163,6 +193,7 @@ export function ListEditView({ list }: { list: ListEditData }) {
                     <h3>{door.address}</h3>
                     <p>
                       {door.voters.length} voter{door.voters.length === 1 ? "" : "s"}
+                      {door.latestOutcome ? ` · ${door.latestOutcome}` : ""}
                     </p>
                   </div>
                 </div>

@@ -23,11 +23,15 @@ import {
   previewTurfPrecinct,
   type ListSourceMode,
 } from "@/lib/list-generation";
-import { mapboxToken } from "@/lib/geocode-mapbox";
 import {
   sanitizeVoterFilters,
   type VoterFilters,
 } from "@/lib/voter-filters";
+import {
+  ensureActiveProgram,
+  snapshotListIntoProgram,
+} from "@/lib/canvass/programs";
+import { programQuestionSchema } from "@/lib/canvass/outcomes";
 
 export interface AdminResult {
   ok: boolean;
@@ -134,7 +138,7 @@ export async function createCampaign(input: unknown): Promise<AdminResult> {
     Boolean(await prisma.campaign.findUnique({ where: { slug: s } })),
   );
 
-  await prisma.campaign.create({
+  const campaign = await prisma.campaign.create({
     data: {
       slug,
       name: d.name,
@@ -173,11 +177,14 @@ export async function createCampaign(input: unknown): Promise<AdminResult> {
           { userId: user.id, status: "active", roles: ["admin"], joinedAt: new Date() },
         ],
       },
+      programs: {
+        create: [{ name: "Default", status: "active", questions: [] }],
+      },
     },
   });
 
-  revalidateCampaign(slug);
-  return { ok: true, message: `Created ${d.name}`, slug };
+  revalidateCampaign(campaign.slug);
+  return { ok: true, message: `Created ${d.name}`, slug: campaign.slug };
 }
 
 export async function updateCampaignProfile(
@@ -488,10 +495,10 @@ const turfSchema = z.object({
   boundary: boundarySchema,
   visibility: turfVisibilitySchema.default("draft"),
   assignedUserId: z.string().nullable().optional(),
+  programId: z.string().min(1, "Choose a wave"),
   voterSource: listSourceModeSchema.default("all"),
   savedFilterId: z.string().nullable().optional(),
   precinct: precinctRefSchema.nullable().optional(),
-  confirmMapbox: z.boolean().optional(),
   generateVoters: z.boolean().default(true),
 });
 
@@ -506,6 +513,7 @@ const precinctTurfBatchSchema = z.object({
   precincts: z.array(precinctRefSchema).min(2).max(100),
   visibility: turfVisibilitySchema.default("draft"),
   assignedUserId: z.string().nullable().optional(),
+  programId: z.string().min(1, "Choose a wave"),
   voterSource: listSourceModeSchema.default("all"),
   savedFilterId: z.string().nullable().optional(),
 });
@@ -520,7 +528,6 @@ const generateListSchema = z.object({
   mode: listSourceModeSchema,
   filters: z.record(z.string()).optional(),
   savedFilterId: z.string().nullable().optional(),
-  confirmMapbox: z.boolean().optional(),
 });
 
 async function validateTurfAssignment(
@@ -551,16 +558,23 @@ async function validateTurfAssignment(
  */
 async function checkOutToAssignee(
   listId: string,
+  programId: string,
   userId: string,
   doorsCount: number,
 ): Promise<void> {
   const held = await prisma.listCheckout.findFirst({
-    where: { listId, userId, status: "active" },
+    where: { listId, programId, userId, status: "active" },
     select: { id: true },
   });
   if (!held) {
     await prisma.listCheckout.create({
-      data: { listId, userId, status: "active", progressTotal: doorsCount },
+      data: {
+        listId,
+        programId,
+        userId,
+        status: "active",
+        progressTotal: doorsCount,
+      },
     });
   }
   await prisma.listWatch.deleteMany({ where: { listId, userId } });
@@ -668,6 +682,12 @@ export async function createTurf(
 
   if (data.generateVoters) {
     try {
+      const program = await prisma.canvassProgram.findFirst({
+        where: { id: data.programId, campaignId },
+        select: { id: true },
+      });
+      if (!program) return fail("Choose a valid wave for this campaign.");
+
       const generated = await generateHouseholdList({
         campaignId,
         name: data.name,
@@ -675,19 +695,23 @@ export async function createTurf(
         savedFilterId: data.savedFilterId,
         boundary: data.boundary,
         precinct: data.precinct ?? null,
-        confirmMapbox: data.confirmMapbox ?? false,
+        programId: program.id,
       });
       await prisma.listCampaign.updateMany({
-        where: { listId: generated.listId, campaignId },
+        where: { listId: generated.listId, campaignId, programId: program.id },
         data: {
           visibility: data.visibility,
           assignedUserId:
             data.visibility === "assigned" ? data.assignedUserId : null,
         },
       });
+      if (data.visibility !== "draft") {
+        await snapshotListIntoProgram(program.id, generated.listId);
+      }
       if (data.visibility === "assigned" && data.assignedUserId) {
         await checkOutToAssignee(
           generated.listId,
+          program.id,
           data.assignedUserId,
           generated.doorsCount,
         );
@@ -707,6 +731,11 @@ export async function createTurf(
     }
   }
 
+  const program = await prisma.canvassProgram.findFirst({
+    where: { id: data.programId, campaignId },
+    select: { id: true },
+  });
+  if (!program) return fail("Choose a valid wave for this campaign.");
   const centroid = polygonCentroid(data.boundary);
   const slug = await uniqueSlug(slugify(data.name), async (value) =>
     Boolean(await prisma.list.findUnique({ where: { slug: value } })),
@@ -724,6 +753,7 @@ export async function createTurf(
         create: [
           {
             campaignId,
+            programId: program.id,
             visibility: data.visibility,
             assignedUserId:
               data.visibility === "assigned" ? data.assignedUserId : null,
@@ -733,8 +763,17 @@ export async function createTurf(
     },
   });
 
+  if (data.visibility !== "draft") {
+    await snapshotListIntoProgram(program.id, list.id);
+  }
+
   if (data.visibility === "assigned" && data.assignedUserId) {
-    await checkOutToAssignee(list.id, data.assignedUserId, list.doorsCount);
+    await checkOutToAssignee(
+      list.id,
+      program.id,
+      data.assignedUserId,
+      list.doorsCount,
+    );
   }
 
   revalidateCampaign(campaign.slug);
@@ -784,6 +823,7 @@ export async function createPrecinctTurfs(
       boundary: precinct.boundary,
       visibility: data.visibility,
       assignedUserId: data.assignedUserId,
+      programId: data.programId,
       voterSource: data.voterSource,
       savedFilterId: data.savedFilterId,
       precinct: { countyCode: precinct.countyCode, code: precinct.code },
@@ -921,14 +961,9 @@ export async function previewGeneratedList(
       filters: sanitizeVoterFilters(parsed.data.filters ?? {}) as VoterFilters,
       savedFilterId: parsed.data.savedFilterId,
     });
-    const mapboxNote = mapboxToken()
-      ? preview.mapboxNeeded
-        ? ` Mapbox would refine ${preview.mapboxNeeded} door(s) (${preview.mapboxReusable} already stored).`
-        : " All doors already have Mapbox coords."
-      : " MAPBOX_ACCESS_TOKEN is unset; Census coords only.";
     return {
       ok: true,
-      message: `${preview.households} doors / ${preview.expandedVoters} voters from ${preview.seedVoters} matches.${mapboxNote}`,
+      message: `${preview.households} doors / ${preview.expandedVoters} voters from ${preview.seedVoters} matches.`,
       preview,
     };
   } catch (err) {
@@ -957,7 +992,6 @@ export async function generateListFromVoters(
       mode: parsed.data.mode as ListSourceMode,
       filters: sanitizeVoterFilters(parsed.data.filters ?? {}),
       savedFilterId: parsed.data.savedFilterId,
-      confirmMapbox: parsed.data.confirmMapbox ?? false,
     });
     revalidateCampaign(campaign.slug);
     return {
@@ -976,6 +1010,7 @@ export async function setTurfAccess(
   listId: string,
   visibility: unknown,
   assignedUserId?: string | null,
+  programId?: string | null,
 ): Promise<AdminResult> {
   const user = await getSessionUser();
   if (!user) return fail("Please sign in.");
@@ -990,21 +1025,29 @@ export async function setTurfAccess(
   );
   if (assignmentError) return fail(assignmentError);
 
+  const resolvedProgramId =
+    programId ?? (await ensureActiveProgram(campaignId)).id;
   const link = await prisma.listCampaign.findUnique({
-    where: { listId_campaignId: { listId, campaignId } },
+    where: {
+      listId_campaignId_programId: {
+        listId,
+        campaignId,
+        programId: resolvedProgramId,
+      },
+    },
     include: {
       campaign: true,
       list: {
         include: {
           checkouts: {
-            where: { status: "active" },
+            where: { status: "active", programId: resolvedProgramId },
             select: { userId: true },
           },
         },
       },
     },
   });
-  if (!link) return fail("Turf not found in this campaign.");
+  if (!link) return fail("Turf not found in this wave.");
   const activeCheckout = link.list.checkouts[0];
   if (
     activeCheckout &&
@@ -1024,9 +1067,18 @@ export async function setTurfAccess(
     },
   });
 
+  if (parsedVisibility.data !== "draft") {
+    await snapshotListIntoProgram(resolvedProgramId, listId);
+  }
+
   const assigned = parsedVisibility.data === "assigned" && assignedUserId;
   if (assigned) {
-    await checkOutToAssignee(listId, assignedUserId, link.list.doorsCount);
+    await checkOutToAssignee(
+      listId,
+      resolvedProgramId,
+      assignedUserId,
+      link.list.doorsCount,
+    );
   }
 
   revalidateCampaign(link.campaign.slug);
@@ -1050,6 +1102,7 @@ export async function createList(
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
   const d = parsed.data;
 
+  const program = await ensureActiveProgram(campaignId);
   const slug = await uniqueSlug(slugify(d.name), async (s) =>
     Boolean(await prisma.list.findUnique({ where: { slug: s } })),
   );
@@ -1061,7 +1114,9 @@ export async function createList(
       source: d.source,
       sourceRef: d.sourceRef || null,
       doorsCount: d.doorsCount,
-      campaignLinks: { create: [{ campaignId }] },
+      campaignLinks: {
+        create: [{ campaignId, programId: program.id }],
+      },
     },
   });
 
@@ -1117,17 +1172,141 @@ export async function setListCampaigns(
     if (!(await can(user, id, "lists:manage"))) return fail("Not allowed for a selected campaign.");
   }
 
-  await prisma.$transaction([
-    prisma.listCampaign.deleteMany({ where: { listId } }),
-    prisma.listCampaign.createMany({
-      data: campaignIds.map((campaignId) => ({ listId, campaignId })),
-      skipDuplicates: true,
-    }),
-  ]);
+  // Preserve existing program links where possible; recreate against each
+  // campaign's active program.
+  const existing = await prisma.listCampaign.findMany({
+    where: { listId },
+    select: {
+      campaignId: true,
+      programId: true,
+      visibility: true,
+      assignedUserId: true,
+    },
+  });
+  const byCampaign = new Map(existing.map((row) => [row.campaignId, row]));
+
+  await prisma.listCampaign.deleteMany({ where: { listId } });
+
+  for (const campaignId of campaignIds) {
+    const program = await ensureActiveProgram(campaignId);
+    const prev = byCampaign.get(campaignId);
+    await prisma.listCampaign.create({
+      data: {
+        listId,
+        campaignId,
+        programId: program.id,
+        visibility: prev?.visibility ?? "volunteers",
+        assignedUserId: prev?.assignedUserId ?? null,
+      },
+    });
+    if ((prev?.visibility ?? "volunteers") !== "draft") {
+      await snapshotListIntoProgram(program.id, listId);
+    }
+  }
 
   revalidatePath("/admin");
   revalidatePath("/canvass");
   return { ok: true, message: "List links updated" };
+}
+
+const programSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  status: z.enum(["draft", "active", "closed"]),
+  script: z.string().max(4000).nullable().optional(),
+  questions: z.array(z.unknown()).max(40).optional(),
+  startsAt: z.string().datetime().nullable().optional(),
+  endsAt: z.string().datetime().nullable().optional(),
+});
+
+export async function createProgram(
+  campaignId: string,
+  input: unknown,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
+
+  const parsed = programSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid wave");
+
+  const questions = (parsed.data.questions ?? []).flatMap((q) => {
+    const result = programQuestionSchema.safeParse(q);
+    return result.success ? [result.data] : [];
+  });
+
+  try {
+    if (parsed.data.status === "active") {
+      await prisma.canvassProgram.updateMany({
+        where: { campaignId, status: "active" },
+        data: { status: "closed" },
+      });
+    }
+    const row = await prisma.canvassProgram.create({
+      data: {
+        campaignId,
+        name: parsed.data.name,
+        status: parsed.data.status,
+        script: parsed.data.script ?? null,
+        questions,
+        startsAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : null,
+        endsAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : null,
+      },
+    });
+    const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+    revalidateCampaign(campaign?.slug);
+    return { ok: true, message: `Created wave ${row.name}`, id: row.id };
+  } catch {
+    return fail("Could not create wave (duplicate name?).");
+  }
+}
+
+export async function updateProgram(
+  programId: string,
+  input: unknown,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+
+  const existing = await prisma.canvassProgram.findUnique({ where: { id: programId } });
+  if (!existing) return fail("Wave not found.");
+  if (!(await can(user, existing.campaignId, "lists:manage"))) return fail("Not allowed.");
+
+  const parsed = programSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid wave");
+
+  const questions = (parsed.data.questions ?? []).flatMap((q) => {
+    const result = programQuestionSchema.safeParse(q);
+    return result.success ? [result.data] : [];
+  });
+
+  if (parsed.data.status === "active") {
+    await prisma.canvassProgram.updateMany({
+      where: {
+        campaignId: existing.campaignId,
+        status: "active",
+        id: { not: programId },
+      },
+      data: { status: "closed" },
+    });
+  }
+
+  await prisma.canvassProgram.update({
+    where: { id: programId },
+    data: {
+      name: parsed.data.name,
+      status: parsed.data.status,
+      script: parsed.data.script ?? null,
+      questions,
+      startsAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : null,
+      endsAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : null,
+    },
+  });
+
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: existing.campaignId },
+  });
+  revalidateCampaign(campaign?.slug);
+  return { ok: true, message: "Wave updated" };
 }
 
 // Used by the Manage index redirect when a user administers exactly one campaign.

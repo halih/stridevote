@@ -44,6 +44,7 @@ model User {
   watches     ListWatch[]
   assignedTurfs ListCampaign[] @relation("AssignedTurfs")
   savedFilters  SavedVoterFilter[]
+  attempts    CanvassAttempt[]
 }
 
 model Account {
@@ -126,6 +127,8 @@ model Campaign {
   listLinks   ListCampaign[]
   voterLinks  CampaignVoter[]
   savedFilters SavedVoterFilter[]
+  programs    CanvassProgram[]
+  attempts    CanvassAttempt[]
 }
 
 model CampaignContact {
@@ -154,6 +157,32 @@ model CampaignMembership {
   @@unique([userId, campaignId])
 }
 
+// Named canvass pass under a campaign (e.g. "2026 Primary" vs "2026 General").
+// Lists are published into a program; attempts and checkouts are scoped to it.
+model CanvassProgram {
+  id         String    @id @default(cuid())
+  campaignId String
+  name       String
+  status     String    @default("draft") // "draft" | "active" | "closed"
+  startsAt   DateTime?
+  endsAt     DateTime?
+  script     String?
+  // ProgramQuestion[] — yes_no | single | multi | support | text
+  questions  Json      @default("[]")
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  campaign      Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  listLinks     ListCampaign[]
+  checkouts     ListCheckout[]
+  households    ProgramListHousehold[]
+  voters        ProgramListVoter[]
+  attempts      CanvassAttempt[]
+
+  @@unique([campaignId, name])
+  @@index([campaignId, status])
+}
+
 // ---- Lists (turf) sourced from external platforms ----
 model List {
   id           String  @id @default(cuid())
@@ -174,39 +203,134 @@ model List {
   watches       ListWatch[]
   households    ListHousehold[]
   voters        ListVoter[]
+  programHouseholds ProgramListHousehold[]
+  programVoters     ProgramListVoter[]
+  attempts          CanvassAttempt[]
 }
 
+// Per-program publish of a list into a campaign (visibility + assignee).
 model ListCampaign {
   id             String  @id @default(cuid())
   listId         String
   campaignId     String
+  programId      String
   visibility     String  @default("volunteers") // "volunteers" | "assigned" | "draft"
   assignedUserId String?
 
-  list         List     @relation(fields: [listId], references: [id], onDelete: Cascade)
-  campaign     Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  assignedUser User?    @relation("AssignedTurfs", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  list         List           @relation(fields: [listId], references: [id], onDelete: Cascade)
+  campaign     Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  program      CanvassProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  assignedUser User?          @relation("AssignedTurfs", fields: [assignedUserId], references: [id], onDelete: SetNull)
 
-  @@unique([listId, campaignId])
+  @@unique([listId, campaignId, programId])
   @@index([campaignId, visibility])
+  @@index([programId, visibility])
   @@index([assignedUserId])
 }
 
+// Exclusive active hold is per (listId, programId), not global on the list.
 model ListCheckout {
   id            String    @id @default(cuid())
   listId        String
+  programId     String
   userId        String
-  status        String    @default("active") // "active" | "released"
+  status        String    @default("active") // "active" | "released" | "completed"
   checkedOutAt  DateTime  @default(now())
   releasedAt    DateTime?
   progressDone  Int       @default(0)
   progressTotal Int       @default(0)
 
-  list List @relation(fields: [listId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  list    List           @relation(fields: [listId], references: [id], onDelete: Cascade)
+  program CanvassProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempts CanvassAttempt[]
 
-  @@index([listId, status])
+  @@index([listId, programId, status])
   @@index([userId, status])
+  @@index([programId, status])
+}
+
+// Frozen walk order for a list inside a program (survives later turf edits).
+model ProgramListHousehold {
+  id          String   @id @default(cuid())
+  programId   String
+  listId      String
+  householdId String
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  program   CanvassProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  list      List           @relation(fields: [listId], references: [id], onDelete: Cascade)
+  household Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, listId, householdId])
+  @@index([programId, listId, sortOrder])
+}
+
+model ProgramListVoter {
+  id          String   @id @default(cuid())
+  programId   String
+  listId      String
+  voterId     String
+  matchedSeed Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  program CanvassProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  list    List           @relation(fields: [listId], references: [id], onDelete: Cascade)
+  voter   Voter          @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, listId, voterId])
+  @@index([programId, listId])
+}
+
+// Append-only household knock. "Current" result = latest not superseded.
+model CanvassAttempt {
+  id                 String   @id @default(cuid())
+  clientAttemptId    String   @unique
+  programId          String
+  listId             String
+  householdId        String
+  checkoutId         String?
+  userId             String
+  campaignId         String
+  outcome            String // contact | no_answer | refused | lit | unsafe | inaccessible | moved
+  notes              String?
+  capturedAt         DateTime
+  supersedesClientId String?
+  staleCheckout      Boolean  @default(false)
+  packetVersion      String?
+  createdAt          DateTime @default(now())
+
+  program   CanvassProgram          @relation(fields: [programId], references: [id], onDelete: Cascade)
+  list      List                    @relation(fields: [listId], references: [id], onDelete: Cascade)
+  household Household               @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  checkout  ListCheckout?           @relation(fields: [checkoutId], references: [id], onDelete: SetNull)
+  user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign  Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  people    CanvassPersonResponse[]
+
+  @@index([programId, listId, householdId, capturedAt])
+  @@index([campaignId, programId, capturedAt])
+  @@index([userId, capturedAt])
+  @@index([checkoutId])
+  @@index([staleCheckout])
+  @@index([supersedesClientId])
+}
+
+model CanvassPersonResponse {
+  id         String  @id @default(cuid())
+  attemptId  String
+  voterId    String
+  outcome    String // talked | refused | moved | not_home
+  support    Int? // 1–5
+  answers    Json    @default("{}")
+  notes      String?
+
+  attempt CanvassAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  voter   Voter          @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, voterId])
+  @@index([voterId])
 }
 
 model ListWatch {
@@ -260,6 +384,8 @@ model Voter {
   history       VoterHistory[]
   householdLinks HouseholdVoter[]
   listLinks     ListVoter[]
+  programLinks  ProgramListVoter[]
+  personResponses CanvassPersonResponse[]
 
   @@index([lastName, firstName])
   @@index([precinctCode])
@@ -372,6 +498,8 @@ model Household {
 
   voters HouseholdVoter[]
   lists  ListHousehold[]
+  programLists ProgramListHousehold[]
+  attempts     CanvassAttempt[]
 
   @@index([geocodeStatus])
   @@index([censusLat, censusLng])

@@ -242,7 +242,10 @@ function summarizeFilters(filters: PersistableVoterFilters): string {
   if (filters.likelyPrimary === "1") parts.push("likely primary");
   if (filters.likelyGeneral === "1") parts.push("likely general");
   if (filters.newVoter === "1") parts.push("new voter");
+  if (filters.canvassed === "1") parts.push("canvassed");
   if (filters.noApartments === "1") parts.push("no apartments");
+  if (filters.excludeCanvassed === "1") parts.push("exclude canvassed");
+  if (filters.excludeInaccessible === "1") parts.push("exclude inaccessible");
   return parts.length ? parts.join(" · ") : "No criteria";
 }
 

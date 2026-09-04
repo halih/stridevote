@@ -14,11 +14,15 @@ export function CampaignSheet({
   onClose,
   onJoin,
   joinPending,
+  home,
+  you,
 }: {
   entry: { campaign: CampaignVM; focusContact: boolean } | null;
   onClose: () => void;
   onJoin: (c: CampaignVM) => void;
   joinPending: boolean;
+  home: { lat: number; lng: number } | null;
+  you: { lat: number; lng: number } | null;
 }) {
   const toast = useToast();
   const [msg, setMsg] = useState("");
@@ -52,16 +56,26 @@ export function CampaignSheet({
             <Map
               polygons={[{ points: c.boundary, color: c.color, fillOpacity: 0.16 }]}
               home={
-                c.centroidLat != null && c.homeInside != null
-                  ? undefined
+                home
+                  ? {
+                      ...home,
+                      inside: c.homeInside ?? undefined,
+                    }
                   : undefined
               }
+              you={you ?? undefined}
               caption={
-                c.homeInside == null
-                  ? "Campaign region"
-                  : c.homeInside
-                    ? "You're inside this campaign's region"
-                    : "You're outside this campaign's region"
+                [
+                  c.homeInside == null
+                    ? "Campaign region"
+                    : c.homeInside
+                      ? "Home is inside this region"
+                      : "Home is outside this region",
+                  you ? "blue = current" : null,
+                  home ? "dark = home" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
               }
             />
           ) : null}

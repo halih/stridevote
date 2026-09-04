@@ -52,6 +52,7 @@ export function CampaignTurfManager({
   turfs,
   volunteers,
   savedFilters,
+  waves,
 }: {
   campaignId: string;
   campaignName: string;
@@ -60,17 +61,20 @@ export function CampaignTurfManager({
   turfs: AdminListRow[];
   volunteers: MemberRow[];
   savedFilters: Array<{ id: string; name: string }>;
+  waves: Array<{ id: string; name: string; status: string }>;
 }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
+  const defaultWaveId =
+    waves.find((w) => w.status === "active")?.id ?? waves[0]?.id ?? "";
+  const [waveId, setWaveId] = useState(defaultWaveId);
   const [boundary, setBoundary] = useState<[number, number][] | null>(null);
   const [name, setName] = useState("");
   const [autoNamed, setAutoNamed] = useState(false);
   const [visibility, setVisibility] = useState<TurfVisibility>("draft");
   const [assignedUserId, setAssignedUserId] = useState("");
   const [source, setSource] = useState("all");
-  const [confirmMapbox, setConfirmMapbox] = useState(false);
   const [doorCount, setDoorCount] = useState<DoorCount | null>(null);
   const [estimating, setEstimating] = useState(false);
   const [resetKey, setResetKey] = useState(0);
@@ -79,6 +83,18 @@ export function CampaignTurfManager({
   const [precincts, setPrecincts] = useState<PrecinctOverlay[]>([]);
   const [precinctStatus, setPrecinctStatus] = useState<"loading" | "ready" | "error">("loading");
   const [selectedPrecinctIds, setSelectedPrecinctIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!waves.length) {
+      setWaveId("");
+      return;
+    }
+    if (!waves.some((w) => w.id === waveId)) {
+      setWaveId(
+        waves.find((w) => w.status === "active")?.id ?? waves[0]?.id ?? "",
+      );
+    }
+  }, [waves, waveId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,6 +212,10 @@ export function CampaignTurfManager({
   }
 
   function submit() {
+    if (!waveId) {
+      toast("Create a wave first, then select it here.");
+      return;
+    }
     if (!selectedPrecincts.length && !boundary) {
       toast("Select a precinct or draw a turf polygon first.");
       return;
@@ -209,6 +229,7 @@ export function CampaignTurfManager({
             })),
             visibility,
             assignedUserId: visibility === "assigned" ? assignedUserId : null,
+            programId: waveId,
             voterSource,
             savedFilterId: voterSource === "saved" ? savedFilterId : null,
           })
@@ -218,10 +239,10 @@ export function CampaignTurfManager({
             boundary,
             visibility,
             assignedUserId: visibility === "assigned" ? assignedUserId : null,
+            programId: waveId,
             voterSource,
             savedFilterId: voterSource === "saved" ? savedFilterId : null,
             precinct: precinctRef,
-            confirmMapbox,
             generateVoters: true,
           });
       toast(result.message);
@@ -230,7 +251,6 @@ export function CampaignTurfManager({
         setVisibility("draft");
         setAssignedUserId("");
         setSource("all");
-        setConfirmMapbox(false);
         setBoundary(null);
         setSelectedPrecinctIds([]);
         setMultiSelect(false);
@@ -241,7 +261,9 @@ export function CampaignTurfManager({
     });
   }
 
-  const mapTurfs = turfs
+  const waveTurfs = turfs.filter((turf) => turf.programId === waveId);
+
+  const mapTurfs = waveTurfs
     .filter(
       (turf): turf is AdminListRow & { boundary: [number, number][] } =>
         Boolean(turf.boundary?.length),
@@ -255,6 +277,16 @@ export function CampaignTurfManager({
     }));
 
   const counted = doorCount?.key === pendingKey ? doorCount : null;
+  const selectedWave = waves.find((w) => w.id === waveId);
+
+  if (!waves.length) {
+    return (
+      <div className="card empty-state">
+        Create a wave under Waves before cutting turf. Each turf belongs to one
+        wave (e.g. Primary or General).
+      </div>
+    );
+  }
 
   return (
     <>
@@ -354,6 +386,28 @@ export function CampaignTurfManager({
           </div>
 
           <div className="form">
+            <div className="form-field">
+              <label className="field-label" htmlFor="turf-wave">
+                Wave
+              </label>
+              <select
+                id="turf-wave"
+                className="field"
+                value={waveId}
+                onChange={(event) => setWaveId(event.target.value)}
+              >
+                {waves.map((wave) => (
+                  <option key={wave.id} value={wave.id}>
+                    {wave.name}
+                    {wave.status !== "active" ? ` (${wave.status})` : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="field-hint">
+                Turfs and results are scoped to this wave
+                {selectedWave ? ` — ${selectedWave.name}` : ""}.
+              </p>
+            </div>
             {mode === "precinct" ? (
               <>
               <label className="voter-confirm-mapbox">
@@ -489,16 +543,6 @@ export function CampaignTurfManager({
                 Door estimates are skipped for batch creation. Each precinct is saved as a separate turf.
               </p>
             )}
-            {mode === "draw" ? (
-              <label className="voter-confirm-mapbox">
-                <input
-                  type="checkbox"
-                  checked={confirmMapbox}
-                  onChange={(event) => setConfirmMapbox(event.target.checked)}
-                />
-                Confirm Mapbox refinement for doors missing stored coords
-              </label>
-            ) : null}
             <TurfAccessFields
               visibility={visibility}
               assignedUserId={assignedUserId}
@@ -511,6 +555,7 @@ export function CampaignTurfManager({
               className="btn btn-primary btn-block"
               disabled={
                 pending ||
+                !waveId ||
                 (!boundary && !isBatch) ||
                 (!isBatch && !name.trim()) ||
                 (visibility === "assigned" && !assignedUserId)
@@ -531,12 +576,14 @@ export function CampaignTurfManager({
 
       <section className="turf-existing">
         <div className="section-head">
-          <span className="eyebrow">Cut turfs</span>
-          <span className="section-sub">{turfs.length}</span>
+          <span className="eyebrow">
+            Cut turfs{selectedWave ? ` · ${selectedWave.name}` : ""}
+          </span>
+          <span className="section-sub">{waveTurfs.length}</span>
         </div>
-        {turfs.length ? (
+        {waveTurfs.length ? (
           <div className="turf-access-grid">
-            {turfs.map((turf) => (
+            {waveTurfs.map((turf) => (
               <TurfAccessCard
                 key={turf.id}
                 campaignId={campaignId}
@@ -546,7 +593,9 @@ export function CampaignTurfManager({
             ))}
           </div>
         ) : (
-          <div className="card empty-state">No turfs have been cut for this campaign yet.</div>
+          <div className="card empty-state">
+            No turfs in this wave yet. Select a precinct or draw one above.
+          </div>
         )}
       </section>
     </>

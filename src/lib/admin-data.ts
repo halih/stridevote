@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { can, getManageableCampaignIds, isPlatformAdmin } from "@/lib/authz";
 import { initialsFor } from "@/lib/session";
 import type { User } from "@/generated/prisma";
+import { parseProgramQuestions } from "@/lib/canvass/programs";
+import { countClosedDoors } from "@/lib/canvass/progress";
 
 export interface ManageCampaignCard {
   id: string;
@@ -76,6 +78,10 @@ export interface AdminListRow {
   doorsCanvassed: number;
   checkedOutBy: string | null;
   activeCheckouts: number;
+  /** Fully canvassed and released as completed for this program. */
+  completed: boolean;
+  programId: string;
+  programName: string;
 }
 
 export type TurfVisibility = "volunteers" | "assigned" | "draft";
@@ -107,6 +113,15 @@ export interface CampaignAdminView {
   pending: MemberRow[];
   lists: AdminListRow[];
   savedFilters: Array<{ id: string; name: string }>;
+  programs: Array<{
+    id: string;
+    name: string;
+    status: string;
+    script: string | null;
+    questions: import("@/lib/canvass/outcomes").ProgramQuestion[];
+    listCount: number;
+    attemptCount: number;
+  }>;
 }
 
 function contactLabel(u: { name: string | null; email: string | null; phone: string | null }): string {
@@ -125,6 +140,7 @@ export async function getCampaignAdminView(
       listLinks: {
         include: {
           assignedUser: true,
+          program: { select: { id: true, name: true, status: true } },
           list: {
             include: {
               checkouts: {
@@ -135,6 +151,10 @@ export async function getCampaignAdminView(
             },
           },
         },
+      },
+      programs: {
+        orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+        include: { _count: { select: { listLinks: true, attempts: true } } },
       },
     },
   });
@@ -157,6 +177,14 @@ export async function getCampaignAdminView(
     perms.manageLists ||
     perms.deleteCampaign;
   if (!hasAny) return null;
+
+  const canvassedByLink = await Promise.all(
+    campaign.listLinks.map(async (ll) => ({
+      key: `${ll.programId}:${ll.listId}`,
+      done: await countClosedDoors(ll.programId, ll.listId),
+    })),
+  );
+  const canvassedMap = new Map(canvassedByLink.map((row) => [row.key, row.done]));
 
   const toRow = (m: (typeof campaign.memberships)[number]): MemberRow => ({
     userId: m.userId,
@@ -202,7 +230,12 @@ export async function getCampaignAdminView(
     members: campaign.memberships.filter((m) => m.status === "active").map(toRow),
     pending: campaign.memberships.filter((m) => m.status === "pending").map(toRow),
     lists: campaign.listLinks.map((ll) => {
-      const active = ll.list.checkouts.filter((c) => c.status === "active");
+      const active = ll.list.checkouts.filter(
+        (c) => c.status === "active" && c.programId === ll.programId,
+      );
+      const completed = ll.list.checkouts.some(
+        (c) => c.status === "completed" && c.programId === ll.programId,
+      );
       return {
         id: ll.list.id,
         name: ll.list.name,
@@ -219,13 +252,25 @@ export async function getCampaignAdminView(
         assignedUserName: ll.assignedUser
           ? ll.assignedUser.name ?? contactLabel(ll.assignedUser)
           : null,
-        doorsCanvassed: ll.list.checkouts.reduce((n, c) => n + c.progressDone, 0),
+        doorsCanvassed: canvassedMap.get(`${ll.programId}:${ll.listId}`) ?? 0,
         checkedOutBy: active[0]
           ? active[0].user.name ?? contactLabel(active[0].user)
           : null,
         activeCheckouts: active.length,
+        completed,
+        programId: ll.programId,
+        programName: ll.program.name,
       };
     }),
+    programs: campaign.programs.map((p) => ({
+      id: p.id,
+      name: p.name,
+      status: p.status,
+      script: p.script,
+      questions: parseProgramQuestions(p.questions),
+      listCount: p._count.listLinks,
+      attemptCount: p._count.attempts,
+    })),
     savedFilters: (
       await prisma.savedVoterFilter.findMany({
         where: { campaignId: campaign.id },
@@ -254,6 +299,9 @@ export interface ListEditView {
     address: string;
     lat: number | null;
     lng: number | null;
+    /** Raw door outcome key for pin color (contact, lit, …). */
+    outcome: string | null;
+    latestOutcome: string | null;
     voters: Array<{
       id: string;
       name: string;
@@ -265,6 +313,7 @@ export interface ListEditView {
   linkedCampaignIds: string[];
   campaignOptions: { id: string; name: string }[];
   activeCheckouts: number;
+  programName: string | null;
 }
 
 // A precinct turf runs a few hundred doors, but a campaign-wide generated list
@@ -279,7 +328,10 @@ export async function getListEditView(
     where: { id: listId },
     include: {
       campaignLinks: {
-        include: { campaign: { select: { slug: true, name: true } } },
+        include: {
+          campaign: { select: { slug: true, name: true } },
+          program: { select: { id: true, name: true, status: true } },
+        },
       },
       households: {
         orderBy: { sortOrder: "asc" },
@@ -328,6 +380,17 @@ export async function getListEditView(
   }
   if (!canManage) return null;
 
+  const activeProgramLink =
+    list.campaignLinks.find((l) => l.program.status === "active") ??
+    list.campaignLinks[0] ??
+    null;
+
+  const { getCurrentAttemptsForList } = await import("@/lib/canvass/progress");
+  const { DOOR_OUTCOME_LABELS } = await import("@/lib/canvass/outcomes");
+  const currentAttempts = activeProgramLink
+    ? await getCurrentAttemptsForList(activeProgramLink.programId, listId)
+    : new Map<string, { outcome: string }>();
+
   const manageable = await getManageableCampaignIds(user);
   const where =
     manageable === "all"
@@ -353,29 +416,39 @@ export async function getListEditView(
       : null,
     returnCampaign: list.campaignLinks[0]?.campaign ?? null,
     doorsStored: list._count.households,
-    doors: list.households.map(({ household }) => ({
-      id: household.id,
-      address: household.displayAddress,
-      lat: household.mapboxLat ?? household.censusLat,
-      lng: household.mapboxLng ?? household.censusLng,
-      voters: household.voters.map(({ voter }) => ({
-        id: voter.id,
-        name: [
-          voter.firstName,
-          voter.middleName,
-          voter.lastName,
-          voter.suffix,
-        ]
-          .filter(Boolean)
-          .join(" "),
-        age:
-          voter.yearOfBirth != null
-            ? new Date().getFullYear() - voter.yearOfBirth
-            : null,
-        // "U" is the voter file's unknown marker, which is not worth showing.
-        sex: voter.gender && voter.gender !== "U" ? voter.gender : null,
-      })),
-    })),
+    programName: activeProgramLink?.program.name ?? null,
+    doors: list.households.map(({ household }) => {
+      const latest = currentAttempts.get(household.id);
+      return {
+        id: household.id,
+        address: household.displayAddress,
+        lat: household.mapboxLat ?? household.censusLat,
+        lng: household.mapboxLng ?? household.censusLng,
+        outcome: latest?.outcome ?? null,
+        latestOutcome: latest
+          ? DOOR_OUTCOME_LABELS[
+              latest.outcome as keyof typeof DOOR_OUTCOME_LABELS
+            ] ?? latest.outcome
+          : null,
+        voters: household.voters.map(({ voter }) => ({
+          id: voter.id,
+          name: [
+            voter.firstName,
+            voter.middleName,
+            voter.lastName,
+            voter.suffix,
+          ]
+            .filter(Boolean)
+            .join(" "),
+          age:
+            voter.yearOfBirth != null
+              ? new Date().getFullYear() - voter.yearOfBirth
+              : null,
+          // "U" is the voter file's unknown marker, which is not worth showing.
+          sex: voter.gender && voter.gender !== "U" ? voter.gender : null,
+        })),
+      };
+    }),
     linkedCampaignIds: linkedIds,
     campaignOptions,
     activeCheckouts: list._count.checkouts,

@@ -10,6 +10,7 @@ import { BottomSheet } from "@/components/BottomSheet";
 import { useToast } from "@/components/Toast";
 import { CampaignForm, type CampaignFormValues } from "@/components/manage/CampaignForm";
 import { CampaignTurfManager } from "@/components/manage/CampaignTurfManager";
+import { ProgramManager } from "@/components/manage/ProgramManager";
 import { DeleteCampaignButton } from "@/components/manage/DeleteCampaignButton";
 import {
   addMember,
@@ -21,7 +22,7 @@ import {
 } from "@/lib/admin-actions";
 import { sourceLabel } from "@/lib/format";
 
-type Tab = "members" | "turfs" | "lists" | "settings";
+type Tab = "members" | "turfs" | "lists" | "waves" | "settings";
 
 function RoleToggle({
   selected,
@@ -56,12 +57,15 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
   const toast = useToast();
   const [pending, startTransition] = useTransition();
   const requested = searchParams.get("section");
+  const normalized =
+    requested === "programs" ? "waves" : requested;
   const tab: Tab =
-    requested === "members" ||
-    requested === "turfs" ||
-    requested === "lists" ||
-    requested === "settings"
-      ? requested
+    normalized === "members" ||
+    normalized === "turfs" ||
+    normalized === "lists" ||
+    normalized === "waves" ||
+    normalized === "settings"
+      ? normalized
       : view.perms.approve || view.perms.add || view.perms.assignRoles
         ? "members"
         : "lists";
@@ -117,6 +121,7 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
     },
     { id: "turfs", label: "Turfs", show: view.perms.manageLists },
     { id: "lists", label: "Lists", show: view.perms.manageLists },
+    { id: "waves", label: "Waves", show: view.perms.manageLists },
     { id: "settings", label: "Settings", show: view.perms.editProfile },
   ];
   const visibleTabs = tabs.filter((t) => t.show);
@@ -215,6 +220,11 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
           turfs={view.lists}
           volunteers={view.members}
           savedFilters={view.savedFilters}
+          waves={view.programs.map((p) => ({
+            id: p.id,
+            name: p.name,
+            status: p.status,
+          }))}
         />
       ) : null}
 
@@ -258,7 +268,11 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                     <span className="meta-stat">
                       <b>{l.doorsCanvassed}</b> of {l.doorsCount} canvassed
                     </span>
-                    {l.checkedOutBy ? (
+                    {l.completed ? (
+                      <span className="meta-stat">
+                        <b>Completed</b>
+                      </span>
+                    ) : l.checkedOutBy ? (
                       <span className="meta-stat">
                         Checked out by <b>{l.checkedOutBy}</b>
                       </span>
@@ -277,6 +291,14 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
             <div className="empty-state">No lists yet. Create one to get canvassers started.</div>
           )}
         </section>
+      ) : null}
+
+      {activeTab === "waves" && view.perms.manageLists ? (
+        <ProgramManager
+          campaignId={view.id}
+          campaignSlug={view.slug}
+          programs={view.programs}
+        />
       ) : null}
 
       {activeTab === "settings" && view.perms.editProfile ? (

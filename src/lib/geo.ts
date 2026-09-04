@@ -2,6 +2,13 @@
 
 const EARTH_RADIUS_MI = 3958.8;
 
+/** Fallback when GPS and profile location are unavailable. */
+export const DEFAULT_ORIGIN = {
+  lat: 47.6062,
+  lng: -122.3321,
+  label: "Seattle, WA",
+} as const;
+
 function toRad(deg: number): number {
   return (deg * Math.PI) / 180;
 }
@@ -26,6 +33,60 @@ export function haversineMiles(
 /** Round to one decimal for display (e.g. "2.1 mi"). */
 export function roundMiles(mi: number): number {
   return Math.round(mi * 10) / 10;
+}
+
+/** Shortest great-circle distance from origin to any point. */
+export function nearestMiles(
+  origin: { lat: number; lng: number },
+  points: Array<{ lat: number; lng: number }>,
+): number | null {
+  if (!points.length) return null;
+  let best = Infinity;
+  for (const point of points) {
+    const miles = haversineMiles(origin.lat, origin.lng, point.lat, point.lng);
+    if (miles < best) best = miles;
+  }
+  return best === Infinity ? null : best;
+}
+
+/**
+ * Distance used for list cards: prefer nearest geocoded door, then polygon
+ * centroid, then stored list centroid. Avoids inflated distances when a stored
+ * centroid was polluted by missing coordinates treated as (0, 0).
+ */
+export function listDistanceMiles(
+  origin: { lat: number; lng: number },
+  list: {
+    doorPins?: Array<{ lat: number; lng: number }> | null;
+    boundary?: [number, number][] | null;
+    centroidLat?: number | null;
+    centroidLng?: number | null;
+  },
+): number | null {
+  const fromDoors = nearestMiles(origin, list.doorPins ?? []);
+  if (fromDoors != null) return fromDoors;
+
+  if (list.boundary?.length) {
+    const centroid = polygonCentroid(list.boundary);
+    if (centroid) {
+      return haversineMiles(origin.lat, origin.lng, centroid[0], centroid[1]);
+    }
+  }
+
+  if (list.centroidLat != null && list.centroidLng != null) {
+    // Centroids near (0,0) are almost always a missing-coord averaging bug.
+    if (Math.abs(list.centroidLat) < 1 && Math.abs(list.centroidLng) < 1) {
+      return null;
+    }
+    return haversineMiles(
+      origin.lat,
+      origin.lng,
+      list.centroidLat,
+      list.centroidLng,
+    );
+  }
+
+  return null;
 }
 
 /** Ray-casting point-in-polygon. Point and polygon vertices are [lat, lng]. */

@@ -16,7 +16,7 @@ export default async function AdminLayout({
 }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  if (!(await canManageAnything(user))) redirect("/campaigns");
+  if (!(await canManageAnything(user))) redirect("/canvass");
 
   const initials = user.initials || initialsFor(user.name);
   const campaigns = await getManageableCampaigns(user);

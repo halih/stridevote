@@ -12,7 +12,7 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import type { MapProps } from "./types";
+import type { MapMarker, MapProps } from "./types";
 
 const TILE_URL =
   process.env.NEXT_PUBLIC_MAP_TILE_URL ??
@@ -21,10 +21,22 @@ const TILE_URL =
 const HOME_SVG =
   '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/></svg>';
 
+const YOU_SVG =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
+
 function homeIcon(inside?: boolean) {
   return L.divIcon({
     className: "",
-    html: `<div class="home-pin${inside ? "" : " outside"}">${HOME_SVG}</div>`,
+    html: `<div class="home-pin${inside === false ? " outside" : ""}" title="Home">${HOME_SVG}</div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
+}
+
+function youIcon() {
+  return L.divIcon({
+    className: "",
+    html: `<div class="you-pin" title="Current location">${YOU_SVG}</div>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   });
@@ -32,6 +44,7 @@ function homeIcon(inside?: boolean) {
 
 function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
+  const pointsKey = points.map(([lat, lng]) => `${lat},${lng}`).join("|");
   useEffect(() => {
     map.invalidateSize();
     if (points.length === 1) {
@@ -42,17 +55,31 @@ function FitBounds({ points }: { points: [number, number][] }) {
     // Re-measure after the container settles (it was just mounted).
     const t = setTimeout(() => map.invalidateSize(), 120);
     return () => clearTimeout(t);
-  }, [points, map]);
+    // pointsKey tracks geometry; avoid re-fitting when only selection styling changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- points derived from pointsKey
+  }, [pointsKey, map]);
   return null;
 }
 
-export function LeafletMap({ polygons = [], markers = [], home }: MapProps) {
-  const allPoints: [number, number][] = [
+export function LeafletMap({
+  polygons = [],
+  markers = [],
+  home,
+  you,
+  onMarkerClick,
+}: MapProps) {
+  // Fit to turf/doors only — home & live GPS stay visible but don't yank the frame.
+  const fitPoints: [number, number][] = [
     ...polygons.flatMap((p) => p.points),
     ...markers.map((m) => [m.lat, m.lng] as [number, number]),
-    ...(home ? [[home.lat, home.lng] as [number, number]] : []),
   ];
-  const center: [number, number] = allPoints[0] ?? [47.72, -122.34];
+  const center: [number, number] = fitPoints[0] ?? [47.72, -122.34];
+
+  // Draw selected last so it sits on top.
+  const ordered = [
+    ...markers.filter((m) => !m.current),
+    ...markers.filter((m) => m.current),
+  ];
 
   return (
     <MapContainer
@@ -72,28 +99,78 @@ export function LeafletMap({ polygons = [], markers = [], home }: MapProps) {
           positions={p.points}
           pathOptions={{
             color: p.color,
-            weight: 2,
+            weight: p.weight ?? 2,
             fillOpacity: p.fillOpacity ?? 0.18,
+            dashArray: p.dashArray,
           }}
         />
       ))}
-      {markers.map((m, i) => (
-        <CircleMarker
-          key={i}
-          center={[m.lat, m.lng]}
-          radius={m.current ? 7 : 5}
-          pathOptions={{
-            color: "#fff",
-            weight: 2,
-            fillColor: m.color,
-            fillOpacity: 1,
-          }}
-        >
-          {m.title ? <Tooltip direction="top">{m.title}</Tooltip> : null}
-        </CircleMarker>
+      {ordered.map((m, i) => (
+        <DoorMarker
+          key={m.id ?? `${m.lat},${m.lng},${i}`}
+          marker={m}
+          onClick={onMarkerClick}
+        />
       ))}
-      {home ? <Marker position={[home.lat, home.lng]} icon={homeIcon(home.inside)} interactive={false} /> : null}
-      <FitBounds points={allPoints} />
+      {home ? (
+        <Marker position={[home.lat, home.lng]} icon={homeIcon(home.inside)} interactive={false} />
+      ) : null}
+      {you ? (
+        <Marker position={[you.lat, you.lng]} icon={youIcon()} interactive={false} />
+      ) : null}
+      <FitBounds points={fitPoints} />
     </MapContainer>
+  );
+}
+
+function DoorMarker({
+  marker: m,
+  onClick,
+}: {
+  marker: MapMarker;
+  onClick?: (marker: MapMarker) => void;
+}) {
+  return (
+    <>
+      {m.current ? (
+        <CircleMarker
+          center={[m.lat, m.lng]}
+          radius={11}
+          pathOptions={{
+            color: m.color,
+            weight: 0,
+            fillColor: m.color,
+            fillOpacity: 0.2,
+          }}
+          interactive={false}
+        />
+      ) : null}
+      <CircleMarker
+        center={[m.lat, m.lng]}
+        radius={m.current ? 8 : 5}
+        pathOptions={{
+          color: m.current ? "#0f1216" : "#fff",
+          weight: m.current ? 2.5 : 2,
+          fillColor: m.color,
+          fillOpacity: 1,
+        }}
+        eventHandlers={
+          onClick
+            ? {
+                click: (event) => {
+                  L.DomEvent.stopPropagation(event);
+                  onClick(m);
+                },
+              }
+            : undefined
+        }
+      >
+        {m.title ? (
+          <Tooltip direction="top" offset={[0, m.current ? -10 : -4]}>
+            {m.title}
+          </Tooltip>
+        ) : null}
+      </CircleMarker>
+    </>
   );
 }

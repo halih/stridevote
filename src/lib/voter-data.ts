@@ -4,21 +4,31 @@ import { prisma } from "@/lib/db";
 import { can } from "@/lib/authz";
 import type { ElectionType } from "@/lib/elections";
 import type { User } from "@/generated/prisma";
+import { getCampaignCanvassAudience } from "@/lib/canvass/progress";
+import {
+  DOOR_OUTCOME_LABELS,
+  PERSON_OUTCOME_LABELS,
+  type DoorOutcome,
+  type PersonOutcome,
+} from "@/lib/canvass/outcomes";
 import {
   buildVoterWhere,
   filtersToSearchParams,
+  needsCanvassAudience,
   sanitizeVoterFilters,
+  type CanvassAudienceIds,
   type PersistableVoterFilters,
   type VoterFilters,
 } from "@/lib/voter-filters";
 
-export type { VoterFilters, PersistableVoterFilters };
+export type { VoterFilters, PersistableVoterFilters, CanvassAudienceIds };
 export {
   filtersToSearchParams,
   sanitizeVoterFilters,
   filtersAreActive,
   searchParamsToFilters,
   buildVoterWhere,
+  needsCanvassAudience,
 } from "@/lib/voter-filters";
 
 export interface VoterDirectoryRow {
@@ -35,6 +45,10 @@ export interface VoterDirectoryRow {
   lastElection: string | null;
   primaryParticipation: number | null;
   generalParticipation: number | null;
+  /** Latest door outcome across any wave. */
+  canvassOutcome: string | null;
+  canvassOutcomeKey: string | null;
+  canvassProgramName: string | null;
 }
 
 export interface SavedVoterFilterRow {
@@ -64,6 +78,19 @@ function isoDate(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
+/** Resolve canvass door audience for voter filters (any wave in the campaign). */
+export async function resolveCanvassAudience(
+  campaignId: string,
+  filters: VoterFilters,
+): Promise<CanvassAudienceIds | null> {
+  if (!needsCanvassAudience(filters)) return null;
+  const audience = await getCampaignCanvassAudience(campaignId);
+  return {
+    canvassedHouseholdIds: audience.canvassedHouseholdIds,
+    inaccessibleHouseholdIds: audience.inaccessibleHouseholdIds,
+  };
+}
+
 export async function getCampaignVoterDirectory(
   slug: string,
   user: User,
@@ -75,7 +102,18 @@ export async function getCampaignVoterDirectory(
   });
   if (!campaign || !(await can(user, campaign.id, "voters:view"))) return null;
 
-  const { where, filtered, page } = buildVoterWhere(campaign.id, filters);
+  const campaignAudience = await getCampaignCanvassAudience(campaign.id);
+  const canvass: CanvassAudienceIds = {
+    canvassedHouseholdIds: campaignAudience.canvassedHouseholdIds,
+    inaccessibleHouseholdIds: campaignAudience.inaccessibleHouseholdIds,
+  };
+
+  const { where, filtered, page } = buildVoterWhere(
+    campaign.id,
+    filters,
+    new Date(),
+    canvass,
+  );
   const campaignScope = { campaignLinks: { some: { campaignId: campaign.id } } };
 
   const [voters, total, campaignTotal, precincts, genders, elections, savedFilters] =
@@ -91,6 +129,10 @@ export async function getCampaignVoterDirectory(
             orderBy: { electionDate: "desc" },
             take: 1,
             select: { electionDate: true },
+          },
+          householdLinks: {
+            take: 1,
+            select: { householdId: true },
           },
         },
       }),
@@ -143,25 +185,36 @@ export async function getCampaignVoterDirectory(
 
   return {
     campaign,
-    voters: voters.map((voter) => ({
-      id: voter.id,
-      stateVoterId: voter.stateVoterId,
-      name: [voter.firstName, voter.middleName, voter.lastName, voter.suffix]
-        .filter(Boolean)
-        .join(" "),
-      yearOfBirth: voter.yearOfBirth,
-      gender: voter.gender,
-      address: `${voter.registrationAddress}, ${voter.city}, ${voter.state} ${voter.postalCode}`,
-      precinct: voter.precinctCode,
-      registrationDate: voter.registrationDate
-        ? voter.registrationDate.toLocaleDateString("en-US")
-        : null,
-      electionsVoted: voter.electionsVoted,
-      electionCount: voter._count.history,
-      lastElection: voter.history[0] ? isoDate(voter.history[0].electionDate) : null,
-      primaryParticipation: voter.primaryParticipation,
-      generalParticipation: voter.generalParticipation,
-    })),
+    voters: voters.map((voter) => {
+      const householdId = voter.householdLinks[0]?.householdId ?? null;
+      const latest = householdId
+        ? campaignAudience.latestByHousehold.get(householdId) ?? null
+        : null;
+      return {
+        id: voter.id,
+        stateVoterId: voter.stateVoterId,
+        name: [voter.firstName, voter.middleName, voter.lastName, voter.suffix]
+          .filter(Boolean)
+          .join(" "),
+        yearOfBirth: voter.yearOfBirth,
+        gender: voter.gender,
+        address: `${voter.registrationAddress}, ${voter.city}, ${voter.state} ${voter.postalCode}`,
+        precinct: voter.precinctCode,
+        registrationDate: voter.registrationDate
+          ? voter.registrationDate.toLocaleDateString("en-US")
+          : null,
+        electionsVoted: voter.electionsVoted,
+        electionCount: voter._count.history,
+        lastElection: voter.history[0] ? isoDate(voter.history[0].electionDate) : null,
+        primaryParticipation: voter.primaryParticipation,
+        generalParticipation: voter.generalParticipation,
+        canvassOutcomeKey: latest?.outcome ?? null,
+        canvassOutcome: latest
+          ? DOOR_OUTCOME_LABELS[latest.outcome as DoorOutcome] ?? latest.outcome
+          : null,
+        canvassProgramName: latest?.programName ?? null,
+      };
+    }),
     total,
     campaignTotal: filtered ? campaignTotal : total,
     filtered,
@@ -184,6 +237,7 @@ export async function getCampaignVoterDirectory(
     })),
   };
 }
+
 
 export interface VoterHistoryDetail {
   campaign: { slug: string; name: string; district: string };
@@ -210,6 +264,19 @@ export interface VoterHistoryDetail {
     electionDate: string;
     electionType: ElectionType;
   }>;
+  canvassHistory: Array<{
+    id: string;
+    programName: string;
+    listName: string;
+    outcome: string;
+    outcomeLabel: string;
+    capturedAt: string;
+    canvasser: string;
+    superseded: boolean;
+    personOutcome: string | null;
+    personOutcomeLabel: string | null;
+    support: number | null;
+  }>;
 }
 
 export async function getVoterHistoryDetail(
@@ -233,9 +300,45 @@ export async function getVoterHistoryDetail(
         orderBy: { electionDate: "desc" },
         select: { id: true, electionDate: true, electionType: true },
       },
+      householdLinks: {
+        take: 1,
+        select: { householdId: true },
+      },
     },
   });
   if (!voter) return null;
+
+  const householdId = voter.householdLinks[0]?.householdId ?? null;
+  const attempts = householdId
+    ? await prisma.canvassAttempt.findMany({
+        where: {
+          householdId,
+          campaignId: campaign.id,
+        },
+        orderBy: { capturedAt: "desc" },
+        select: {
+          id: true,
+          clientAttemptId: true,
+          supersedesClientId: true,
+          outcome: true,
+          capturedAt: true,
+          program: { select: { name: true } },
+          list: { select: { name: true } },
+          user: { select: { name: true, email: true, phone: true } },
+          people: {
+            where: { voterId },
+            select: { outcome: true, support: true },
+            take: 1,
+          },
+        },
+      })
+    : [];
+
+  const superseded = new Set(
+    attempts
+      .map((a) => a.supersedesClientId)
+      .filter((id): id is string => Boolean(id)),
+  );
 
   return {
     campaign,
@@ -266,6 +369,26 @@ export async function getVoterHistoryDetail(
       electionDate: isoDate(row.electionDate),
       electionType: row.electionType as ElectionType,
     })),
+    canvassHistory: attempts.map((a) => {
+      const person = a.people[0] ?? null;
+      return {
+        id: a.id,
+        programName: a.program.name,
+        listName: a.list.name,
+        outcome: a.outcome,
+        outcomeLabel:
+          DOOR_OUTCOME_LABELS[a.outcome as DoorOutcome] ?? a.outcome,
+        capturedAt: a.capturedAt.toISOString(),
+        canvasser: a.user.name ?? a.user.email ?? a.user.phone ?? "Volunteer",
+        superseded: superseded.has(a.clientAttemptId),
+        personOutcome: person?.outcome ?? null,
+        personOutcomeLabel: person
+          ? PERSON_OUTCOME_LABELS[person.outcome as PersonOutcome] ??
+            person.outcome
+          : null,
+        support: person?.support ?? null,
+      };
+    }),
   };
 }
 

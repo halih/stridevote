@@ -12,12 +12,16 @@ export default async function CampaignsPage() {
   const initials = user.initials || initialsFor(user.name);
   const area = user.area ?? "Set your location";
   const hasLocation = user.homeLat != null && user.homeLng != null;
+  const home =
+    user.homeLat != null && user.homeLng != null
+      ? { lat: user.homeLat, lng: user.homeLng }
+      : null;
 
   return (
     <>
       <TopBar title="Campaigns" subtitle={area} initials={initials} />
       <div className="content">
-        <CampaignsView board={board} hasLocation={hasLocation} />
+        <CampaignsView board={board} hasLocation={hasLocation} home={home} />
       </div>
     </>
   );

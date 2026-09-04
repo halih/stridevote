@@ -15,6 +15,16 @@ function formatElection(iso: string): string {
   });
 }
 
+function formatCapturedAt(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function percentage(value: number | null): string {
   return value == null ? "Not enough data" : `${Math.round(value * 100)}%`;
 }
@@ -53,6 +63,8 @@ export default async function VoterHistoryPage({
 
   const detail = await getVoterHistoryDetail(slug, voterId, user);
   if (!detail) notFound();
+
+  const currentCanvass = detail.canvassHistory.filter((row) => !row.superseded);
 
   return (
     <>
@@ -125,6 +137,49 @@ export default async function VoterHistoryPage({
             elections still missing a Secretary of State history file are left out
             of both numbers.
           </p>
+        </section>
+
+        <section className="card voter-history-card">
+          <div className="voter-history-heading">
+            <div>
+              <h2>Canvass history</h2>
+              <p>
+                {detail.canvassHistory.length
+                  ? `${currentCanvass.length} current · ${detail.canvassHistory.length} total at this door`
+                  : "No canvass results yet"}
+              </p>
+            </div>
+          </div>
+          {detail.canvassHistory.length ? (
+            <ul className="voter-history-list voter-canvass-list">
+              {detail.canvassHistory.map((row) => (
+                <li
+                  key={row.id}
+                  className={row.superseded ? "voter-canvass-superseded" : undefined}
+                >
+                  <div className="voter-canvass-main">
+                    <b>{row.outcomeLabel}</b>
+                    <span>
+                      {row.programName} · {row.listName}
+                      {row.superseded ? " · superseded" : ""}
+                    </span>
+                    {row.personOutcomeLabel ? (
+                      <span>
+                        This voter: {row.personOutcomeLabel}
+                        {row.support != null ? ` · support ${row.support}` : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="voter-canvass-meta">
+                    <time dateTime={row.capturedAt}>{formatCapturedAt(row.capturedAt)}</time>
+                    <span>{row.canvasser}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="voter-history-empty">No canvass results for this door yet.</p>
+          )}
         </section>
 
         <section className="card voter-history-card">

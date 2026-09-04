@@ -68,7 +68,7 @@ cloud SDKs are baked into the app.
 | `EMAIL_FROM`              | From-address for magic-link emails.                            |
 | `NEXT_PUBLIC_MAP_TILE_URL`| Optional — override the OpenStreetMap tile URL.                |
 | `PLATFORM_ADMIN_EMAILS`   | CSV of emails granted platform super-admin (create/administer all campaigns). |
-| `MAPBOX_ACCESS_TOKEN`     | Optional — refine household coords at list/turf generation (`permanent=true` to store). |
+| `MAPBOX_ACCESS_TOKEN`     | Optional — temporary Mapbox overlay when a walk list is downloaded (not stored). |
 
 ## Campaign administration
 
@@ -186,16 +186,12 @@ what places a door inside a **drawn** polygon; precinct turfs do not need it.
    `npm run households:geocode-census` is resumable (`geocodeStatus`, `--limit`,
    `--status`). Results land in `censusLat` / `censusLng` with match quality.
    Public Nominatim is **not** used for bulk voter geocoding.
-2. **Mapbox (list/turf refinement)** — optional `MAPBOX_ACCESS_TOKEN`. At
-   generation time, Census coords shrink candidates (bbox + polygon buffer);
-   Mapbox refines doors still missing `mapboxLat` / `mapboxLng`. Households that
-   already have Mapbox coords are **reused** and not re-billed. The adapter
-   requests `permanent=true` so refined points may be stored under Mapbox terms;
-   temporary results must not be written. Generation still works without a
-   permanent-capable token, but then Mapbox must be re-called and coords are not
-   persisted. UI flows require an explicit confirmation before consuming Mapbox
-   calls. Unresolved doors are excluded from turf generation rather than
-   silently assigned.
+2. **Mapbox (walk session only)** — optional `MAPBOX_ACCESS_TOKEN`. When a
+   volunteer downloads a list, doors without stored coords get a **temporary**
+   geocode for that session (map + walk order). Results are not written to
+   `mapboxLat` / `mapboxLng` or the 72-hour offline packet. Turf generation
+   uses Census coords (plus any previously stored Mapbox points). Unresolved
+   doors are excluded from drawn turfs rather than silently assigned.
 
 ```bash
 npm run households:rebuild -- --campaign count-binface

@@ -1,11 +1,9 @@
 import { prisma } from "@/lib/db";
-import { pointInPolygon } from "@/lib/geo";
-import {
-  canPersistMapboxCoords,
-  geocodeMapboxForward,
-  mapboxToken,
-} from "@/lib/geocode-mapbox";
+import { ensureActiveProgram } from "@/lib/canvass/programs";
+import { pointInPolygon, polygonCentroid } from "@/lib/geo";
+import { orderForStreetWalk } from "@/lib/canvass/walk-order";
 import { buildVoterWhere, sanitizeVoterFilters, type VoterFilters } from "@/lib/voter-filters";
+import { resolveCanvassAudience } from "@/lib/voter-data";
 
 export type ListSourceMode = "all" | "filters" | "saved";
 
@@ -15,8 +13,6 @@ export interface ListGenerationPreview {
   expandedVoters: number;
   missingHouseholds: number;
   censusUnmatched: number;
-  mapboxNeeded: number;
-  mapboxReusable: number;
   unresolvedForTurf: number;
 }
 
@@ -26,8 +22,6 @@ export interface GeneratedListResult {
   doorsCount: number;
   voterCount: number;
   excludedUnresolved: number;
-  mapboxCalls: number;
-  mapboxStored: number;
 }
 
 // Postgres allows 32,767 bind variables per statement; large id lists must be
@@ -80,7 +74,8 @@ export async function resolveSeedFilters(
 }
 
 async function loadSeedVoters(campaignId: string, filters: VoterFilters) {
-  const { where } = buildVoterWhere(campaignId, filters);
+  const canvass = await resolveCanvassAudience(campaignId, filters);
+  const { where } = buildVoterWhere(campaignId, filters, new Date(), canvass);
   return prisma.voter.findMany({
     where,
     select: {
@@ -266,7 +261,8 @@ async function precinctHouseholdsForTurf(options: {
     options.filters,
     options.savedFilterId,
   );
-  const { where } = buildVoterWhere(options.campaignId, filters);
+  const canvass = await resolveCanvassAudience(options.campaignId, filters);
+  const { where } = buildVoterWhere(options.campaignId, filters, new Date(), canvass);
   const matched = new Set<string>();
   const seedMatch = new Set<string>();
   for (const ids of chunked(householdIds)) {
@@ -353,7 +349,8 @@ export async function previewTurfBoundary(options: {
     options.filters,
     options.savedFilterId,
   );
-  const { where } = buildVoterWhere(options.campaignId, filters);
+  const canvass = await resolveCanvassAudience(options.campaignId, filters);
+  const { where } = buildVoterWhere(options.campaignId, filters, new Date(), canvass);
   const seedHouseholdIds = new Set<string>();
   for (const ids of chunked(inside.map((row) => row.id))) {
     const links = await prisma.householdVoter.findMany({
@@ -426,10 +423,6 @@ export async function previewListGeneration(options: {
     };
   }
 
-  const mapboxReusable = expansion.households.filter(
-    (h) => h.mapboxLat != null && h.mapboxLng != null,
-  ).length;
-  const mapboxNeeded = expansion.households.length - mapboxReusable;
   const censusUnmatched = expansion.households.filter(
     (h) => h.geocodeStatus !== "matched" || h.censusLat == null,
   ).length;
@@ -444,8 +437,6 @@ export async function previewListGeneration(options: {
     expandedVoters,
     missingHouseholds: expansion.missingHouseholds,
     censusUnmatched,
-    mapboxNeeded,
-    mapboxReusable,
     unresolvedForTurf,
   };
 }
@@ -459,8 +450,8 @@ export async function generateHouseholdList(options: {
   boundary?: [number, number][] | null;
   /** When set, households are chosen by registered precinct instead of geometry. */
   precinct?: PrecinctRef | null;
-  confirmMapbox?: boolean;
-  allowTemporaryMapbox?: boolean;
+  /** Wave (CanvassProgram) this list is published into. Defaults to the active wave. */
+  programId?: string | null;
 }): Promise<GeneratedListResult> {
   const filters = await resolveSeedFilters(
     options.campaignId,
@@ -518,55 +509,33 @@ export async function generateHouseholdList(options: {
     candidates = near;
   }
 
-  // Precinct turfs decide membership from the voter file, so no household needs
-  // coordinates to be included and there is nothing to refine.
-  const needingMapbox = options.precinct
-    ? []
-    : candidates.filter((h) => h.mapboxLat == null || h.mapboxLng == null);
-  if (needingMapbox.length && !options.confirmMapbox && mapboxToken()) {
-    throw new Error(
-      `This run would call Mapbox for ${needingMapbox.length} household(s). Confirm to continue.`,
-    );
-  }
-
-  let mapboxCalls = 0;
-  let mapboxStored = 0;
-  const permanent = !options.allowTemporaryMapbox;
-  const refined = new Map<string, { lat: number; lng: number }>();
-
-  for (const household of needingMapbox) {
-    if (!mapboxToken()) break;
-    mapboxCalls += 1;
-    const result = await geocodeMapboxForward(
-      {
-        addressLine: household.addressLine,
-        city: household.city,
-        state: household.state,
-        postalCode: household.postalCode,
-      },
-      { permanent },
-    );
-    if (!result) continue;
-    refined.set(household.id, { lat: result.lat, lng: result.lng });
-    if (canPersistMapboxCoords(result.permanent)) {
-      await prisma.household.update({
-        where: { id: household.id },
-        data: { mapboxLat: result.lat, mapboxLng: result.lng },
-      });
-      mapboxStored += 1;
-    }
-  }
-
-  const included = options.precinct ? candidates : candidates.filter((h) => {
-    const refinedPoint = refined.get(h.id);
-    const lat = refinedPoint?.lat ?? h.mapboxLat ?? h.censusLat;
-    const lng = refinedPoint?.lng ?? h.mapboxLng ?? h.censusLng;
+  // Drawn turfs use Census (and any already-stored Mapbox) coords. Walk packets
+  // overlay temporary Mapbox at download; we never geocode here.
+  const includedRaw = options.precinct ? candidates : candidates.filter((h) => {
+    const lat = h.mapboxLat ?? h.censusLat;
+    const lng = h.mapboxLng ?? h.censusLng;
     if (lat == null || lng == null) {
       if (options.boundary?.length) excludedUnresolved += 1;
       return !options.boundary?.length;
     }
     if (!options.boundary?.length) return true;
     return pointInPolygon([lat, lng], options.boundary);
+  });
+
+  // Persist a walkable door order: one street at a time, house numbers in
+  // sequence, streets chained by proximity.
+  const included = orderForStreetWalk(includedRaw, {
+    pointOf: (h) => {
+      const lat = h.mapboxLat ?? h.censusLat;
+      const lng = h.mapboxLng ?? h.censusLng;
+      if (lat == null || lng == null) return null;
+      return { lat, lng };
+    },
+    addressOf: (h) => ({
+      addressLine: h.addressLine,
+      city: h.city,
+      unit: h.unit,
+    }),
   });
 
   const slugBase = options.name
@@ -591,12 +560,39 @@ export async function generateHouseholdList(options: {
     }
   }
 
-  const centroidLat =
-    included.reduce((sum, h) => sum + (h.mapboxLat ?? h.censusLat ?? 0), 0) /
-      (included.length || 1) || null;
-  const centroidLng =
-    included.reduce((sum, h) => sum + (h.mapboxLng ?? h.censusLng ?? 0), 0) /
-      (included.length || 1) || null;
+  const geocodedPoints: Array<{ lat: number; lng: number }> = [];
+  for (const household of included) {
+    const lat = household.mapboxLat ?? household.censusLat;
+    const lng = household.mapboxLng ?? household.censusLng;
+    if (lat == null || lng == null) continue;
+    geocodedPoints.push({ lat, lng });
+  }
+
+  let centroidLat: number | null = null;
+  let centroidLng: number | null = null;
+  if (geocodedPoints.length) {
+    centroidLat =
+      geocodedPoints.reduce((sum, point) => sum + point.lat, 0) /
+      geocodedPoints.length;
+    centroidLng =
+      geocodedPoints.reduce((sum, point) => sum + point.lng, 0) /
+      geocodedPoints.length;
+  } else if (options.boundary?.length) {
+    const centroid = polygonCentroid(options.boundary);
+    if (centroid) {
+      centroidLat = centroid[0];
+      centroidLng = centroid[1];
+    }
+  }
+
+  const program = options.programId
+    ? await prisma.canvassProgram.findFirst({
+        where: { id: options.programId, campaignId: options.campaignId },
+        select: { id: true },
+      })
+    : null;
+  const programId =
+    program?.id ?? (await ensureActiveProgram(options.campaignId)).id;
 
   const list = await prisma.$transaction(async (tx) => {
     const created = await tx.list.create({
@@ -606,19 +602,23 @@ export async function generateHouseholdList(options: {
         source: "stridevote",
         doorsCount: included.length,
         boundary: options.boundary ?? undefined,
-        centroidLat: included.length ? centroidLat : null,
-        centroidLng: included.length ? centroidLng : null,
+        centroidLat,
+        centroidLng,
         data: {
           generated: true,
           mode: options.mode,
           savedFilterId: options.savedFilterId ?? null,
           filters,
-          mapboxCalls,
-          mapboxStored,
           excludedUnresolved,
         },
         campaignLinks: {
-          create: [{ campaignId: options.campaignId, visibility: "draft" }],
+          create: [
+            {
+              campaignId: options.campaignId,
+              programId,
+              visibility: "draft",
+            },
+          ],
         },
       },
     });
@@ -650,7 +650,5 @@ export async function generateHouseholdList(options: {
     doorsCount: included.length,
     voterCount: voterRows.length,
     excludedUnresolved,
-    mapboxCalls,
-    mapboxStored,
   };
 }

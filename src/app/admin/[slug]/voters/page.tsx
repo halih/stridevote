@@ -50,6 +50,10 @@ export default async function CampaignVotersPage({
     likelyGeneral: one(raw.likelyGeneral),
     newVoter: one(raw.newVoter),
     noApartments: one(raw.noApartments),
+    programId: one(raw.programId),
+    canvassed: one(raw.canvassed),
+    excludeCanvassed: one(raw.excludeCanvassed),
+    excludeInaccessible: one(raw.excludeInaccessible),
     page: one(raw.page),
   };
   const directory = await getCampaignVoterDirectory(slug, user, filters);
@@ -173,6 +177,15 @@ export default async function CampaignVotersPage({
                   />
                   New voter
                 </label>
+                <label title="Voters at doors with any result in any wave">
+                  <input
+                    type="checkbox"
+                    name="canvassed"
+                    value="1"
+                    defaultChecked={filters.canvassed === "1"}
+                  />
+                  Canvassed
+                </label>
               </fieldset>
               <fieldset className="voter-audience-filters">
                 <legend className="field-label">Exclude</legend>
@@ -185,7 +198,26 @@ export default async function CampaignVotersPage({
                   />
                   Apartments
                 </label>
+                <label title="Voters at doors with any result in any wave">
+                  <input
+                    type="checkbox"
+                    name="excludeCanvassed"
+                    value="1"
+                    defaultChecked={filters.excludeCanvassed === "1"}
+                  />
+                  Canvassed
+                </label>
+                <label title="Voters at doors marked inaccessible in any wave">
+                  <input
+                    type="checkbox"
+                    name="excludeInaccessible"
+                    value="1"
+                    defaultChecked={filters.excludeInaccessible === "1"}
+                  />
+                  Inaccessible
+                </label>
               </fieldset>
+              </div>
               </div>
               <div className="voter-filter-actions">
                 <button className="btn btn-primary btn-sm" type="submit">Apply</button>
@@ -196,7 +228,6 @@ export default async function CampaignVotersPage({
                   currentFilters={persistableFilters}
                   savedFilters={directory.savedFilters}
                 />
-              </div>
               </div>
             </form>
 
@@ -222,7 +253,8 @@ export default async function CampaignVotersPage({
                       <th>Voter</th>
                       <th>Address</th>
                       <th>Precinct</th>
-                      <th>History</th>
+                      <th>Voting history</th>
+                      <th>Canvass</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -246,6 +278,18 @@ export default async function CampaignVotersPage({
                           {voter.lastElection ? (
                             <span>Last {formatElection(voter.lastElection)}</span>
                           ) : null}
+                        </td>
+                        <td>
+                          {voter.canvassOutcome ? (
+                            <>
+                              <span className="voter-canvass-outcome">{voter.canvassOutcome}</span>
+                              {voter.canvassProgramName ? (
+                                <span>{voter.canvassProgramName}</span>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span className="voter-canvass-empty">—</span>
+                          )}
                         </td>
                       </tr>
                     ))}

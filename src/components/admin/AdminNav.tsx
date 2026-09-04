@@ -8,6 +8,7 @@ import { Icon } from "@/components/Icon";
 const SECTIONS = [
   { id: "members", label: "Members", icon: "users" as const },
   { id: "voters", label: "Voters", icon: "contact" as const },
+  { id: "waves", label: "Waves", icon: "layers" as const },
   { id: "turfs", label: "Turfs", icon: "map" as const },
   { id: "lists", label: "Lists", icon: "list" as const },
   { id: "settings", label: "Settings", icon: "pencil" as const },
@@ -55,16 +56,38 @@ export function AdminNav({
       router.push(`/admin/${slug}/voters`);
       return;
     }
+    if (pathname.includes("/waves") || pathname.includes("/programs")) {
+      router.push(`/admin/${slug}?section=waves`);
+      return;
+    }
     const section = searchParams.get("section");
-    router.push(section ? `/admin/${slug}?section=${section}` : `/admin/${slug}`);
+    const normalized =
+      section === "programs" ? "waves" : section;
+    router.push(normalized ? `/admin/${slug}?section=${normalized}` : `/admin/${slug}`);
   }
 
   function isActive(id: string): boolean {
     if (!navSlug) return false;
     if (id === "voters") return pathname.startsWith(`/admin/${navSlug}/voters`);
+    if (id === "waves") {
+      return (
+        pathname.startsWith(`/admin/${navSlug}/waves`) ||
+        pathname.startsWith(`/admin/${navSlug}/programs`) ||
+        (pathname === `/admin/${navSlug}` &&
+          (searchParams.get("section") === "waves" ||
+            searchParams.get("section") === "programs"))
+      );
+    }
     if (pathname.startsWith(`/admin/${navSlug}/voters`)) return false;
+    if (
+      pathname.startsWith(`/admin/${navSlug}/waves`) ||
+      pathname.startsWith(`/admin/${navSlug}/programs`)
+    ) {
+      return false;
+    }
     if (pathname !== `/admin/${navSlug}`) return false;
     const section = searchParams.get("section") ?? "members";
+    if (section === "programs") return id === "waves";
     return section === id;
   }
 
