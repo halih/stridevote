@@ -90,7 +90,6 @@ async function main() {
         data: {
           censusLat: result?.lat ?? null,
           censusLng: result?.lng ?? null,
-          censusMatch: match,
           geocodeStatus: status,
         },
       });

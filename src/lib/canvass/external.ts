@@ -1,4 +1,4 @@
-import { sourceHref as baseSourceHref } from "@/lib/sources";
+import { sourceHref as baseSourceHref } from "@/lib/format";
 
 /** Deep link / open instructions for external canvassing apps. */
 export function externalListOpen(source: string, sourceRef: string | null): {

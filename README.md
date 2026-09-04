@@ -1,11 +1,12 @@
 # StrideVote
 
 A mobile-first canvasser dashboard for progressive campaigns. Volunteers sign in
-passwordlessly, discover nearby campaigns, check out canvass lists (turf) sourced
-from MiniVAN / Civibyte, and track their impact.
+passwordlessly, discover nearby campaigns, check out walk lists, knock doors
+(including offline), and sync results. Campaign admins cut turf, run canvass
+waves, and review program results.
 
-> This phase covers **login, list checkout tracking, campaign discovery, and
-> stats**. The door-knocking flow itself is intentionally out of scope.
+Native door-knocking is for **StrideVote** lists. MiniVAN / Civibyte lists can
+still be tracked for checkout; knocking happens in those apps.
 
 ## Stack
 
@@ -94,9 +95,13 @@ The desktop-first admin console at `/admin` lets an admin:
   and delete them (blocked while checkouts are active).
 - **Turfs** — view the campaign district, select a precinct or draw a turf
   polygon, and share each turf with all volunteers, assign it to one volunteer,
-  or keep it private.
+  or keep it private. Publishing a turf into a **wave** (canvass program) is
+  what makes it available to knock.
+- **Waves** — named canvass passes (e.g. Primary vs General) with a script,
+  survey questions, and frozen walk snapshots. Volunteers check out a list
+  *in a wave*; results stay scoped to that wave.
 - **Voters** — search and filter authorized voter-file records by name,
-  precinct, age, gender, and election history.
+  precinct, age, gender, election history, and canvass status.
 - **Settings** — edit the campaign profile, tags, pickup, and primary contact.
 
 Admins can switch between every campaign they administer from the campaign
@@ -151,7 +156,25 @@ voter at an address matches the seed, that **household/door** is included and
 **every campaign voter at that household** is written to `ListVoter` (including
 non-matching roommates). `List.doorsCount` is the household count. Generated
 lists default to private `draft`; existing turf visibility / assignment controls
-remain the publishing step.
+remain the publishing step into a wave.
+
+### Canvass waves, packets, and offline
+
+A **CanvassProgram** (shown as a wave in admin) is one named pass over the
+universe. Lists are published into a wave; household membership is copied into
+`ProgramListHousehold` / `ProgramListVoter` so later turf edits do not rewrite an
+in-progress walk.
+
+Volunteers check out a StrideVote list, then download a **field packet**
+(`/canvass/[listId]`). The packet includes walk order, script, questions, door
+coords, and prior wave history. It is stored in IndexedDB on the phone.
+
+- Results queue locally and POST to `/api/canvass/sync` when online.
+- Packets expire **72 hours** after download (`PACKET_TTL_MS`). Reconnect to
+  refresh before knocking further.
+- Optional `MAPBOX_ACCESS_TOKEN` overlays temporary pins for ungeocoded doors
+  for that session only — they are not written to the database or the offline
+  cache.
 
 ### Precincts
 
@@ -184,8 +207,9 @@ what places a door inside a **drawn** polygon; precinct turfs do not need it.
 
 1. **Census (bulk baseline)** — free US Census batch API, no API key.
    `npm run households:geocode-census` is resumable (`geocodeStatus`, `--limit`,
-   `--status`). Results land in `censusLat` / `censusLng` with match quality.
-   Public Nominatim is **not** used for bulk voter geocoding.
+   `--status`). Results land in `censusLat` / `censusLng` (`geocodeStatus`
+   records match vs unmatched). Public Nominatim is **not** used for bulk voter
+   geocoding.
 2. **Mapbox (walk session only)** — optional `MAPBOX_ACCESS_TOKEN`. When a
    volunteer downloads a list, doors without stored coords get a **temporary**
    geocode for that session (map + walk order). Results are not written to
@@ -228,12 +252,15 @@ docker compose up --build   # runs the production image locally against the db
 
 ## Data model
 
-Canvass lists store platform-specific detail flexibly:
+Canvass lists:
 
-- `source` = `minivan` | `civibyte` | `manual`
+- `source` = `minivan` | `civibyte` | `stridevote`
 - `sourceRef` = MiniVAN list-number **or** Civibyte URL
-- `data` = free-form JSON for any per-platform payload
+- `data` = JSON used for list-split bookkeeping (not generation metadata)
 - `boundary` / `centroidLat` / `centroidLng` = geography for map + distance search
+
+Waves and knocks: `CanvassProgram`, `ListCheckout` (per list+program),
+`CanvassAttempt` (append-only, idempotent `clientAttemptId`).
 
 See [prisma/schema.prisma](prisma/schema.prisma).
 
@@ -246,9 +273,8 @@ These are stubbed with clear seams so they can be turned on later:
   avoiding per-verification fees). Requires a leased number + A2P 10DLC registration.
 - **WhatsApp OTP** — [src/lib/otp/adapters/whatsapp.ts](src/lib/otp/adapters/whatsapp.ts)
   via the Meta WhatsApp Cloud API (requires Business verification).
-- **Door-outcome stats** — [src/lib/stats-source.ts](src/lib/stats-source.ts) returns
-  sample data today. Replace `getDoorStats` with a real query once stats are imported
-  from the canvassing platform; the Stats UI consumes the same shape unchanged.
+- **MiniVAN / Civibyte import** — checkout and deep-links exist; walking lists
+  are not imported into native knocking.
 
 ## Scripts
 

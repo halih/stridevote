@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
-import { can, canManageAnything, getManageableCampaignIds, isPlatformAdmin } from "@/lib/authz";
+import { can, canManageAnything, isPlatformAdmin } from "@/lib/authz";
 import {
   ASSIGNABLE_ROLES,
   DEFAULT_ROLES,
@@ -18,15 +18,10 @@ import { loadPrecinctsForDistrict } from "@/lib/precincts";
 import type { PrecinctOverlay } from "@/lib/precinct-geometry";
 import {
   generateHouseholdList,
-  previewListGeneration,
   previewTurfBoundary,
   previewTurfPrecinct,
-  type ListSourceMode,
 } from "@/lib/list-generation";
-import {
-  sanitizeVoterFilters,
-  type VoterFilters,
-} from "@/lib/voter-filters";
+import { sanitizeVoterFilters } from "@/lib/voter-filters";
 import {
   ensureActiveProgram,
   snapshotListIntoProgram,
@@ -523,13 +518,6 @@ const savedFilterSchema = z.object({
   filters: z.record(z.string()).optional(),
 });
 
-const generateListSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
-  mode: listSourceModeSchema,
-  filters: z.record(z.string()).optional(),
-  savedFilterId: z.string().nullable().optional(),
-});
-
 async function validateTurfAssignment(
   campaignId: string,
   visibility: z.infer<typeof turfVisibilitySchema>,
@@ -883,42 +871,6 @@ export async function saveVoterFilter(
   }
 }
 
-export async function renameVoterFilter(
-  campaignId: string,
-  filterId: string,
-  nameInput: unknown,
-): Promise<AdminResult> {
-  const user = await getSessionUser();
-  if (!user) return fail("Please sign in.");
-  if (
-    !(await can(user, campaignId, "voters:view")) &&
-    !(await can(user, campaignId, "lists:manage"))
-  ) {
-    return fail("Not allowed.");
-  }
-
-  const name = z.string().trim().min(1).max(80).safeParse(nameInput);
-  if (!name.success) return fail("Name is required");
-
-  const existing = await prisma.savedVoterFilter.findFirst({
-    where: { id: filterId, campaignId },
-  });
-  if (!existing) return fail("Filter not found.");
-
-  try {
-    await prisma.savedVoterFilter.update({
-      where: { id: filterId },
-      data: { name: name.data },
-    });
-  } catch {
-    return fail("That name is already used on this campaign.");
-  }
-
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-  if (campaign) revalidatePath(`/admin/${campaign.slug}/voters`);
-  return { ok: true, message: "Filter renamed" };
-}
-
 export async function deleteVoterFilter(
   campaignId: string,
   filterId: string,
@@ -941,68 +893,6 @@ export async function deleteVoterFilter(
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
   if (campaign) revalidatePath(`/admin/${campaign.slug}/voters`);
   return { ok: true, message: `Deleted “${existing.name}”` };
-}
-
-export async function previewGeneratedList(
-  campaignId: string,
-  input: unknown,
-): Promise<AdminResult & { preview?: Awaited<ReturnType<typeof previewListGeneration>> }> {
-  const user = await getSessionUser();
-  if (!user) return fail("Please sign in.");
-  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
-
-  const parsed = generateListSchema.safeParse(input);
-  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
-
-  try {
-    const preview = await previewListGeneration({
-      campaignId,
-      mode: parsed.data.mode,
-      filters: sanitizeVoterFilters(parsed.data.filters ?? {}) as VoterFilters,
-      savedFilterId: parsed.data.savedFilterId,
-    });
-    return {
-      ok: true,
-      message: `${preview.households} doors / ${preview.expandedVoters} voters from ${preview.seedVoters} matches.`,
-      preview,
-    };
-  } catch (err) {
-    return fail(err instanceof Error ? err.message : "Preview failed");
-  }
-}
-
-export async function generateListFromVoters(
-  campaignId: string,
-  input: unknown,
-): Promise<AdminResult> {
-  const user = await getSessionUser();
-  if (!user) return fail("Please sign in.");
-  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
-
-  const parsed = generateListSchema.safeParse(input);
-  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
-
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-  if (!campaign) return fail("Campaign not found.");
-
-  try {
-    const generated = await generateHouseholdList({
-      campaignId,
-      name: parsed.data.name,
-      mode: parsed.data.mode as ListSourceMode,
-      filters: sanitizeVoterFilters(parsed.data.filters ?? {}),
-      savedFilterId: parsed.data.savedFilterId,
-    });
-    revalidateCampaign(campaign.slug);
-    return {
-      ok: true,
-      message: `Draft list ready: ${generated.doorsCount} doors, ${generated.voterCount} voters`,
-      id: generated.listId,
-      slug: generated.slug,
-    };
-  } catch (err) {
-    return fail(err instanceof Error ? err.message : "Could not generate list");
-  }
 }
 
 export async function setTurfAccess(
@@ -1307,14 +1197,4 @@ export async function updateProgram(
   });
   revalidateCampaign(campaign?.slug);
   return { ok: true, message: "Wave updated" };
-}
-
-// Used by the Manage index redirect when a user administers exactly one campaign.
-export async function firstManageableSlug(): Promise<string | null> {
-  const user = await getSessionUser();
-  if (!user) return null;
-  const ids = await getManageableCampaignIds(user);
-  if (ids === "all" || ids.length !== 1) return null;
-  const campaign = await prisma.campaign.findUnique({ where: { id: ids[0] } });
-  return campaign?.slug ?? null;
 }

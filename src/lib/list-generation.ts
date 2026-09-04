@@ -7,15 +7,6 @@ import { resolveCanvassAudience } from "@/lib/voter-data";
 
 export type ListSourceMode = "all" | "filters" | "saved";
 
-export interface ListGenerationPreview {
-  seedVoters: number;
-  households: number;
-  expandedVoters: number;
-  missingHouseholds: number;
-  censusUnmatched: number;
-  unresolvedForTurf: number;
-}
-
 export interface GeneratedListResult {
   listId: string;
   slug: string;
@@ -369,78 +360,6 @@ export async function previewTurfBoundary(options: {
   };
 }
 
-export async function previewListGeneration(options: {
-  campaignId: string;
-  mode: ListSourceMode;
-  filters?: VoterFilters | null;
-  savedFilterId?: string | null;
-  boundary?: [number, number][] | null;
-}): Promise<ListGenerationPreview> {
-  const filters = await resolveSeedFilters(
-    options.campaignId,
-    options.mode,
-    options.filters,
-    options.savedFilterId,
-  );
-  const seeds = await loadSeedVoters(options.campaignId, filters);
-  let expansion = await expandHouseholds(
-    options.campaignId,
-    seeds.map((s) => s.id),
-  );
-
-  let unresolvedForTurf = 0;
-  if (options.boundary?.length) {
-    const bbox = bboxOfPolygon(options.boundary);
-    const near = expansion.households.filter((h) => {
-      const lat = h.mapboxLat ?? h.censusLat;
-      const lng = h.mapboxLng ?? h.censusLng;
-      if (lat == null || lng == null) {
-        unresolvedForTurf += 1;
-        return false;
-      }
-      return (
-        lat >= bbox.minLat &&
-        lat <= bbox.maxLat &&
-        lng >= bbox.minLng &&
-        lng <= bbox.maxLng
-      );
-    });
-    const inside = near.filter((h) => {
-      const lat = h.mapboxLat ?? h.censusLat;
-      const lng = h.mapboxLng ?? h.censusLng;
-      if (lat == null || lng == null) return false;
-      return pointInPolygon([lat, lng], options.boundary!);
-    });
-    const insideIds = new Set(inside.map((h) => h.id));
-    expansion = {
-      ...expansion,
-      households: inside,
-      votersByHousehold: new Map(
-        [...expansion.votersByHousehold.entries()].filter(([id]) =>
-          insideIds.has(id),
-        ),
-      ),
-    };
-  }
-
-  const censusUnmatched = expansion.households.filter(
-    (h) => h.geocodeStatus !== "matched" || h.censusLat == null,
-  ).length;
-  const expandedVoters = [...expansion.votersByHousehold.values()].reduce(
-    (sum, rows) => sum + rows.length,
-    0,
-  );
-
-  return {
-    seedVoters: seeds.length,
-    households: expansion.households.length,
-    expandedVoters,
-    missingHouseholds: expansion.missingHouseholds,
-    censusUnmatched,
-    unresolvedForTurf,
-  };
-}
-
 export async function generateHouseholdList(options: {
   campaignId: string;
   name: string;
@@ -604,13 +523,6 @@ export async function generateHouseholdList(options: {
         boundary: options.boundary ?? undefined,
         centroidLat,
         centroidLng,
-        data: {
-          generated: true,
-          mode: options.mode,
-          savedFilterId: options.savedFilterId ?? null,
-          filters,
-          excludedUnresolved,
-        },
         campaignLinks: {
           create: [
             {

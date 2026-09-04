@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PrismaClient } from "../src/generated/prisma";
+import { CENSUS_USER_AGENT, TIGER_LEGISLATIVE } from "../src/lib/us-census";
 
 const prisma = new PrismaClient();
 
@@ -32,9 +33,7 @@ async function resolveWaLd32(): Promise<{
   centroidLng: number;
   boundary: LatLng[];
 }> {
-  const url = new URL(
-    "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Legislative/MapServer/1/query",
-  );
+  const url = new URL(`${TIGER_LEGISLATIVE}/1/query`);
   url.searchParams.set("where", "STATE='53' AND SLDU='032'");
   url.searchParams.set("outFields", "NAME,STATE,SLDU,INTPTLAT,INTPTLON");
   url.searchParams.set("returnGeometry", "true");
@@ -45,7 +44,7 @@ async function resolveWaLd32(): Promise<{
 
   try {
     const res = await fetch(url, {
-      headers: { "User-Agent": "StrideVote/1.0 (dev seed)" },
+      headers: { "User-Agent": CENSUS_USER_AGENT },
       signal: AbortSignal.timeout(20000),
     });
     if (res.ok) {
@@ -319,10 +318,6 @@ async function main() {
         centroidLat: list.center.lat,
         centroidLng: list.center.lng,
         boundary: boundary as unknown as object,
-        data: {
-          center: list.center,
-          ...(list.source === "minivan" ? { listNumber: list.sourceRef } : { url: list.sourceRef }),
-        },
         campaignLinks: {
           create: [{ campaignId: campaign.id, programId: program.id }],
         },

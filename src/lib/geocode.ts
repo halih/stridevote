@@ -2,17 +2,19 @@ import "server-only";
 import { env } from "@/lib/env";
 import waSldu from "@/data/wa-sldu.json";
 import waCd from "@/data/wa-cd.json";
+import {
+  CENSUS_USER_AGENT,
+  TIGER_LEGISLATIVE,
+  stateFips,
+  stateName,
+} from "@/lib/us-census";
 
 // Geocoding: Nominatim for address/city/county/state. Legislative and
 // congressional districts use high-precision Census TIGER geometry. Bundled
 // Washington geometry is retained as an offline fallback.
 
-const USER_AGENT = "StrideVote/1.0 (campaign canvassing app)";
 const MAX_BOUNDARY_POINTS = 2000;
 const TIGER_MAX_OFFSET_DEGREES = "0.00003"; // roughly 2–3 meters in Washington
-
-const TIGER_LEGISLATIVE =
-  "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Legislative/MapServer";
 
 interface LocalFeatureCollection {
   type: string;
@@ -39,45 +41,6 @@ export interface RegionResult {
   boundary: [number, number][] | null;
   label: string;
   hasBoundary: boolean;
-}
-
-const STATE_NAMES: Record<string, string> = {
-  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
-  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
-  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
-  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
-  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri",
-  MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
-  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio",
-  OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
-  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
-  VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
-};
-
-// FIPS codes used by Census TIGER.
-const STATE_FIPS: Record<string, string> = {
-  AL: "01", AK: "02", AZ: "04", AR: "05", CA: "06", CO: "08", CT: "09", DE: "10",
-  FL: "12", GA: "13", HI: "15", ID: "16", IL: "17", IN: "18", IA: "19", KS: "20",
-  KY: "21", LA: "22", ME: "23", MD: "24", MA: "25", MI: "26", MN: "27", MS: "28",
-  MO: "29", MT: "30", NE: "31", NV: "32", NH: "33", NJ: "34", NM: "35", NY: "36",
-  NC: "37", ND: "38", OH: "39", OK: "40", OR: "41", PA: "42", RI: "44", SC: "45",
-  SD: "46", TN: "47", TX: "48", UT: "49", VT: "50", VA: "51", WA: "53", WV: "54",
-  WI: "55", WY: "56",
-};
-
-function stateName(state: string): string {
-  const key = state.trim().toUpperCase();
-  return STATE_NAMES[key] ?? state.trim();
-}
-
-function stateFips(state: string): string | null {
-  const key = state.trim().toUpperCase();
-  if (STATE_FIPS[key]) return STATE_FIPS[key];
-  // Allow full names: look up reverse.
-  const entry = Object.entries(STATE_NAMES).find(
-    ([, n]) => n.toLowerCase() === state.trim().toLowerCase(),
-  );
-  return entry ? STATE_FIPS[entry[0]] : null;
 }
 
 /** Pull a district number from "32", "LD32", "LD 32", "District 32", etc. */
@@ -115,7 +78,7 @@ async function nominatim(
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
   const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, "Accept-Language": "en" },
+    headers: { "User-Agent": CENSUS_USER_AGENT, "Accept-Language": "en" },
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Geocoder responded ${res.status}`);
@@ -389,7 +352,7 @@ async function tigerQuery(layer: number, where: string, outFields: string): Prom
   url.searchParams.set("f", "geojson");
 
   const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT },
+    headers: { "User-Agent": CENSUS_USER_AGENT },
     cache: "no-store",
     signal: AbortSignal.timeout(20000),
   });

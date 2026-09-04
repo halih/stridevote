@@ -196,7 +196,7 @@ model List {
   centroidLat  Float?
   centroidLng  Float?
   boundary     Json? // polygon: number[][] of [lat, lng]
-  data         Json    @default("{}") // flexible per-platform payload (+ coords)
+  data         Json    @default("{}") // split metadata and optional per-platform payload
 
   createdAt DateTime @default(now())
 
@@ -381,8 +381,6 @@ model Voter {
   generalVoted          Int?
   likelyPrimary         Boolean  @default(false)
   likelyGeneral         Boolean  @default(false)
-  lat                    Float?
-  lng                    Float?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -495,7 +493,6 @@ model Household {
   unit             String?
   censusLat        Float?
   censusLng        Float?
-  censusMatch      String? // Exact / Non_Exact / Tie / No_Match
   mapboxLat        Float?
   mapboxLng        Float?
   geocodeStatus    String   @default("pending") // pending | matched | unmatched | ambiguous

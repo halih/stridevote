@@ -391,10 +391,3 @@ export async function getVoterHistoryDetail(
     }),
   };
 }
-
-export async function listSavedVoterFilters(campaignId: string) {
-  return prisma.savedVoterFilter.findMany({
-    where: { campaignId },
-    orderBy: { name: "asc" },
-  });
-}
