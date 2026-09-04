@@ -19,6 +19,7 @@ import {
   denyMembership,
   setMemberRoles,
 } from "@/lib/admin-actions";
+import { sourceLabel } from "@/lib/format";
 
 type Tab = "members" | "turfs" | "lists" | "settings";
 
@@ -100,10 +101,9 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
     });
   }
 
-  function removeList(list: { id: string; name: string; activeCheckouts: number }) {
-    const n = list.activeCheckouts;
-    const warning = n
-      ? `This list has ${n} active checkout${n === 1 ? "" : "s"}. Deleting it will cancel ${n === 1 ? "that checkout" : "those checkouts"} for canvassers. Continue?`
+  function removeList(list: { id: string; name: string; checkedOutBy: string | null }) {
+    const warning = list.checkedOutBy
+      ? `This list is checked out by ${list.checkedOutBy}. Deleting it will cancel that checkout. Continue?`
       : `Delete ${list.name}? This cannot be undone.`;
     if (!window.confirm(warning)) return;
     run(() => deleteList(list.id));
@@ -115,7 +115,7 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
       label: "Members",
       show: view.perms.approve || view.perms.add || view.perms.assignRoles,
     },
-    { id: "turfs", label: "Turf map", show: view.perms.manageLists },
+    { id: "turfs", label: "Turfs", show: view.perms.manageLists },
     { id: "lists", label: "Lists", show: view.perms.manageLists },
     { id: "settings", label: "Settings", show: view.perms.editProfile },
   ];
@@ -210,7 +210,6 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
         <CampaignTurfManager
           campaignId={view.id}
           campaignName={view.name}
-          districtName={view.district}
           districtBoundary={view.boundary}
           campaignColor={view.color}
           turfs={view.lists}
@@ -229,17 +228,18 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
               </button>
             ) : null}
           </div>
-          <div className="stack">
-            {view.lists.length ? (
-              view.lists.map((l) => (
+          {view.lists.length ? (
+            <div className="list-grid">
+              {view.lists.map((l) => (
                 <div key={l.id} className="card list-card">
                   <div className="list-top">
                     <div>
-                      <p className="list-name">{l.name}</p>
-                      <p className="list-loc">{l.neighborhood}</p>
+                      <Link href={`/admin/lists/${l.id}`} className="list-card-link">
+                        <p className="list-name">{l.name}</p>
+                      </Link>
                     </div>
                     <div className="list-top-actions">
-                      <span className="source-chip">{l.source}</span>
+                      <span className="source-chip">{sourceLabel(l.source)}</span>
                       {view.perms.manageLists ? (
                         <button
                           type="button"
@@ -256,23 +256,26 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                   </div>
                   <div className="camp-meta" style={{ marginTop: 10, paddingTop: 10 }}>
                     <span className="meta-stat">
-                      <b>{l.doorsCount}</b> doors
+                      <b>{l.doorsCanvassed}</b> of {l.doorsCount} canvassed
                     </span>
-                    <span className="meta-stat">
-                      <b>{l.activeCheckouts}</b> checked out
-                    </span>
-                  </div>
-                  <div className="card-footer-row">
-                    <Link href={`/admin/lists/${l.id}`} className="btn btn-outline btn-sm">
-                      <Icon name="pencil" size={13} /> Edit list
-                    </Link>
+                    {l.checkedOutBy ? (
+                      <span className="meta-stat">
+                        Checked out by <b>{l.checkedOutBy}</b>
+                      </span>
+                    ) : l.assignedUserName ? (
+                      <span className="meta-stat">
+                        Assigned to <b>{l.assignedUserName}</b>
+                      </span>
+                    ) : (
+                      <span className="meta-stat">Available</span>
+                    )}
                   </div>
                 </div>
-              ))
-            ) : (
-              <div className="empty-state">No lists yet. Create one to get canvassers started.</div>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">No lists yet. Create one to get canvassers started.</div>
+          )}
         </section>
       ) : null}
 
@@ -385,6 +388,8 @@ function campaignToForm(view: CampaignAdminView): Partial<CampaignFormValues> {
     name: view.name,
     office: view.office,
     district: view.district,
+    website: view.website ?? "",
+    iconUrl: view.iconUrl ?? "",
     color: view.color,
     tags: view.tags.join(", "),
     volunteers: String(view.volunteers),
@@ -395,6 +400,7 @@ function campaignToForm(view: CampaignAdminView): Partial<CampaignFormValues> {
     centroidLng: view.centroidLng != null ? String(view.centroidLng) : "",
     pickupType: (view.pickupType as CampaignFormValues["pickupType"]) ?? "",
     pickupLabel: view.pickupLabel ?? "",
+    pickupAddress: view.pickupAddress ?? "",
     pickupDetail: view.pickupDetail ?? "",
     contactName: view.contact?.name ?? "",
     contactRole: view.contact?.role ?? "",
@@ -412,34 +418,26 @@ function NewListForm({
   onCancel: () => void;
   onSubmit: (input: {
     name: string;
-    neighborhood: string;
-    source: "minivan" | "civibyte" | "manual";
+    source: "minivan" | "civibyte" | "stridevote";
     sourceRef: string;
     doorsCount: number;
   }) => void;
 }) {
   const [name, setName] = useState("");
-  const [neighborhood, setNeighborhood] = useState("");
-  const [source, setSource] = useState<"minivan" | "civibyte" | "manual">("manual");
+  const [source, setSource] = useState<"minivan" | "civibyte" | "stridevote">(
+    "stridevote",
+  );
   const [sourceRef, setSourceRef] = useState("");
   const [doors, setDoors] = useState("0");
 
   return (
     <>
       <h2>New list</h2>
-      <p className="sheet-sub">Turf sourced from Minivan, Civibyte, or entered manually.</p>
+      <p className="sheet-sub">Turf sourced from MiniVAN, Civibyte, or StrideVote.</p>
       <div className="form">
         <div className="form-field">
           <label className="field-label">List name</label>
           <input className="field" value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className="form-field">
-          <label className="field-label">Neighborhood</label>
-          <input
-            className="field"
-            value={neighborhood}
-            onChange={(e) => setNeighborhood(e.target.value)}
-          />
         </div>
         <div className="form-two">
           <div className="form-field">
@@ -449,7 +447,7 @@ function NewListForm({
               value={source}
               onChange={(e) => setSource(e.target.value as typeof source)}
             >
-              <option value="manual">Manual</option>
+              <option value="stridevote">StrideVote</option>
               <option value="minivan">Minivan</option>
               <option value="civibyte">Civibyte</option>
             </select>
@@ -481,11 +479,10 @@ function NewListForm({
           </button>
           <button
             className="btn btn-primary"
-            disabled={pending || !name.trim() || !neighborhood.trim()}
+            disabled={pending || !name.trim()}
             onClick={() =>
               onSubmit({
                 name: name.trim(),
-                neighborhood: neighborhood.trim(),
                 source,
                 sourceRef: sourceRef.trim(),
                 doorsCount: Number(doors) || 0,

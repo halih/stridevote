@@ -47,6 +47,24 @@ describe("voter filter serialization", () => {
       ),
     );
   });
+
+  it("excludes apartment residences as an AND, not an audience OR", () => {
+    const { where, filtered } = buildVoterWhere("camp-1", {
+      noApartments: "1",
+      likelyPrimary: "1",
+    });
+    assert.equal(filtered, true);
+    const and = where.AND as unknown[];
+    assert.ok(and.some((clause) => JSON.stringify(clause).includes('"NOT"')));
+    assert.ok(and.some((clause) => JSON.stringify(clause).includes("unit")));
+  });
+
+  it("scopes named precinct filters by county and code", () => {
+    const { where } = buildVoterWhere("camp-1", { precinct: "KI:0001" });
+    const serialized = JSON.stringify(where);
+    assert.ok(serialized.includes('"countyCode":"KI"'));
+    assert.ok(serialized.includes('"precinctCode":"0001"'));
+  });
 });
 
 describe("address / unit normalization", () => {
@@ -99,13 +117,22 @@ describe("census batch parsing", () => {
     ]);
     assert.match(csv, /^h1,/);
 
+    // The live API puts the indicator (Match / No_Match / Tie) in column 3 and
+    // the quality (Exact / Non_Exact) in column 4.
     const parsed = parseCensusBatchResponse(
-      'h1,"1600 Pennsylvania Ave NW, Washington, DC, 20500",Exact,Exact,"1600 PENNSYLVANIA AVE NW, WASHINGTON, DC, 20500","-77.0365,38.8977",123,L',
+      [
+        'h1,"1600 Pennsylvania Ave NW, Washington, DC, 20500",Match,Exact,"1600 PENNSYLVANIA AVE NW, WASHINGTON, DC, 20500","-77.0365,38.8977",123,L',
+        'h2,"9 Nowhere Rd, Washington, DC, 20500",No_Match',
+        'h3,"1 Main St, Washington, DC, 20500",Tie',
+      ].join("\n"),
     );
     assert.equal(parsed[0]?.match, "Exact");
     assert.equal(parsed[0]?.lat, 38.8977);
     assert.equal(parsed[0]?.lng, -77.0365);
-    assert.equal(censusStatusFromMatch("Exact"), "matched");
+    assert.equal(parsed[1]?.match, "No_Match");
+    assert.equal(parsed[2]?.match, "Tie");
+    assert.equal(censusStatusFromMatch(parsed[0]!.match), "matched");
+    assert.equal(censusStatusFromMatch("Non_Exact"), "matched");
     assert.equal(censusStatusFromMatch("Tie"), "ambiguous");
     assert.equal(censusStatusFromMatch("No_Match"), "unmatched");
   });
@@ -134,7 +161,8 @@ describe("polygon inclusion", () => {
 describe("household expansion semantics", () => {
   it("documents that every household member is snapshotted when any seed matches", () => {
     // Pure helper: once a household is selected, all campaign voters at that
-    // door are included even if they fail the seed filter.
+    // door are included even if they fail the seed filter. Precinct turfs
+    // select that household set from registered precinct, not the whole campaign.
     const seedIds = new Set(["v1"]);
     const householdMembers = ["v1", "v2", "v3"];
     const snapshot = householdMembers.map((voterId) => ({

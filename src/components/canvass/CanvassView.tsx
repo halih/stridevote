@@ -152,10 +152,7 @@ function ListCard({
       <div className="list-top">
         <div>
           <p className="list-name">{l.name}</p>
-          <p className="list-loc">
-            {l.neighborhood}
-            {l.distanceMi != null ? ` · ${l.distanceMi} mi` : ""}
-          </p>
+          {l.distanceMi != null ? <p className="list-loc">{l.distanceMi} mi</p> : null}
         </div>
         {l.status === "taken" ? (
           <span className="pill pill-neutral">With {l.takenBy}</span>

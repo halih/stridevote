@@ -121,8 +121,6 @@ const LISTS = [
   {
     slug: "meridian",
     name: "Meridian Park",
-    neighborhood: "Meridian Park, Seattle",
-    distanceMi: 0.7,
     doors: 40,
     source: "minivan" as const,
     sourceRef: "MV-32-0140",
@@ -135,8 +133,6 @@ const LISTS = [
   {
     slug: "broadview-n",
     name: "Broadview North",
-    neighborhood: "Broadview, Seattle",
-    distanceMi: 0.4,
     doors: 48,
     source: "civibyte" as const,
     sourceRef: "https://civibyte.app/l/broadview-north",
@@ -149,8 +145,6 @@ const LISTS = [
   {
     slug: "broadview-s",
     name: "Broadview South",
-    neighborhood: "Broadview, Seattle",
-    distanceMi: 0.9,
     doors: 36,
     source: "minivan" as const,
     sourceRef: "MV-32-0141",
@@ -236,6 +230,7 @@ async function main() {
       boundary: region.boundary as unknown as object,
       pickupType: "locker",
       pickupLabel: "Meridian Park Library Locker",
+      pickupAddress: "1022 N 165th St, Shoreline, WA 98133",
       pickupDetail: "Locker #2 · Code 2258",
       contacts: {
         create: [
@@ -285,11 +280,9 @@ async function main() {
       data: {
         slug: list.slug,
         name: list.name,
-        neighborhood: list.neighborhood,
         source: list.source,
         sourceRef: list.sourceRef,
         doorsCount: list.doors,
-        distanceMi: list.distanceMi,
         centroidLat: list.center.lat,
         centroidLng: list.center.lng,
         boundary: boundary as unknown as object,

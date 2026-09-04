@@ -52,7 +52,7 @@ export interface CampaignVoterDirectory {
   filtered: boolean;
   page: number;
   pageSize: number;
-  precincts: string[];
+  precincts: Array<{ value: string; label: string }>;
   genders: string[];
   elections: Array<{ date: string; type: ElectionType }>;
   savedFilters: SavedVoterFilterRow[];
@@ -96,13 +96,25 @@ export async function getCampaignVoterDirectory(
       }),
       prisma.voter.count({ where }),
       filtered ? prisma.voter.count({ where: campaignScope }) : Promise.resolve(0),
-      prisma.$queryRaw<Array<{ precinctCode: string }>>`
-        SELECT DISTINCT v."precinctCode"
+      prisma.$queryRaw<Array<{
+        countyCode: string;
+        precinctCode: string;
+        precinctName: string | null;
+      }>>`
+        SELECT DISTINCT
+          v."countyCode",
+          v."precinctCode",
+          p."name" AS "precinctName"
         FROM "Voter" v
         INNER JOIN "CampaignVoter" cv ON cv."voterId" = v.id
+        LEFT JOIN "Precinct" p
+          ON p."state" = v."state"
+          AND p."countyCode" = v."countyCode"
+          AND p."code" = v."precinctCode"
         WHERE cv."campaignId" = ${campaign.id}
           AND v."precinctCode" IS NOT NULL
-        ORDER BY 1
+          AND v."countyCode" IS NOT NULL
+        ORDER BY "precinctName" NULLS LAST, v."precinctCode"
       `,
       prisma.$queryRaw<Array<{ gender: string }>>`
         SELECT DISTINCT v.gender
@@ -155,7 +167,10 @@ export async function getCampaignVoterDirectory(
     filtered,
     page,
     pageSize: PAGE_SIZE,
-    precincts: precincts.map((row) => row.precinctCode),
+    precincts: precincts.map((row) => ({
+      value: `${row.countyCode}:${row.precinctCode}`,
+      label: row.precinctName ?? row.precinctCode,
+    })),
     genders: genders.map((row) => row.gender),
     elections: elections.map((row) => ({
       date: isoDate(row.election),

@@ -14,9 +14,13 @@ import {
 import { normalizePhone } from "@/lib/phone";
 import { geocodeRegion, type RegionType } from "@/lib/geocode";
 import { pointInPolygon, polygonCentroid } from "@/lib/geo";
+import { loadPrecinctsForDistrict } from "@/lib/precincts";
+import type { PrecinctOverlay } from "@/lib/precinct-geometry";
 import {
   generateHouseholdList,
   previewListGeneration,
+  previewTurfBoundary,
+  previewTurfPrecinct,
   type ListSourceMode,
 } from "@/lib/list-generation";
 import { mapboxToken } from "@/lib/geocode-mapbox";
@@ -79,6 +83,18 @@ const profileSchema = z.object({
   name: z.string().min(1, "Name is required"),
   office: z.string().min(1, "Office is required"),
   district: z.string().min(1, "District is required"),
+  website: z
+    .string()
+    .url("Website must be a valid URL")
+    .refine((value) => /^https?:\/\//i.test(value), "Website must use http or https")
+    .nullable()
+    .optional(),
+  iconUrl: z
+    .string()
+    .url("Icon must be a valid image URL")
+    .refine((value) => /^https?:\/\//i.test(value), "Icon URL must use http or https")
+    .nullable()
+    .optional(),
   color: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/, "Color must be a hex value")
@@ -96,6 +112,7 @@ const profileSchema = z.object({
   boundary: z.array(z.array(z.number())).nullable().optional(),
   pickupType: z.enum(["locker", "address"]).nullable().optional(),
   pickupLabel: z.string().nullable().optional(),
+  pickupAddress: z.string().nullable().optional(),
   pickupDetail: z.string().nullable().optional(),
   contactName: z.string().optional(),
   contactRole: z.string().optional(),
@@ -123,6 +140,8 @@ export async function createCampaign(input: unknown): Promise<AdminResult> {
       name: d.name,
       office: d.office,
       district: d.district,
+      website: d.website ?? null,
+      iconUrl: d.iconUrl ?? null,
       color: d.color,
       tags: d.tags,
       volunteers: d.volunteers,
@@ -134,6 +153,7 @@ export async function createCampaign(input: unknown): Promise<AdminResult> {
       boundary: d.boundary ?? undefined,
       pickupType: d.pickupType ?? null,
       pickupLabel: d.pickupLabel ?? null,
+      pickupAddress: d.pickupAddress ?? null,
       pickupDetail: d.pickupDetail ?? null,
       contacts:
         d.contactName && d.contactRole
@@ -178,17 +198,14 @@ export async function updateCampaignProfile(
       name: d.name,
       office: d.office,
       district: d.district,
+      website: d.website ?? null,
+      iconUrl: d.iconUrl ?? null,
       color: d.color,
       tags: d.tags,
       volunteers: d.volunteers,
-      centroidLat: d.centroidLat ?? null,
-      centroidLng: d.centroidLng ?? null,
-      regionType: d.regionType ?? null,
-      regionName: d.regionName ?? null,
-      regionState: d.regionState ?? null,
-      boundary: d.boundary ?? undefined,
       pickupType: d.pickupType ?? null,
       pickupLabel: d.pickupLabel ?? null,
+      pickupAddress: d.pickupAddress ?? null,
       pickupDetail: d.pickupDetail ?? null,
     },
   });
@@ -445,29 +462,52 @@ const turfVisibilitySchema = z.enum(["volunteers", "assigned", "draft"]);
 
 const listSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  neighborhood: z.string().min(1, "Neighborhood is required"),
-  source: z.enum(["minivan", "civibyte", "manual"]),
+  source: z.enum(["minivan", "civibyte", "stridevote"]),
   sourceRef: z.string().optional().or(z.literal("")),
   doorsCount: z.number().int().min(0).default(0),
-  distanceMi: z.number().nullable().optional(),
-  centroidLat: z.number().nullable().optional(),
-  centroidLng: z.number().nullable().optional(),
 });
 export type ListInput = z.input<typeof listSchema>;
 
+const listUpdateSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  sourceRef: z.string().optional().or(z.literal("")),
+});
+
 const listSourceModeSchema = z.enum(["all", "filters", "saved"]);
+
+// Present when the turf came from picking an official precinct, which lets doors
+// be counted from the voter file instead of from coordinates.
+const precinctRefSchema = z.object({
+  countyCode: z.string().trim().min(1).max(8),
+  code: z.string().trim().min(1).max(32),
+});
 
 const turfSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
-  neighborhood: z.string().trim().min(1, "Area is required"),
   doorsCount: z.number().int().min(0).default(0),
   boundary: boundarySchema,
   visibility: turfVisibilitySchema.default("draft"),
   assignedUserId: z.string().nullable().optional(),
   voterSource: listSourceModeSchema.default("all"),
   savedFilterId: z.string().nullable().optional(),
+  precinct: precinctRefSchema.nullable().optional(),
   confirmMapbox: z.boolean().optional(),
   generateVoters: z.boolean().default(true),
+});
+
+const turfPreviewSchema = z.object({
+  boundary: boundarySchema,
+  voterSource: listSourceModeSchema.default("all"),
+  savedFilterId: z.string().nullable().optional(),
+  precinct: precinctRefSchema.nullable().optional(),
+});
+
+const precinctTurfBatchSchema = z.object({
+  precincts: z.array(precinctRefSchema).min(2).max(100),
+  visibility: turfVisibilitySchema.default("draft"),
+  assignedUserId: z.string().nullable().optional(),
+  voterSource: listSourceModeSchema.default("all"),
+  savedFilterId: z.string().nullable().optional(),
 });
 
 const savedFilterSchema = z.object({
@@ -477,7 +517,6 @@ const savedFilterSchema = z.object({
 
 const generateListSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
-  neighborhood: z.string().trim().min(1).default("Generated"),
   mode: listSourceModeSchema,
   filters: z.record(z.string()).optional(),
   savedFilterId: z.string().nullable().optional(),
@@ -503,6 +542,97 @@ async function validateTurfAssignment(
     return "That volunteer is not active on this campaign.";
   }
   return null;
+}
+
+/**
+ * Assigning a turf hands it straight to that volunteer, so they never have to
+ * check it out themselves. Idempotent: an assignment they already hold is left
+ * alone rather than restarting their progress.
+ */
+async function checkOutToAssignee(
+  listId: string,
+  userId: string,
+  doorsCount: number,
+): Promise<void> {
+  const held = await prisma.listCheckout.findFirst({
+    where: { listId, userId, status: "active" },
+    select: { id: true },
+  });
+  if (!held) {
+    await prisma.listCheckout.create({
+      data: { listId, userId, status: "active", progressTotal: doorsCount },
+    });
+  }
+  await prisma.listWatch.deleteMany({ where: { listId, userId } });
+}
+
+export async function loadCampaignPrecincts(
+  campaignId: string,
+): Promise<{ ok: true; precincts: PrecinctOverlay[] } | AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
+
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) return fail("Campaign not found.");
+  const districtBoundary = Array.isArray(campaign.boundary)
+    ? (campaign.boundary as [number, number][])
+    : null;
+  if (!districtBoundary?.length) {
+    return fail("Set this campaign's geographic region before loading precincts.");
+  }
+
+  try {
+    const precincts = await loadPrecinctsForDistrict(
+      districtBoundary,
+      campaign.regionState,
+      campaignId,
+    );
+    return { ok: true, precincts };
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "Could not load precincts");
+  }
+}
+
+/** Door and voter counts a turf polygon would produce, for display before saving. */
+export async function previewTurfDoors(
+  campaignId: string,
+  input: unknown,
+): Promise<
+  AdminResult & { doors?: number; voters?: number; ungeocoded?: number }
+> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
+
+  const parsed = turfPreviewSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid turf");
+  const data = parsed.data;
+
+  try {
+    const preview = data.precinct
+      ? await previewTurfPrecinct({
+          campaignId,
+          mode: data.voterSource,
+          savedFilterId: data.savedFilterId,
+          precinct: data.precinct,
+        })
+      : await previewTurfBoundary({
+          campaignId,
+          mode: data.voterSource,
+          savedFilterId: data.savedFilterId,
+          boundary: data.boundary,
+        });
+    return {
+      ok: true,
+      message: `${preview.doors} doors / ${preview.voters} voters`,
+      doors: preview.doors,
+      voters: preview.voters,
+      ungeocoded: preview.ungeocodedDoors,
+    };
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "Could not count doors");
+  }
 }
 
 export async function createTurf(
@@ -541,10 +671,10 @@ export async function createTurf(
       const generated = await generateHouseholdList({
         campaignId,
         name: data.name,
-        neighborhood: data.neighborhood,
         mode: data.voterSource,
         savedFilterId: data.savedFilterId,
         boundary: data.boundary,
+        precinct: data.precinct ?? null,
         confirmMapbox: data.confirmMapbox ?? false,
       });
       await prisma.listCampaign.updateMany({
@@ -555,6 +685,13 @@ export async function createTurf(
             data.visibility === "assigned" ? data.assignedUserId : null,
         },
       });
+      if (data.visibility === "assigned" && data.assignedUserId) {
+        await checkOutToAssignee(
+          generated.listId,
+          data.assignedUserId,
+          generated.doorsCount,
+        );
+      }
       revalidateCampaign(campaign.slug);
       const excluded =
         generated.excludedUnresolved > 0
@@ -578,8 +715,7 @@ export async function createTurf(
     data: {
       slug,
       name: data.name,
-      neighborhood: data.neighborhood,
-      source: "manual",
+      source: "stridevote",
       doorsCount: data.doorsCount,
       boundary: data.boundary,
       centroidLat: centroid?.[0] ?? null,
@@ -597,8 +733,74 @@ export async function createTurf(
     },
   });
 
+  if (data.visibility === "assigned" && data.assignedUserId) {
+    await checkOutToAssignee(list.id, data.assignedUserId, list.doorsCount);
+  }
+
   revalidateCampaign(campaign.slug);
   return { ok: true, message: `Created ${data.name}`, id: list.id };
+}
+
+/** Create one independently named turf for each selected official precinct. */
+export async function createPrecinctTurfs(
+  campaignId: string,
+  input: unknown,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
+
+  const parsed = precinctTurfBatchSchema.safeParse(input);
+  if (!parsed.success) {
+    return fail(parsed.error.issues[0]?.message ?? "Invalid precinct selection");
+  }
+  const data = parsed.data;
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  const districtBoundary = Array.isArray(campaign?.boundary)
+    ? (campaign.boundary as [number, number][])
+    : null;
+  if (!campaign || !districtBoundary?.length) return fail("Campaign district not found.");
+
+  const available = await loadPrecinctsForDistrict(
+    districtBoundary,
+    campaign.regionState,
+    campaignId,
+  );
+  const byId = new Map(available.map((precinct) => [precinct.id, precinct]));
+  const selected = data.precincts.map((ref) =>
+    byId.get(`${ref.countyCode}-${ref.code}`),
+  );
+  if (selected.some((precinct) => !precinct?.selectable)) {
+    return fail("One or more selected precincts are unavailable for this campaign.");
+  }
+
+  let created = 0;
+  const failures: string[] = [];
+  for (const precinct of selected) {
+    if (!precinct?.countyCode || !precinct.code) continue;
+    const result = await createTurf(campaignId, {
+      name: precinct.name,
+      doorsCount: 0,
+      boundary: precinct.boundary,
+      visibility: data.visibility,
+      assignedUserId: data.assignedUserId,
+      voterSource: data.voterSource,
+      savedFilterId: data.savedFilterId,
+      precinct: { countyCode: precinct.countyCode, code: precinct.code },
+      generateVoters: true,
+    });
+    if (result.ok) created += 1;
+    else failures.push(`${precinct.name}: ${result.message}`);
+  }
+
+  if (!created) return fail(failures[0] ?? "No turfs were created.");
+  return {
+    ok: true,
+    message:
+      failures.length === 0
+        ? `Created ${created} precinct turfs.`
+        : `Created ${created} precinct turfs; ${failures.length} failed. ${failures[0]}`,
+  };
 }
 
 export async function saveVoterFilter(
@@ -752,7 +954,6 @@ export async function generateListFromVoters(
     const generated = await generateHouseholdList({
       campaignId,
       name: parsed.data.name,
-      neighborhood: parsed.data.neighborhood,
       mode: parsed.data.mode as ListSourceMode,
       filters: sanitizeVoterFilters(parsed.data.filters ?? {}),
       savedFilterId: parsed.data.savedFilterId,
@@ -823,8 +1024,18 @@ export async function setTurfAccess(
     },
   });
 
+  const assigned = parsedVisibility.data === "assigned" && assignedUserId;
+  if (assigned) {
+    await checkOutToAssignee(listId, assignedUserId, link.list.doorsCount);
+  }
+
   revalidateCampaign(link.campaign.slug);
-  return { ok: true, message: "Turf access updated" };
+  return {
+    ok: true,
+    message: assigned
+      ? "Turf assigned and checked out"
+      : "Turf access updated",
+  };
 }
 
 export async function createList(
@@ -847,13 +1058,9 @@ export async function createList(
     data: {
       slug,
       name: d.name,
-      neighborhood: d.neighborhood,
       source: d.source,
       sourceRef: d.sourceRef || null,
       doorsCount: d.doorsCount,
-      distanceMi: d.distanceMi ?? null,
-      centroidLat: d.centroidLat ?? null,
-      centroidLng: d.centroidLng ?? null,
       campaignLinks: { create: [{ campaignId }] },
     },
   });
@@ -868,7 +1075,7 @@ export async function updateList(listId: string, input: unknown): Promise<AdminR
   if (!user) return fail("Please sign in.");
   if (!(await canManageList(user.id, listId))) return fail("Not allowed.");
 
-  const parsed = listSchema.safeParse(input);
+  const parsed = listUpdateSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
   const d = parsed.data;
 
@@ -876,13 +1083,7 @@ export async function updateList(listId: string, input: unknown): Promise<AdminR
     where: { id: listId },
     data: {
       name: d.name,
-      neighborhood: d.neighborhood,
-      source: d.source,
       sourceRef: d.sourceRef || null,
-      doorsCount: d.doorsCount,
-      distanceMi: d.distanceMi ?? null,
-      centroidLat: d.centroidLat ?? null,
-      centroidLng: d.centroidLng ?? null,
     },
   });
 

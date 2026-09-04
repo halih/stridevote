@@ -242,6 +242,7 @@ function summarizeFilters(filters: PersistableVoterFilters): string {
   if (filters.likelyPrimary === "1") parts.push("likely primary");
   if (filters.likelyGeneral === "1") parts.push("likely general");
   if (filters.newVoter === "1") parts.push("new voter");
+  if (filters.noApartments === "1") parts.push("no apartments");
   return parts.length ? parts.join(" · ") : "No criteria";
 }
 
@@ -261,7 +262,10 @@ function FilterDialog({
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;

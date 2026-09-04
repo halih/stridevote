@@ -76,3 +76,12 @@ export function polygonCentroid(
 
   return [ySum / (3 * twiceArea), xSum / (3 * twiceArea)];
 }
+
+/** Keep vertices that fall inside `district`. Returns null if fewer than 3 remain. */
+export function clipPolygonToDistrict(
+  ring: [number, number][],
+  district: [number, number][],
+): [number, number][] | null {
+  const clipped = ring.filter((point) => pointInPolygon(point, district));
+  return clipped.length >= 3 ? clipped : null;
+}

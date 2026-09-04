@@ -92,8 +92,9 @@ The desktop-first admin console at `/admin` lets an admin:
   each member's roles (a campaign admin may grant any role, including `admin`).
 - **Lists** — create lists, edit their detail, link them to one or more campaigns,
   and delete them (blocked while checkouts are active).
-- **Turf map** — view the campaign district, draw turf polygons, and share each
-  turf with all volunteers, assign it to one volunteer, or keep it private.
+- **Turfs** — view the campaign district, select a precinct or draw a turf
+  polygon, and share each turf with all volunteers, assign it to one volunteer,
+  or keep it private.
 - **Voters** — search and filter authorized voter-file records by name,
   precinct, age, gender, and election history.
 - **Settings** — edit the campaign profile, tags, pickup, and primary contact.
@@ -144,7 +145,7 @@ overwrite an existing one or create a new named filter. Loading re-applies the
 criteria against **current** voter data — it does not freeze voter IDs. Pagination
 is never stored. Any member with `voters:view` or `lists:manage` may manage them.
 
-**Generated lists** are snapshots created from the **Turf map** when cutting a
+**Generated lists** are snapshots created from **Turfs** when cutting a
 polygon (all campaign voters or a saved filter as the seed). If **any**
 voter at an address matches the seed, that **household/door** is included and
 **every campaign voter at that household** is written to `ListVoter` (including
@@ -152,10 +153,34 @@ non-matching roommates). `List.doorsCount` is the household count. Generated
 lists default to private `draft`; existing turf visibility / assignment controls
 remain the publishing step.
 
+### Precincts
+
+Official precinct boundaries live in `Precinct`, imported from the WA Secretary
+of State statewide shapefile (`npm run precincts:import`). `countyCode` + `code`
+join directly to `Voter.countyCode` + `Voter.precinctCode`, so a precinct turf is
+cut and counted **from registration data with no geocoding involved** — the voter
+file's own precinct assignment is authoritative, and doors that Census could not
+place are still counted.
+
+The shapefile stores the code as a number while the voter file zero-pads it per
+county (King 4 digits, Snohomish 8), so the import pads codes to the width each
+county's voters already use. **Import voters before precincts.** The Turfs map
+only offers precincts the campaign has voters in; drawn turfs still use geometry
+and therefore still depend on coordinates.
+
+```bash
+npm run precincts:import                    # downloads the current WA dataset
+npm run precincts:import -- --zip ./wa.zip  # or use a local archive
+```
+
+States with no imported dataset fall back to Census voting districts, which have
+no usable precinct code and so are counted geometrically.
+
 ### Household geocoding
 
 Addresses are normalized into `Household` rows (`npm run households:rebuild`).
-Units stay distinct doors; street abbreviations and casing collapse.
+Units stay distinct doors; street abbreviations and casing collapse. Geocoding is
+what places a door inside a **drawn** polygon; precinct turfs do not need it.
 
 1. **Census (bulk baseline)** — free US Census batch API, no API key.
    `npm run households:geocode-census` is resumable (`geocodeStatus`, `--limit`,
@@ -243,6 +268,7 @@ These are stubbed with clear seams so they can be turned on later:
 | `npm run voters:import`        | Load a WA SOS VRDB zip into `Voter`   |
 | `npm run voters:import-history` | Load SOS voting-history files (2007+) |
 | `npm run voters:rebuild-propensity` | Recalculate likely-voter rates |
+| `npm run precincts:import`     | Load official precinct boundaries into `Precinct` |
 | `npm run households:rebuild`   | Normalize addresses into `Household` rows |
 | `npm run households:geocode-census` | Resumable Census batch geocoding |
 | `npm test`                     | Unit tests (filters, addresses, geo) |

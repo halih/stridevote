@@ -4,6 +4,8 @@ export function sourceLabel(source: string): string {
       return "Civibyte";
     case "minivan":
       return "MiniVAN";
+    case "stridevote":
+      return "StrideVote";
     default:
       return source;
   }

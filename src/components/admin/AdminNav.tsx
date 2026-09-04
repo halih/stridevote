@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/Icon";
 
 const SECTIONS = [
   { id: "members", label: "Members", icon: "users" as const },
   { id: "voters", label: "Voters", icon: "contact" as const },
-  { id: "turfs", label: "Turf map", icon: "map" as const },
+  { id: "turfs", label: "Turfs", icon: "map" as const },
   { id: "lists", label: "Lists", icon: "list" as const },
   { id: "settings", label: "Settings", icon: "pencil" as const },
 ];
@@ -27,6 +28,7 @@ export function AdminNav({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
   const candidate = pathname.split("/")[2] ?? "";
   const currentSlug =
     candidate && candidate !== "new" && candidate !== "lists" ? candidate : "";
@@ -34,6 +36,15 @@ export function AdminNav({
   const onlyCampaign = campaigns.length === 1 ? campaigns[0] : null;
   const navSlug = currentSlug || onlyCampaign?.slug || "";
   const showSections = Boolean(navSlug && (currentSlug || !canCreate));
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenuOpen(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [menuOpen]);
 
   function switchCampaign(slug: string) {
     if (!slug) {
@@ -86,18 +97,39 @@ export function AdminNav({
         </div>
       ) : null}
 
-      {showSections
-        ? SECTIONS.map((section) => (
-            <Link
-              key={section.id}
-              href={sectionHref(navSlug, section.id)}
-              className={isActive(section.id) ? "active" : ""}
-            >
-              <Icon name={section.icon} size={18} />
-              {section.label}
-            </Link>
-          ))
-        : null}
+      {showSections ? (
+        <>
+          <button
+            type="button"
+            className="admin-nav-toggle"
+            aria-expanded={menuOpen}
+            aria-controls="admin-nav-panel"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <Icon name={menuOpen ? "x" : "menu"} size={18} />
+            {menuOpen ? "Close" : "Menu"}
+          </button>
+
+          <div
+            id="admin-nav-panel"
+            className={`admin-nav-panel${menuOpen ? " open" : ""}`}
+          >
+            <div className="admin-nav-links">
+              {SECTIONS.map((section) => (
+                <Link
+                  key={section.id}
+                  href={sectionHref(navSlug, section.id)}
+                  className={isActive(section.id) ? "active" : ""}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <Icon name={section.icon} size={18} />
+                  {section.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : null}
     </nav>
   );
 }

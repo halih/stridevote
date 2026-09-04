@@ -11,6 +11,7 @@ export const voterFiltersSchema = z.object({
   likelyPrimary: z.string().optional(),
   likelyGeneral: z.string().optional(),
   newVoter: z.string().optional(),
+  noApartments: z.string().optional(),
   page: z.string().optional(),
 });
 
@@ -29,6 +30,7 @@ const FILTER_KEYS = [
   "likelyPrimary",
   "likelyGeneral",
   "newVoter",
+  "noApartments",
 ] as const;
 
 function positiveInt(value: string | undefined): number | null {
@@ -91,8 +93,29 @@ export function searchParamsToFilters(
     likelyPrimary: one(raw.likelyPrimary),
     likelyGeneral: one(raw.likelyGeneral),
     newVoter: one(raw.newVoter),
+    noApartments: one(raw.noApartments),
     page: one(raw.page),
   });
+}
+
+function apartmentResidenceWhere(): Prisma.VoterWhereInput {
+  const addressLooksMultiUnit: Prisma.VoterWhereInput = {
+    OR: [
+      { registrationAddress: { contains: "APT", mode: "insensitive" } },
+      { registrationAddress: { contains: "APARTMENT", mode: "insensitive" } },
+      { registrationAddress: { contains: " UNIT", mode: "insensitive" } },
+      { registrationAddress: { contains: "UNIT ", mode: "insensitive" } },
+      { registrationAddress: { contains: "STE ", mode: "insensitive" } },
+      { registrationAddress: { contains: "SUITE", mode: "insensitive" } },
+      { registrationAddress: { contains: "#", mode: "insensitive" } },
+    ],
+  };
+  return {
+    OR: [
+      { householdLinks: { some: { household: { unit: { not: null } } } } },
+      { AND: [{ householdLinks: { none: {} } }, addressLooksMultiUnit] },
+    ],
+  };
 }
 
 export function buildVoterWhere(
@@ -107,6 +130,12 @@ export function buildVoterWhere(
   const currentYear = now.getFullYear();
   const page = Math.max(1, positiveInt(filters.page) ?? 1);
   const registeredAfter = registeredWithinPastYear(now);
+  const precinctParts = filters.precinct?.split(":");
+  const precinctWhere: Prisma.VoterWhereInput | null = filters.precinct
+    ? precinctParts?.length === 2
+      ? { countyCode: precinctParts[0], precinctCode: precinctParts[1] }
+      : { precinctCode: filters.precinct }
+    : null;
 
   const campaignScope: Prisma.VoterWhereInput = {
     campaignLinks: { some: { campaignId } },
@@ -139,10 +168,11 @@ export function buildVoterWhere(
             },
           ]
         : []),
-      ...(filters.precinct ? [{ precinctCode: filters.precinct }] : []),
+      ...(precinctWhere ? [precinctWhere] : []),
       ...(filters.gender ? [{ gender: filters.gender }] : []),
       ...(votedOn ? [{ history: { some: { electionDate: votedOn } } }] : []),
       ...(audience.length ? [{ OR: audience }] : []),
+      ...(filters.noApartments === "1" ? [{ NOT: apartmentResidenceWhere() }] : []),
       ...(minAge != null || maxAge != null
         ? [
             {

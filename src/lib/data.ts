@@ -16,6 +16,7 @@ export interface CampaignContactVM {
 export interface PickupVM {
   type: string; // "locker" | "address"
   label: string;
+  address: string;
   detail: string;
 }
 
@@ -25,6 +26,8 @@ export interface CampaignVM {
   name: string;
   office: string;
   district: string;
+  website: string | null;
+  iconUrl: string | null;
   tags: string[];
   color: string;
   status: CampaignStatus;
@@ -58,10 +61,16 @@ function boundaryOf(raw: unknown): [number, number][] | null {
 function pickupOf(c: {
   pickupType: string | null;
   pickupLabel: string | null;
+  pickupAddress: string | null;
   pickupDetail: string | null;
 }): PickupVM | null {
   if (!c.pickupType || !c.pickupLabel) return null;
-  return { type: c.pickupType, label: c.pickupLabel, detail: c.pickupDetail ?? "" };
+  return {
+    type: c.pickupType,
+    label: c.pickupLabel,
+    address: c.pickupAddress ?? "",
+    detail: c.pickupDetail ?? "",
+  };
 }
 
 export async function getCampaignBoard(user: User): Promise<CampaignBoard> {
@@ -143,6 +152,8 @@ export async function getCampaignBoard(user: User): Promise<CampaignBoard> {
       name: c.name,
       office: c.office,
       district: c.district,
+      website: c.website,
+      iconUrl: c.iconUrl,
       tags: c.tags,
       color: c.color,
       status,
@@ -184,7 +195,6 @@ export interface ListVM {
   id: string;
   slug: string;
   name: string;
-  neighborhood: string;
   source: string;
   sourceRef: string | null;
   doorsCount: number;
@@ -247,12 +257,11 @@ export async function getCanvassBoard(user: User): Promise<ListVM[]> {
     const distanceMi =
       user.homeLat != null && user.homeLng != null && l.centroidLat != null && l.centroidLng != null
         ? roundMiles(haversineMiles(user.homeLat, user.homeLng, l.centroidLat, l.centroidLng))
-        : l.distanceMi;
+        : null;
     return {
       id: l.id,
       slug: l.slug,
       name: l.name,
-      neighborhood: l.neighborhood,
       source: l.source,
       sourceRef: l.sourceRef,
       doorsCount: l.doorsCount,

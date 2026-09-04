@@ -34,11 +34,18 @@ async function main() {
   let matched = 0;
   let unmatched = 0;
   let ambiguous = 0;
+  // Rows that come back No_Match keep their queried status, so the scan has to
+  // advance by id or it re-reads the same batch forever. Every cuid sorts after
+  // the empty string, so the first pass starts from the beginning.
+  let cursorId: string = "";
 
   while (processed < limit) {
     const take = Math.min(BATCH_SIZE, limit - processed);
     const households = await prisma.household.findMany({
-      where: { geocodeStatus: { in: statuses } },
+      where: {
+        geocodeStatus: { in: statuses },
+        id: { gt: cursorId },
+      },
       orderBy: { id: "asc" },
       take,
       select: {
@@ -92,6 +99,7 @@ async function main() {
       else unmatched += 1;
     }
 
+    cursorId = households[households.length - 1].id;
     processed += households.length;
     console.log(
       `Processed ${processed.toLocaleString()} (matched=${matched}, unmatched=${unmatched}, ambiguous=${ambiguous})`,

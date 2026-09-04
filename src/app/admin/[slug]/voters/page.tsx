@@ -49,6 +49,7 @@ export default async function CampaignVotersPage({
     likelyPrimary: one(raw.likelyPrimary),
     likelyGeneral: one(raw.likelyGeneral),
     newVoter: one(raw.newVoter),
+    noApartments: one(raw.noApartments),
     page: one(raw.page),
   };
   const directory = await getCampaignVoterDirectory(slug, user, filters);
@@ -92,7 +93,9 @@ export default async function CampaignVotersPage({
                 <select className="field" name="precinct" defaultValue={filters.precinct}>
                   <option value="">All precincts</option>
                   {directory.precincts.map((precinct) => (
-                    <option key={precinct} value={precinct}>{precinct}</option>
+                    <option key={precinct.value} value={precinct.value}>
+                      {precinct.label}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -126,6 +129,7 @@ export default async function CampaignVotersPage({
               </div>
               </div>
               <div className="voter-filter-row voter-filter-row-audience">
+              <div className="voter-filter-groups">
               <fieldset className="voter-audience-filters">
                 <legend className="field-label">
                   Include any of
@@ -170,6 +174,19 @@ export default async function CampaignVotersPage({
                   New voter
                 </label>
               </fieldset>
+              <fieldset className="voter-audience-filters">
+                <legend className="field-label">Exclude</legend>
+                <label title="Doors with an apartment, unit, or suite number">
+                  <input
+                    type="checkbox"
+                    name="noApartments"
+                    value="1"
+                    defaultChecked={filters.noApartments === "1"}
+                  />
+                  Apartments
+                </label>
+              </fieldset>
+              </div>
               <div className="voter-filter-actions">
                 <button className="btn btn-primary btn-sm" type="submit">Apply</button>
                 <ClearVoterFiltersButton slug={slug} />

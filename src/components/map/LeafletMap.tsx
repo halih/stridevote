@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
-import { MapContainer, Marker, Polygon, TileLayer, useMap } from "react-leaflet";
+import {
+  CircleMarker,
+  MapContainer,
+  Marker,
+  Polygon,
+  TileLayer,
+  Tooltip,
+  useMap,
+} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { MapProps } from "./types";
@@ -12,15 +20,6 @@ const TILE_URL =
 
 const HOME_SVG =
   '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/></svg>';
-
-function pinIcon(color: string, current?: boolean) {
-  return L.divIcon({
-    className: "",
-    html: `<div class="pin${current ? " current" : ""}" style="background:${color}"><span class="pin-dot"></span></div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 20],
-  });
-}
 
 function homeIcon(inside?: boolean) {
   return L.divIcon({
@@ -79,7 +78,19 @@ export function LeafletMap({ polygons = [], markers = [], home }: MapProps) {
         />
       ))}
       {markers.map((m, i) => (
-        <Marker key={i} position={[m.lat, m.lng]} icon={pinIcon(m.color, m.current)} title={m.title} />
+        <CircleMarker
+          key={i}
+          center={[m.lat, m.lng]}
+          radius={m.current ? 7 : 5}
+          pathOptions={{
+            color: "#fff",
+            weight: 2,
+            fillColor: m.color,
+            fillOpacity: 1,
+          }}
+        >
+          {m.title ? <Tooltip direction="top">{m.title}</Tooltip> : null}
+        </CircleMarker>
       ))}
       {home ? <Marker position={[home.lat, home.lng]} icon={homeIcon(home.inside)} interactive={false} /> : null}
       <FitBounds points={allPoints} />

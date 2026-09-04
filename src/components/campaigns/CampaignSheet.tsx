@@ -7,6 +7,7 @@ import { Icon } from "@/components/Icon";
 import { Map } from "@/components/map/Map";
 import { useToast } from "@/components/Toast";
 import { fmt } from "@/lib/format";
+import { CampaignIcon } from "./CampaignIcon";
 
 export function CampaignSheet({
   entry,
@@ -27,10 +28,25 @@ export function CampaignSheet({
     <BottomSheet open={!!entry} onClose={onClose}>
       {c ? (
         <>
-          <h2>{c.name}</h2>
-          <p className="sheet-sub">
-            {c.office} · {c.district}
-          </p>
+          <div className="campaign-sheet-heading">
+            <CampaignIcon name={c.name} color={c.color} iconUrl={c.iconUrl} size="lg" />
+            <div>
+              <h2>{c.name}</h2>
+              <p className="sheet-sub">
+                {c.office} · {c.district}
+              </p>
+            </div>
+          </div>
+          {c.website ? (
+            <a
+              className="contact-link campaign-website-link"
+              href={c.website}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Icon name="externalLink" size={16} /> Campaign website
+            </a>
+          ) : null}
 
           {c.boundary && c.boundary.length ? (
             <Map

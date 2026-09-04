@@ -4,13 +4,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ListEditView as ListEditData } from "@/lib/admin-data";
 import { useToast } from "@/components/Toast";
+import { Map } from "@/components/map/Map";
 import { deleteList, setListCampaigns, updateList } from "@/lib/admin-actions";
+import { sourceLabel } from "@/lib/format";
 
-function numOrNull(v: string): number | null {
-  if (!v.trim()) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
+// Doors render two per row, so keep the page a whole number of rows.
+const DOORS_PER_PAGE = 30;
 
 export function ListEditView({ list }: { list: ListEditData }) {
   const router = useRouter();
@@ -18,16 +17,29 @@ export function ListEditView({ list }: { list: ListEditData }) {
   const [pending, startTransition] = useTransition();
 
   const [name, setName] = useState(list.name);
-  const [neighborhood, setNeighborhood] = useState(list.neighborhood);
-  const [source, setSource] = useState<"minivan" | "civibyte" | "manual">(
-    list.source as "minivan" | "civibyte" | "manual",
-  );
   const [sourceRef, setSourceRef] = useState(list.sourceRef ?? "");
-  const [doors, setDoors] = useState(String(list.doorsCount));
-  const [distance, setDistance] = useState(list.distanceMi != null ? String(list.distanceMi) : "");
-  const [lat, setLat] = useState(list.centroidLat != null ? String(list.centroidLat) : "");
-  const [lng, setLng] = useState(list.centroidLng != null ? String(list.centroidLng) : "");
   const [linked, setLinked] = useState<string[]>(list.linkedCampaignIds);
+  const [doorPage, setDoorPage] = useState(0);
+
+  const pageCount = Math.ceil(list.doors.length / DOORS_PER_PAGE);
+  // Clamp so a refresh that shrinks the list cannot leave us past the end.
+  const pageStart = Math.min(doorPage, Math.max(0, pageCount - 1)) * DOORS_PER_PAGE;
+  const pageDoors = list.doors.slice(pageStart, pageStart + DOORS_PER_PAGE);
+
+  const mapped = list.doors.flatMap((door) =>
+    door.lat != null && door.lng != null
+      ? [
+          {
+            lat: door.lat,
+            lng: door.lng,
+            color: "#2563eb",
+            title: `${door.address} · ${door.voters.length} voter${
+              door.voters.length === 1 ? "" : "s"
+            }`,
+          },
+        ]
+      : [],
+  );
 
   function toggleCampaign(id: string) {
     setLinked((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
@@ -48,13 +60,7 @@ export function ListEditView({ list }: { list: ListEditData }) {
     run(() =>
       updateList(list.id, {
         name: name.trim(),
-        neighborhood: neighborhood.trim(),
-        source,
         sourceRef: sourceRef.trim(),
-        doorsCount: Number(doors) || 0,
-        distanceMi: numOrNull(distance),
-        centroidLat: numOrNull(lat),
-        centroidLng: numOrNull(lng),
       }),
     );
   }
@@ -68,7 +74,15 @@ export function ListEditView({ list }: { list: ListEditData }) {
       ? `This list has ${list.activeCheckouts} active checkout${list.activeCheckouts === 1 ? "" : "s"}. Deleting it will cancel ${list.activeCheckouts === 1 ? "that checkout" : "those checkouts"} for canvassers. Continue?`
       : "Delete this list? This cannot be undone.";
     if (!window.confirm(warning)) return;
-    run(() => deleteList(list.id), () => router.push("/admin"));
+    run(
+      () => deleteList(list.id),
+      () =>
+        router.push(
+          list.returnCampaign
+            ? `/admin/${list.returnCampaign.slug}?section=lists`
+            : "/admin",
+        ),
+    );
   }
 
   return (
@@ -83,43 +97,21 @@ export function ListEditView({ list }: { list: ListEditData }) {
               <label className="field-label">List name</label>
               <input className="field" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-            <div className="form-field">
-              <label className="field-label">Neighborhood</label>
-              <input
-                className="field"
-                value={neighborhood}
-                onChange={(e) => setNeighborhood(e.target.value)}
-              />
-            </div>
             <div className="form-two">
               <div className="form-field">
-                <label className="field-label">Source</label>
-                <select
-                  className="field"
-                  value={source}
-                  onChange={(e) => setSource(e.target.value as typeof source)}
-                >
-                  <option value="manual">Manual</option>
-                  <option value="minivan">Minivan</option>
-                  <option value="civibyte">Civibyte</option>
-                </select>
+                <span className="field-label">Source</span>
+                <p className="field-readonly">{sourceLabel(list.source)}</p>
               </div>
               <div className="form-field">
-                <label className="field-label">Doors</label>
-                <input
-                  className="field"
-                  type="number"
-                  min={0}
-                  value={doors}
-                  onChange={(e) => setDoors(e.target.value)}
-                />
+                <span className="field-label">Doors</span>
+                <p className="field-readonly">{list.doorsCount}</p>
               </div>
             </div>
             <div className="form-field">
               <label className="field-label">
-                {source === "minivan"
+                {list.source === "minivan"
                   ? "List number"
-                  : source === "civibyte"
+                  : list.source === "civibyte"
                     ? "List URL"
                     : "Reference"}
               </label>
@@ -129,23 +121,10 @@ export function ListEditView({ list }: { list: ListEditData }) {
                 onChange={(e) => setSourceRef(e.target.value)}
               />
             </div>
-            <div className="form-two">
-              <div className="form-field">
-                <label className="field-label">Distance (mi)</label>
-                <input className="field" value={distance} onChange={(e) => setDistance(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label className="field-label">Center lat / lng</label>
-                <div className="form-two">
-                  <input className="field" value={lat} placeholder="lat" onChange={(e) => setLat(e.target.value)} />
-                  <input className="field" value={lng} placeholder="lng" onChange={(e) => setLng(e.target.value)} />
-                </div>
-              </div>
-            </div>
             <div className="form-actions">
               <button
                 className="btn btn-primary btn-block"
-                disabled={pending || !name.trim() || !neighborhood.trim()}
+                disabled={pending || !name.trim()}
                 onClick={save}
               >
                 Save changes
@@ -155,6 +134,98 @@ export function ListEditView({ list }: { list: ListEditData }) {
         </div>
       </section>
 
+      <section className="section">
+        <div className="section-head">
+          <span className="eyebrow">Doors and voters</span>
+          <span className="section-count">
+            {list.doorsStored} doors · {list.voterCount} voters
+          </span>
+        </div>
+        {mapped.length || list.boundary?.length ? (
+          <Map
+            aspectRatio={2.2}
+            polygons={
+              list.boundary?.length
+                ? [{ points: list.boundary, color: "#2563eb", fillOpacity: 0.08 }]
+                : []
+            }
+            markers={mapped}
+            caption={`${mapped.length} of ${list.doorsStored} doors mapped`}
+          />
+        ) : null}
+        {pageDoors.length ? (
+          <div className="list-door-grid">
+            {pageDoors.map((door, index) => (
+              <article key={door.id} className="card list-door-card">
+                <div className="list-door-heading">
+                  <span className="list-door-number">{pageStart + index + 1}</span>
+                  <div>
+                    <h3>{door.address}</h3>
+                    <p>
+                      {door.voters.length} voter{door.voters.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                </div>
+                {door.voters.length ? (
+                  <ul className="list-door-voters">
+                    {door.voters.map((voter) => (
+                      <li key={voter.id}>
+                        <span>{voter.name}</span>
+                        <small>
+                          {[
+                            voter.age != null ? `Age ${voter.age}` : null,
+                            voter.sex,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </small>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="field-hint">No linked voters.</p>
+                )}
+              </article>
+            ))}
+          </div>
+        ) : null}
+        {pageCount > 1 ? (
+          <div className="door-pager">
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={doorPage === 0}
+              onClick={() => setDoorPage((page) => page - 1)}
+            >
+              Previous
+            </button>
+            <span className="door-pager-label">
+              Doors {pageStart + 1}–{pageStart + pageDoors.length} of{" "}
+              {list.doorsStored} in walk order
+            </span>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={doorPage >= pageCount - 1}
+              onClick={() => setDoorPage((page) => page + 1)}
+            >
+              Next
+            </button>
+          </div>
+        ) : null}
+        {list.doors.length < list.doorsStored ? (
+          <p className="field-hint">
+            Only the first {list.doors.length} doors are loaded on this page.
+          </p>
+        ) : null}
+        {list.doorsStored ? null : (
+          <div className="empty-state">
+            This list does not have stored StrideVote doors or voters.
+          </div>
+        )}
+      </section>
+
+      {list.campaignOptions.length > 1 ? (
       <section className="section">
         <div className="section-head">
           <span className="eyebrow">Campaigns</span>
@@ -186,6 +257,7 @@ export function ListEditView({ list }: { list: ListEditData }) {
           </div>
         </div>
       </section>
+      ) : null}
 
       <section className="section">
         <button className="btn btn-outline btn-block" disabled={pending} onClick={remove} style={{ color: "var(--critical)" }}>

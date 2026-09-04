@@ -17,13 +17,16 @@ export default async function EditListPage({
 
   const list = await getListEditView(id, user);
   if (!list) notFound();
+  const listsHref = list.returnCampaign
+    ? `/admin/${list.returnCampaign.slug}?section=lists`
+    : "/admin";
 
   return (
     <>
       <AdminPageHeader title="Edit list" subtitle={list.name} />
       <div className="admin-content admin-content-narrow">
-        <Link href="/admin" className="back-link">
-          <Icon name="chevronLeft" size={15} /> Campaigns
+        <Link href={listsHref} className="back-link">
+          <Icon name="chevronLeft" size={15} /> Lists
         </Link>
         <ListEditView list={list} />
       </div>

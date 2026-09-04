@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { AdminNav } from "@/components/admin/AdminNav";
-import { Icon } from "@/components/Icon";
+import { AccountButton } from "@/components/AccountButton";
+import { BrandMark } from "@/components/BrandMark";
 import { ToastProvider } from "@/components/Toast";
 import { canManageAnything, isPlatformAdmin } from "@/lib/authz";
 import { getManageableCampaigns } from "@/lib/admin-data";
@@ -25,7 +26,7 @@ export default async function AdminLayout({
       <div id="admin-app">
         <aside className="admin-sidebar">
           <Link href="/admin" className="admin-brand">
-            <span className="brand-mark" />
+            <BrandMark size={24} />
             <span>
               Stride<b>Vote</b>
               <small>Admin</small>
@@ -40,17 +41,12 @@ export default async function AdminLayout({
           </Suspense>
 
           <div className="admin-account">
-            <div className="avatar" aria-hidden="true">
-              {initials}
-            </div>
-            <div className="admin-account-copy">
-              <b>{user.name || "Administrator"}</b>
-              <span>{user.email || user.phone}</span>
-            </div>
-            <Link href="/campaigns" className="admin-switch" title="Switch to canvasser view">
-              <Icon name="logout" size={18} />
-              <span>App view</span>
-            </Link>
+            <AccountButton
+              variant="admin"
+              initials={initials}
+              name={user.name}
+              detail={user.email || user.phone}
+            />
           </div>
         </aside>
         <main className="admin-main">{children}</main>

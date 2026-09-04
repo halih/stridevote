@@ -1,6 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import type { PrecinctOverlay } from "@/lib/precinct-geometry";
+
+export type TurfDrawMode = "precinct" | "draw";
 
 export interface TurfMapItem {
   id: string;
@@ -14,8 +17,12 @@ export interface TurfMapEditorProps {
   districtBoundary: [number, number][];
   districtColor: string;
   turfs: TurfMapItem[];
+  precincts?: PrecinctOverlay[];
+  mode?: TurfDrawMode;
+  selectedPrecinctIds?: string[];
   value: [number, number][] | null;
   onChange: (boundary: [number, number][] | null) => void;
+  onSelectPrecinct?: (precinct: PrecinctOverlay) => void;
   resetKey?: number;
 }
 

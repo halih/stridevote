@@ -24,6 +24,7 @@ export interface CensusGeocodeResult {
 
 const CENSUS_BATCH_URL =
   "https://geocoding.geo.census.gov/geocoder/locations/addressbatch";
+const BATCH_TIMEOUT_MS = 120000;
 
 /** Build the Census batch CSV body (id,street,city,state,zip). */
 export function buildCensusBatchCsv(rows: CensusAddressInput[]): string {
@@ -47,10 +48,14 @@ export function parseCensusBatchResponse(text: string): CensusGeocodeResult[] {
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim()) continue;
     const cols = parseCsvLine(line);
-    // Format: id, inputAddress, match, matchType, matchedAddress, coords, tigerLineId, side
+    // Format: id, inputAddress, indicator, matchType, matchedAddress, coords, tigerLineId, side
+    // The indicator is Match / No_Match / Tie; matchType carries Exact / Non_Exact.
     const id = cols[0]?.trim() ?? "";
-    const match = (cols[2]?.trim() || "No_Match") as CensusMatchQuality;
+    const indicator = cols[2]?.trim() || "No_Match";
     const matchType = cols[3]?.trim() || null;
+    const match = (
+      indicator === "Match" ? matchType || "Exact" : indicator
+    ) as CensusMatchQuality;
     const matchedAddress = cols[4]?.trim() || null;
     const coords = cols[5]?.trim() || "";
     let lat: number | null = null;
@@ -117,9 +122,12 @@ export async function geocodeCensusBatch(
   );
   form.append("benchmark", "Public_AR_Current");
 
+  // Without a deadline a stalled connection hangs the batch run indefinitely
+  // instead of surfacing to the caller's retry loop.
   const response = await fetchImpl(CENSUS_BATCH_URL, {
     method: "POST",
     body: form,
+    signal: AbortSignal.timeout(BATCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`Census geocoder HTTP ${response.status}`);

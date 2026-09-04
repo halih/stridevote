@@ -7,8 +7,10 @@ export const metadata: Metadata = {
   applicationName: "StrideVote",
   appleWebApp: { capable: true, title: "StrideVote", statusBarStyle: "default" },
   icons: {
-    icon: "/brand/stridevote-icon.svg",
-    apple: "/brand/stridevote-icon-square.svg",
+    // favicon.ico is emitted automatically from src/app/favicon.ico.
+    icon: { url: "/brand/stridevote-icon.svg", type: "image/svg+xml" },
+    // iOS ignores SVG touch icons, so this must stay a PNG.
+    apple: { url: "/brand/stridevote-icon-180.png", sizes: "180x180" },
   },
 };
 

@@ -19,6 +19,8 @@
     "voters:rebuild-propensity": "tsx --env-file=.env scripts/rebuild-voter-propensity.ts",
     "households:rebuild": "tsx --env-file=.env scripts/rebuild-households.ts",
     "households:geocode-census": "tsx --env-file=.env scripts/geocode-households-census.ts",
+    "households:refine-mapbox": "tsx --env-file=.env scripts/refine-households-mapbox.ts",
+    "precincts:import": "tsx --env-file=.env scripts/import-precincts.ts",
     "test": "tsx --test src/**/*.test.ts"
   },
   "prisma": {
@@ -44,10 +46,12 @@
     "@types/nodemailer": "^6.4.17",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/shapefile": "^0.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
     "kill-port": "^2.0.1",
     "prisma": "^6.19.3",
+    "shapefile": "^0.6.6",
     "tsx": "^4.19.2",
     "typescript": "^5"
   }

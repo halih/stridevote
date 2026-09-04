@@ -10,12 +10,9 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#10151b",
     theme_color: "#185FA5",
     icons: [
-      {
-        src: "/brand/stridevote-icon-square.svg",
-        sizes: "any",
-        type: "image/svg+xml",
-        purpose: "any",
-      },
+      { src: "/brand/stridevote-icon.svg", sizes: "any", type: "image/svg+xml" },
+      { src: "/brand/stridevote-icon-512.png", sizes: "512x512", type: "image/png" },
+      { src: "/brand/stridevote-icon-1024.png", sizes: "1024x1024", type: "image/png" },
     ],
   };
 }

@@ -1,4 +1,5 @@
 import { AccountButton } from "./AccountButton";
+import { BrandMark } from "./BrandMark";
 
 export function TopBar({
   title,
@@ -14,7 +15,7 @@ export function TopBar({
   return (
     <div className="topbar">
       <div className="brand-row">
-        <span className="brand-mark" />
+        <BrandMark size={18} />
         <span className="brand-name">
           Stride<b>Vote</b>
         </span>

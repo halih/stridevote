@@ -103,6 +103,8 @@ model Campaign {
   name         String
   office       String
   district     String
+  website      String?
+  iconUrl      String?
   tags         String[]
   color        String
   centroidLat  Float?
@@ -114,6 +116,7 @@ model Campaign {
   boundary     Json? // polygon: number[][] of [lat, lng]
   pickupType   String? // "locker" | "address"
   pickupLabel  String?
+  pickupAddress String?
   pickupDetail String?
 
   createdAt DateTime @default(now())
@@ -156,11 +159,9 @@ model List {
   id           String  @id @default(cuid())
   slug         String  @unique
   name         String
-  neighborhood String
-  source       String // "minivan" | "civibyte" | "manual"
+  source       String // "minivan" | "civibyte" | "stridevote"
   sourceRef    String? // Minivan list-number OR Civibyte URL
   doorsCount   Int     @default(0)
-  distanceMi   Float?
   centroidLat  Float?
   centroidLng  Float?
   boundary     Json? // polygon: number[][] of [lat, lng]
@@ -299,6 +300,37 @@ model CampaignVoter {
 
   @@unique([campaignId, voterId])
   @@index([campaignId])
+}
+
+// Official election precinct boundaries, imported from a state dataset (for WA,
+// the Secretary of State statewide precinct shapefile). countyCode + code join
+// directly to Voter.countyCode + Voter.precinctCode, so precinct turfs can be
+// counted from registration data without geocoding. The bbox columns let a
+// campaign load only the precincts near its district.
+model Precinct {
+  id          String @id @default(cuid())
+  state       String @default("WA")
+  countyCode  String // "KI"
+  countyName  String
+  code        String // precinct code as it appears in the voter file, e.g. "2202"
+  name        String
+  stateCode   String? // dataset-wide id, e.g. "KI00002202"
+  boundary    Json // largest outer ring as [lat, lng][]
+  geometry    Json // full GeoJSON Polygon / MultiPolygon in [lng, lat]
+  centroidLat Float?
+  centroidLng Float?
+  minLat      Float
+  maxLat      Float
+  minLng      Float
+  maxLng      Float
+  source      String // dataset label, e.g. "wa-sos-2025general"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([state, countyCode, code])
+  @@index([state, countyCode])
+  @@index([minLat, maxLat])
+  @@index([minLng, maxLng])
 }
 
 // Campaign-shared voter directory presets. filters JSON is VoterFilters without page.

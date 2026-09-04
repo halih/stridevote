@@ -10,6 +10,7 @@ export interface ManageCampaignCard {
   name: string;
   office: string;
   district: string;
+  iconUrl: string | null;
   color: string;
   activeMembers: number;
   pending: number;
@@ -33,6 +34,7 @@ export async function getManageableCampaigns(user: User): Promise<ManageCampaign
     name: c.name,
     office: c.office,
     district: c.district,
+    iconUrl: c.iconUrl,
     color: c.color,
     activeMembers: c.memberships.filter((m) => m.status === "active").length,
     pending: c.memberships.filter((m) => m.status === "pending").length,
@@ -62,7 +64,6 @@ export interface MemberRow {
 export interface AdminListRow {
   id: string;
   name: string;
-  neighborhood: string;
   source: string;
   sourceRef: string | null;
   doorsCount: number;
@@ -72,6 +73,8 @@ export interface AdminListRow {
   visibility: TurfVisibility;
   assignedUserId: string | null;
   assignedUserName: string | null;
+  doorsCanvassed: number;
+  checkedOutBy: string | null;
   activeCheckouts: number;
 }
 
@@ -83,6 +86,8 @@ export interface CampaignAdminView {
   name: string;
   office: string;
   district: string;
+  website: string | null;
+  iconUrl: string | null;
   color: string;
   tags: string[];
   volunteers: number;
@@ -94,6 +99,7 @@ export interface CampaignAdminView {
   boundary: [number, number][] | null;
   pickupType: string | null;
   pickupLabel: string | null;
+  pickupAddress: string | null;
   pickupDetail: string | null;
   contact: { name: string; role: string; phone: string | null; email: string | null } | null;
   perms: AdminPerms;
@@ -119,7 +125,15 @@ export async function getCampaignAdminView(
       listLinks: {
         include: {
           assignedUser: true,
-          list: { include: { checkouts: { where: { status: "active" }, select: { id: true } } } },
+          list: {
+            include: {
+              checkouts: {
+                include: {
+                  user: { select: { name: true, email: true, phone: true } },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -159,6 +173,8 @@ export async function getCampaignAdminView(
     name: campaign.name,
     office: campaign.office,
     district: campaign.district,
+    website: campaign.website,
+    iconUrl: campaign.iconUrl,
     color: campaign.color,
     tags: campaign.tags,
     volunteers: campaign.volunteers,
@@ -172,6 +188,7 @@ export async function getCampaignAdminView(
       : null,
     pickupType: campaign.pickupType,
     pickupLabel: campaign.pickupLabel,
+    pickupAddress: campaign.pickupAddress,
     pickupDetail: campaign.pickupDetail,
     contact: campaign.contacts[0]
       ? {
@@ -184,25 +201,31 @@ export async function getCampaignAdminView(
     perms,
     members: campaign.memberships.filter((m) => m.status === "active").map(toRow),
     pending: campaign.memberships.filter((m) => m.status === "pending").map(toRow),
-    lists: campaign.listLinks.map((ll) => ({
-      id: ll.list.id,
-      name: ll.list.name,
-      neighborhood: ll.list.neighborhood,
-      source: ll.list.source,
-      sourceRef: ll.list.sourceRef,
-      doorsCount: ll.list.doorsCount,
-      boundary: Array.isArray(ll.list.boundary)
-        ? (ll.list.boundary as [number, number][])
-        : null,
-      centroidLat: ll.list.centroidLat,
-      centroidLng: ll.list.centroidLng,
-      visibility: ll.visibility as TurfVisibility,
-      assignedUserId: ll.assignedUserId,
-      assignedUserName: ll.assignedUser
-        ? ll.assignedUser.name ?? contactLabel(ll.assignedUser)
-        : null,
-      activeCheckouts: ll.list.checkouts.length,
-    })),
+    lists: campaign.listLinks.map((ll) => {
+      const active = ll.list.checkouts.filter((c) => c.status === "active");
+      return {
+        id: ll.list.id,
+        name: ll.list.name,
+        source: ll.list.source,
+        sourceRef: ll.list.sourceRef,
+        doorsCount: ll.list.doorsCount,
+        boundary: Array.isArray(ll.list.boundary)
+          ? (ll.list.boundary as [number, number][])
+          : null,
+        centroidLat: ll.list.centroidLat,
+        centroidLng: ll.list.centroidLng,
+        visibility: ll.visibility as TurfVisibility,
+        assignedUserId: ll.assignedUserId,
+        assignedUserName: ll.assignedUser
+          ? ll.assignedUser.name ?? contactLabel(ll.assignedUser)
+          : null,
+        doorsCanvassed: ll.list.checkouts.reduce((n, c) => n + c.progressDone, 0),
+        checkedOutBy: active[0]
+          ? active[0].user.name ?? contactLabel(active[0].user)
+          : null,
+        activeCheckouts: active.length,
+      };
+    }),
     savedFilters: (
       await prisma.savedVoterFilter.findMany({
         where: { campaignId: campaign.id },
@@ -216,17 +239,37 @@ export async function getCampaignAdminView(
 export interface ListEditView {
   id: string;
   name: string;
-  neighborhood: string;
   source: string;
   sourceRef: string | null;
   doorsCount: number;
-  distanceMi: number | null;
+  voterCount: number;
   centroidLat: number | null;
   centroidLng: number | null;
+  boundary: [number, number][] | null;
+  returnCampaign: { slug: string; name: string } | null;
+  /** Stored doors, capped at DOOR_PAGE_SIZE. `doorsStored` is the true total. */
+  doorsStored: number;
+  doors: Array<{
+    id: string;
+    address: string;
+    lat: number | null;
+    lng: number | null;
+    voters: Array<{
+      id: string;
+      name: string;
+      /** Approximate: the voter file records a birth year, not a birth date. */
+      age: number | null;
+      sex: string | null;
+    }>;
+  }>;
   linkedCampaignIds: string[];
   campaignOptions: { id: string; name: string }[];
   activeCheckouts: number;
 }
+
+// A precinct turf runs a few hundred doors, but a campaign-wide generated list
+// has no such ceiling, so cap what one page will render.
+const DOOR_PAGE_SIZE = 400;
 
 export async function getListEditView(
   listId: string,
@@ -234,7 +277,44 @@ export async function getListEditView(
 ): Promise<ListEditView | null> {
   const list = await prisma.list.findUnique({
     where: { id: listId },
-    include: { campaignLinks: true, _count: { select: { checkouts: { where: { status: "active" } } } } },
+    include: {
+      campaignLinks: {
+        include: { campaign: { select: { slug: true, name: true } } },
+      },
+      households: {
+        orderBy: { sortOrder: "asc" },
+        take: DOOR_PAGE_SIZE,
+        include: {
+          household: {
+            include: {
+              voters: {
+                where: { voter: { listLinks: { some: { listId } } } },
+                include: {
+                  voter: {
+                    select: {
+                      id: true,
+                      firstName: true,
+                      middleName: true,
+                      lastName: true,
+                      suffix: true,
+                      yearOfBirth: true,
+                      gender: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      _count: {
+        select: {
+          households: true,
+          voters: true,
+          checkouts: { where: { status: "active" } },
+        },
+      },
+    },
   });
   if (!list) return null;
 
@@ -262,13 +342,40 @@ export async function getListEditView(
   return {
     id: list.id,
     name: list.name,
-    neighborhood: list.neighborhood,
     source: list.source,
     sourceRef: list.sourceRef,
     doorsCount: list.doorsCount,
-    distanceMi: list.distanceMi,
+    voterCount: list._count.voters,
     centroidLat: list.centroidLat,
     centroidLng: list.centroidLng,
+    boundary: Array.isArray(list.boundary)
+      ? (list.boundary as [number, number][])
+      : null,
+    returnCampaign: list.campaignLinks[0]?.campaign ?? null,
+    doorsStored: list._count.households,
+    doors: list.households.map(({ household }) => ({
+      id: household.id,
+      address: household.displayAddress,
+      lat: household.mapboxLat ?? household.censusLat,
+      lng: household.mapboxLng ?? household.censusLng,
+      voters: household.voters.map(({ voter }) => ({
+        id: voter.id,
+        name: [
+          voter.firstName,
+          voter.middleName,
+          voter.lastName,
+          voter.suffix,
+        ]
+          .filter(Boolean)
+          .join(" "),
+        age:
+          voter.yearOfBirth != null
+            ? new Date().getFullYear() - voter.yearOfBirth
+            : null,
+        // "U" is the voter file's unknown marker, which is not worth showing.
+        sex: voter.gender && voter.gender !== "U" ? voter.gender : null,
+      })),
+    })),
     linkedCampaignIds: linkedIds,
     campaignOptions,
     activeCheckouts: list._count.checkouts,

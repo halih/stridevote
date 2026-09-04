@@ -31,8 +31,7 @@ export function ListSheets({
           <>
             <h2>{l.name}</h2>
             <p className="sheet-sub">
-              {l.neighborhood} · {l.doorsCount} doors ·{" "}
-              {l.campaigns.map((c) => c.name).join(" + ")}
+              {l.doorsCount} doors · {l.campaigns.map((c) => c.name).join(" + ")}
             </p>
             {l.boundary && l.boundary.length ? (
               <Map
@@ -76,6 +75,7 @@ export function ListSheets({
                         <b>{c.name}</b>
                         <span>
                           {c.pickup!.label}
+                          {c.pickup!.address ? ` · ${c.pickup!.address}` : ""}
                           {c.pickup!.detail ? ` — ${c.pickup!.detail}` : ""}
                         </span>
                       </div>

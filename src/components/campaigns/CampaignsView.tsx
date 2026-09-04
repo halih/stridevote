@@ -8,6 +8,7 @@ import { Icon } from "@/components/Icon";
 import { useToast } from "@/components/Toast";
 import { requestJoinCampaign } from "@/lib/actions";
 import { CampaignSheet } from "./CampaignSheet";
+import { CampaignIcon } from "./CampaignIcon";
 import { fmt } from "@/lib/format";
 
 const RADII = [1, 5, 10, 25];
@@ -63,11 +64,14 @@ export function CampaignsView({
             board.mine.map((c) => (
               <div key={c.id} className="card camp-card" style={{ ["--stripe" as string]: c.color }}>
                 <div className="camp-top">
-                  <div>
-                    <p className="camp-name">{c.name}</p>
-                    <p className="camp-office">
-                      {c.office} · {c.district}
-                    </p>
+                  <div className="campaign-title-row">
+                    <CampaignIcon name={c.name} color={c.color} iconUrl={c.iconUrl} />
+                    <div>
+                      <p className="camp-name">{c.name}</p>
+                      <p className="camp-office">
+                        {c.office} · {c.district}
+                      </p>
+                    </div>
                   </div>
                   <span className={`pill ${c.status === "active" ? "pill-active" : "pill-pending"}`}>
                     {c.status === "active" ? "Active" : "Pending approval"}
@@ -144,11 +148,14 @@ export function CampaignsView({
             discover.map((c) => (
               <div key={c.id} className="card camp-card" style={{ ["--stripe" as string]: c.color }}>
                 <div className="camp-top">
-                  <div>
-                    <p className="camp-name">{c.name}</p>
-                    <p className="camp-office">
-                      {c.office} · {c.district}
-                    </p>
+                  <div className="campaign-title-row">
+                    <CampaignIcon name={c.name} color={c.color} iconUrl={c.iconUrl} />
+                    <div>
+                      <p className="camp-name">{c.name}</p>
+                      <p className="camp-office">
+                        {c.office} · {c.district}
+                      </p>
+                    </div>
                   </div>
                   <span className="pill pill-neutral">
                     {c.distanceMi != null ? `${c.distanceMi} mi away` : "Nearby"}

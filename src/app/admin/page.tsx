@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { CampaignIcon } from "@/components/campaigns/CampaignIcon";
 import { Icon } from "@/components/Icon";
 import { getManageableCampaigns } from "@/lib/admin-data";
 import { isPlatformAdmin } from "@/lib/authz";
@@ -49,16 +50,23 @@ export default async function AdminPage() {
                   }}
                 >
                   <div className="camp-top">
-                    <div>
-                      <p className="camp-name">
-                        {campaign.name}
-                        {campaign.pending > 0 ? (
-                          <span className="count-badge">{campaign.pending}</span>
-                        ) : null}
-                      </p>
-                      <p className="camp-office">
-                        {campaign.office} · {campaign.district}
-                      </p>
+                    <div className="campaign-title-row">
+                      <CampaignIcon
+                        name={campaign.name}
+                        color={campaign.color}
+                        iconUrl={campaign.iconUrl}
+                      />
+                      <div>
+                        <p className="camp-name">
+                          {campaign.name}
+                          {campaign.pending > 0 ? (
+                            <span className="count-badge">{campaign.pending}</span>
+                          ) : null}
+                        </p>
+                        <p className="camp-office">
+                          {campaign.office} · {campaign.district}
+                        </p>
+                      </div>
                     </div>
                     <Icon
                       name="chevronRight"
