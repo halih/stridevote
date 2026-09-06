@@ -12,6 +12,7 @@ import {
   permissionsForRoles,
 } from "@/lib/roles";
 import { normalizePhone } from "@/lib/phone";
+import { legislativeDistrictKey } from "@/lib/districts";
 import { geocodeRegion, type RegionType } from "@/lib/geocode";
 import { pointInPolygon, polygonCentroid } from "@/lib/geo";
 import { loadPrecinctsForDistrict } from "@/lib/precincts";
@@ -255,6 +256,57 @@ export async function deleteCampaign(campaignId: string): Promise<AdminResult> {
   revalidatePath("/campaigns");
   revalidatePath("/canvass");
   return { ok: true, message: `Deleted ${campaign.name}` };
+}
+
+/**
+ * Link every voter in the campaign's district to the campaign.
+ *
+ * Creating a campaign does not populate CampaignVoter, and every voter query is
+ * scoped through that table, so a campaign whose district was already imported
+ * for a different campaign still shows an empty directory until this runs.
+ */
+export async function syncCampaignVoters(campaignId: string): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "campaign:edit"))) return fail("Not allowed.");
+
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    select: { slug: true, regionType: true, regionName: true },
+  });
+  if (!campaign) return fail("Campaign not found.");
+
+  // Legislative district is the only region type the voter file lets us match on.
+  if (campaign.regionType !== "legislative") {
+    return fail(
+      "Voter sync only covers legislative districts. Import this region with voters:import.",
+    );
+  }
+  const district = legislativeDistrictKey(campaign.regionName);
+  if (!district) {
+    return fail("Set this campaign's legislative district before syncing voters.");
+  }
+
+  const linked = Number(await prisma.$executeRaw`
+    INSERT INTO "CampaignVoter" (id, "campaignId", "voterId", "createdAt")
+    SELECT gen_random_uuid()::text, ${campaignId}, v.id, CURRENT_TIMESTAMP
+    FROM "Voter" v
+    WHERE regexp_replace(COALESCE(v."legislativeDistrict", ''), '^0+', '') = ${district}
+    ON CONFLICT ("campaignId", "voterId") DO NOTHING
+  `);
+
+  if (!linked) {
+    return {
+      ok: true,
+      message: `No new voters to link. Import LD ${district} with voters:import first.`,
+    };
+  }
+
+  revalidateCampaign(campaign.slug);
+  return {
+    ok: true,
+    message: `Linked ${linked.toLocaleString()} voters from LD ${district}`,
+  };
 }
 
 export interface RegionResolveResult {

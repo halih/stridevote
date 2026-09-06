@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { ClearVoterFiltersButton } from "@/components/admin/ClearVoterFiltersButton";
 import { SavedFilterControls } from "@/components/admin/SavedFilterControls";
+import { SyncVotersButton } from "@/components/admin/SyncVotersButton";
 import { Icon } from "@/components/Icon";
 import { electionTypeLabel } from "@/lib/elections";
 import { getSessionUser } from "@/lib/session";
@@ -69,6 +70,14 @@ export default async function CampaignVotersPage({
     query.set("page", String(page));
     return `/admin/${slug}/voters?${query}`;
   }
+
+  // Voters exist for this district but were never attached to this campaign.
+  const unlinkedDistrict =
+    !directory.filtered &&
+    directory.regionSync?.supported &&
+    directory.regionSync.available > 0
+      ? directory.regionSync
+      : null;
 
   const totalPages = Math.max(1, Math.ceil(directory.total / directory.pageSize));
   const firstRow = (directory.page - 1) * directory.pageSize + 1;
@@ -299,12 +308,24 @@ export default async function CampaignVotersPage({
             ) : (
               <div className="card empty-state voter-empty">
                 <Icon name="users" size={28} />
-                <b>No voter records found</b>
+                <b>
+                  {unlinkedDistrict
+                    ? "This campaign has no voters linked yet"
+                    : "No voter records found"}
+                </b>
                 <span>
                   {directory.filtered
                     ? "No voters match these filters. Try widening or clearing them."
-                    : "Import an authorized Washington VRDB extract for this district before using voter filters."}
+                    : unlinkedDistrict
+                      ? `LD ${unlinkedDistrict.district} is already imported, but none of those voters are attached to this campaign. Creating a campaign does not link voters on its own.`
+                      : "Import an authorized Washington VRDB extract for this district before using voter filters."}
                 </span>
+                {unlinkedDistrict ? (
+                  <SyncVotersButton
+                    campaignId={directory.campaign.id}
+                    available={unlinkedDistrict.available}
+                  />
+                ) : null}
               </div>
             )}
 

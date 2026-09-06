@@ -10,12 +10,25 @@ const smtpUrl = () => process.env.SMTP_URL?.trim() || undefined;
 const from = () =>
   process.env.EMAIL_FROM?.trim() || "StrideVote <login@stride.vote>";
 
+// Mail clients need an absolute image URL, and the app is reachable under
+// different hosts (localhost, ngrok, prod), so take the origin from the link
+// we're already sending rather than a separate setting that could drift.
+function assetOrigin(magicLink: string): string {
+  try {
+    return new URL(magicLink).origin;
+  } catch {
+    return process.env.AUTH_URL?.trim().replace(/\/+$/, "") || "";
+  }
+}
+
 function renderHtml(magicLink: string): string {
+  // PNG, not the SVG the app uses: Gmail and Outlook drop SVG images.
+  const logo = `${assetOrigin(magicLink)}/brand/stridevote-icon-120.png`;
   return `<!doctype html><html><body style="margin:0;background:#eef2f7;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:32px 16px;color:#1F2733">
   <div style="max-width:440px;margin:0 auto;background:#fff;border-radius:16px;padding:28px">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
-      <div style="width:28px;height:28px;border-radius:8px;background:#185FA5"></div>
-      <strong style="font-size:16px">Stride<span style="color:#378ADD">Vote</span></strong>
+    <div style="margin-bottom:18px">
+      <img src="${logo}" width="28" height="28" alt="" style="width:28px;height:28px;border:0;border-radius:8px;vertical-align:middle">
+      <strong style="font-size:16px;vertical-align:middle;padding-left:10px">Stride<span style="color:#378ADD">Vote</span></strong>
     </div>
     <h1 style="font-size:19px;margin:0 0 8px">Sign in to StrideVote</h1>
     <p style="font-size:14px;color:#5b6472;margin:0 0 20px">Tap the button below to sign in. This link expires soon and can be used once.</p>

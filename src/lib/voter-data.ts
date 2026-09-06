@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/db";
 import { can } from "@/lib/authz";
+import { legislativeDistrictKey } from "@/lib/districts";
 import type { ElectionType } from "@/lib/elections";
 import type { User } from "@/generated/prisma";
 import { getCampaignCanvassAudience } from "@/lib/canvass/progress";
@@ -58,11 +59,23 @@ export interface SavedVoterFilterRow {
   updatedAt: string;
 }
 
+/**
+ * Set only when the campaign has no linked voters at all, so an empty directory
+ * can tell "nothing imported for this district" apart from "imported already,
+ * just not linked to this campaign".
+ */
+export interface RegionVoterSync {
+  supported: boolean;
+  district: string | null;
+  available: number;
+}
+
 export interface CampaignVoterDirectory {
   campaign: { id: string; slug: string; name: string; district: string };
   voters: VoterDirectoryRow[];
   total: number;
   campaignTotal: number;
+  regionSync: RegionVoterSync | null;
   filtered: boolean;
   page: number;
   pageSize: number;
@@ -91,6 +104,29 @@ export async function resolveCanvassAudience(
   };
 }
 
+/** How many voters the campaign's district could contribute, if any. */
+async function regionVoterSync(campaign: {
+  regionType: string | null;
+  regionName: string | null;
+}): Promise<RegionVoterSync> {
+  const district =
+    campaign.regionType === "legislative"
+      ? legislativeDistrictKey(campaign.regionName)
+      : null;
+  if (!district) return { supported: false, district: null, available: 0 };
+
+  const available = await prisma.voter.count({
+    where: {
+      OR: [
+        { legislativeDistrict: district },
+        { legislativeDistrict: district.padStart(2, "0") },
+        { legislativeDistrict: district.padStart(3, "0") },
+      ],
+    },
+  });
+  return { supported: true, district, available };
+}
+
 export async function getCampaignVoterDirectory(
   slug: string,
   user: User,
@@ -98,7 +134,14 @@ export async function getCampaignVoterDirectory(
 ): Promise<CampaignVoterDirectory | null> {
   const campaign = await prisma.campaign.findUnique({
     where: { slug },
-    select: { id: true, slug: true, name: true, district: true },
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      district: true,
+      regionType: true,
+      regionName: true,
+    },
   });
   if (!campaign || !(await can(user, campaign.id, "voters:view"))) return null;
 
@@ -183,8 +226,17 @@ export async function getCampaignVoterDirectory(
       }),
     ]);
 
+  // Unfiltered, `total` is the campaign's whole linked set.
+  const regionSync = !filtered && total === 0 ? await regionVoterSync(campaign) : null;
+
   return {
-    campaign,
+    campaign: {
+      id: campaign.id,
+      slug: campaign.slug,
+      name: campaign.name,
+      district: campaign.district,
+    },
+    regionSync,
     voters: voters.map((voter) => {
       const householdId = voter.householdLinks[0]?.householdId ?? null;
       const latest = householdId

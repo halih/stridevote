@@ -2,16 +2,20 @@
  * Import a Washington SOS VRDB zip into Voter (+ optional CampaignVoter links).
  *
  * Usage:
- *   npm run voters:import -- "/path/to/09.2026.WA.zip"
- *   npm run voters:import -- "/path/to/extract.zip" --campaign count-binface --district 32
+ *   npm run voters:import -- "/path/to/09.2026.WA.zip" --campaign people-for-imraan
+ *   npm run voters:import -- "/path/to/extract.zip" --district 32
+ *   npm run voters:import -- "/path/to/extract.zip" --all
  *
- * Defaults: Active voters in the campaign's legislative district (or 32).
- * Pass --all to load the statewide file (millions of rows).
+ * Imports Active voters only unless --status all. Scope is never implicit: pass
+ * --campaign to use its legislative district and link the voters to it,
+ * --district for a district without linking, or --all for the statewide file
+ * (millions of rows).
  */
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "../src/generated/prisma";
+import { legislativeDistrictKey } from "../src/lib/districts";
 import { rebuildVoterPropensity } from "./lib/rebuild-voter-propensity";
 
 const prisma = new PrismaClient();
@@ -30,7 +34,7 @@ function parseFlags(argv: string[]): Flags {
   const positional: string[] = [];
   const flags: Flags = {
     zipPath: "",
-    campaignSlug: "count-binface",
+    campaignSlug: null,
     district: null,
     statewide: false,
     status: "Active",
@@ -114,10 +118,6 @@ function parseYear(value: string | undefined): number | null {
 function parseDate(value: string | undefined): string | null {
   const trimmed = value?.trim() ?? "";
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? `${trimmed}T00:00:00.000Z` : null;
-}
-
-function districtKey(value: string | null | undefined): string {
-  return (value ?? "").trim().replace(/^0+/, "") || "0";
 }
 
 type VoterRow = {
@@ -239,7 +239,7 @@ async function importExtract(
     const cols = splitRow(line);
     const get = (name: string) => cols[idx[name]] ?? "";
     if (status !== "all" && get("StatusCode").trim() !== status) continue;
-    if (district && districtKey(get("LegislativeDistrict")) !== district) continue;
+    if (district && legislativeDistrictKey(get("LegislativeDistrict")) !== district) continue;
 
     const stateVoterId = get("StateVoterID").trim();
     if (!stateVoterId) continue;
@@ -300,12 +300,22 @@ async function main() {
     if (!campaign) throw new Error(`Campaign not found: ${flags.campaignSlug}`);
     campaignId = campaign.id;
     if (!flags.statewide && !district && campaign.regionType === "legislative") {
-      district = districtKey(campaign.regionName);
+      district = legislativeDistrictKey(campaign.regionName);
+      if (!district) {
+        throw new Error(
+          `Campaign ${campaign.slug} has no legislative district set. Pass --district or --all.`,
+        );
+      }
     }
     console.log(`Linking to ${campaign.name} (${campaign.slug})`);
   }
 
   if (flags.statewide) district = null;
+  else if (!district) {
+    throw new Error(
+      "Refusing to import statewide by accident. Pass --campaign <slug>, --district <n>, or --all.",
+    );
+  }
   console.log(
     `Importing ${flags.status === "all" ? "all statuses" : "Active"} voters` +
       (district ? ` in legislative district ${district}` : " statewide"),
