@@ -324,17 +324,15 @@ export async function getCanvassBoard(user: User): Promise<ListVM[]> {
         householdId: true,
         household: {
           select: {
-            mapboxLat: true,
-            mapboxLng: true,
-            censusLat: true,
-            censusLng: true,
+            lat: true,
+            lng: true,
           },
         },
       },
     });
     for (const row of rows) {
-      const lat = row.household.mapboxLat ?? row.household.censusLat;
-      const lng = row.household.mapboxLng ?? row.household.censusLng;
+      const lat = row.household.lat;
+      const lng = row.household.lng;
       if (lat == null || lng == null) continue;
       const pins = doorPinsByList.get(row.listId) ?? [];
       if (pins.length >= PREVIEW_PIN_CAP) continue;

@@ -479,8 +479,8 @@ model SavedVoterFilter {
   @@index([campaignId])
 }
 
-// One physical door / mailing address. Census coords are bulk baseline;
-// Mapbox coords are optional permanent refinements reused across list generation.
+// One physical door / mailing address. A single lat/lng is the persistent pin;
+// geocodeSource records where it came from (census | county | mapbox).
 model Household {
   id               String   @id @default(cuid())
   normalizedKey    String   @unique
@@ -490,11 +490,11 @@ model Household {
   state            String
   postalCode       String
   unit             String?
-  censusLat        Float?
-  censusLng        Float?
-  mapboxLat        Float?
-  mapboxLng        Float?
-  geocodeStatus    String   @default("pending") // pending | matched | unmatched | ambiguous
+  lat              Float?
+  lng              Float?
+  geocodeSource    String?  // census | county | mapbox
+  geocodeRef       String?  // source-specific id when available
+  geocodeStatus    String   @default("pending") // pending | matched | unmatched | ambiguous (Census pipeline)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -505,7 +505,8 @@ model Household {
   redirects    ListHouseholdRedirect[]
 
   @@index([geocodeStatus])
-  @@index([censusLat, censusLng])
+  @@index([geocodeSource])
+  @@index([lat, lng])
 }
 
 // Maps a household that left a list during a volunteer split so stale offline

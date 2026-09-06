@@ -152,48 +152,52 @@ describe("mapbox storage terms", () => {
     assert.equal(canPersistMapboxCoords(), false);
   });
 
-  it("uses session Mapbox without replacing stored or census stable coords", () => {
+  it("uses persistent lat/lng and only overlays session when missing", () => {
+    const census = resolveDoorCoords({
+      lat: 47.6,
+      lng: -122.3,
+      geocodeSource: "census",
+      session: { lat: 47.61, lng: -122.33 },
+    });
+    assert.equal(census.coordSource, "census");
+    assert.equal(census.lat, 47.6);
+
+    const county = resolveDoorCoords({
+      lat: 47.7,
+      lng: -122.4,
+      geocodeSource: "county",
+      session: { lat: 1, lng: 2 },
+    });
+    assert.equal(county.coordSource, "county");
+    assert.equal(county.lat, 47.7);
+
     const session = resolveDoorCoords({
-      mapboxLat: null,
-      mapboxLng: null,
-      censusLat: 47.6,
-      censusLng: -122.3,
+      lat: null,
+      lng: null,
+      geocodeSource: null,
       session: { lat: 47.61, lng: -122.33 },
     });
     assert.equal(session.coordSource, "session-mapbox");
     assert.equal(session.lat, 47.61);
-    assert.equal(session.stableLat, 47.6);
-    const stored = resolveDoorCoords({
-      mapboxLat: 47.7,
-      mapboxLng: -122.4,
-      censusLat: 47.6,
-      censusLng: -122.3,
-      session: { lat: 1, lng: 2 },
-    });
-    assert.equal(stored.coordSource, "stored-mapbox");
-    assert.equal(stored.lat, 47.7);
+    assert.equal(session.stableLat, null);
   });
 
   it("strips session Mapbox coords before durable cache", () => {
     const door = persistableDoorCoords(
       resolveDoorCoords({
-        mapboxLat: null,
-        mapboxLng: null,
-        censusLat: 47.6,
-        censusLng: -122.3,
+        lat: null,
+        lng: null,
         session: { lat: 47.61, lng: -122.33 },
       }),
     );
-    assert.equal(door.coordSource, "census");
-    assert.equal(door.lat, 47.6);
+    assert.equal(door.coordSource, "none");
+    assert.equal(door.lat, null);
     const packet = packetForOfflineCache({
       doors: [
         resolveDoorCoords({
-          mapboxLat: null,
-          mapboxLng: null,
-          censusLat: 47.6,
-          censusLng: -122.3,
-          session: { lat: 47.61, lng: -122.33 },
+          lat: 47.6,
+          lng: -122.3,
+          geocodeSource: "census",
         }),
       ],
     });

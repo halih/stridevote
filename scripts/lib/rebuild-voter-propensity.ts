@@ -73,9 +73,9 @@ export async function rebuildVoterPropensity(prisma: PrismaClient): Promise<void
         THEN COALESCE(x.general_voted, 0)::float / e.general_eligible
       END,
       "likelyPrimary" = e.primary_eligible > 0
-        AND COALESCE(x.primary_voted, 0)::float / e.primary_eligible > 0.66,
+        AND COALESCE(x.primary_voted, 0)::float / e.primary_eligible >= 0.5,
       "likelyGeneral" = e.general_eligible > 0
-        AND COALESCE(x.general_voted, 0)::float / e.general_eligible > 0.66
+        AND COALESCE(x.general_voted, 0)::float / e.general_eligible >= 0.5
     FROM eligible e
     LEFT JOIN voted x ON x.id = e.id
     WHERE v.id = e.id

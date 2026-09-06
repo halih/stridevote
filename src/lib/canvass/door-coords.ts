@@ -1,58 +1,44 @@
+import {
+  isGeocodeSource,
+  isHouseholdGeocoded,
+  type GeocodeSource,
+} from "@/lib/household-coords";
+
 /** How a walk-packet door got its lat/lng. Session Mapbox must not be cached. */
 export type DoorCoordSource =
-  | "stored-mapbox"
+  | GeocodeSource
   | "session-mapbox"
-  | "census"
   | "none";
 
 export interface DoorCoordFields {
   lat: number | null;
   lng: number | null;
   coordSource: DoorCoordSource;
-  /** Persistable coords (Census or stored permanent Mapbox). */
+  /** Persistable coords (never session Mapbox). */
   stableLat: number | null;
   stableLng: number | null;
 }
 
 export function resolveDoorCoords(opts: {
-  mapboxLat: number | null | undefined;
-  mapboxLng: number | null | undefined;
-  censusLat: number | null | undefined;
-  censusLng: number | null | undefined;
+  lat: number | null | undefined;
+  lng: number | null | undefined;
+  geocodeSource?: string | null;
   session?: { lat: number; lng: number } | null;
 }): DoorCoordFields {
-  const hasStored =
-    opts.mapboxLat != null &&
-    opts.mapboxLng != null &&
-    Number.isFinite(opts.mapboxLat) &&
-    Number.isFinite(opts.mapboxLng);
-  const hasCensus =
-    opts.censusLat != null &&
-    opts.censusLng != null &&
-    Number.isFinite(opts.censusLat) &&
-    Number.isFinite(opts.censusLng);
+  const hasStable = isHouseholdGeocoded(opts);
+  const stableLat = hasStable ? (opts.lat as number) : null;
+  const stableLng = hasStable ? (opts.lng as number) : null;
+  const stableSource: DoorCoordSource = hasStable
+    ? isGeocodeSource(opts.geocodeSource)
+      ? opts.geocodeSource
+      : "census"
+    : "none";
 
-  const stableLat = hasStored
-    ? (opts.mapboxLat as number)
-    : hasCensus
-      ? (opts.censusLat as number)
-      : null;
-  const stableLng = hasStored
-    ? (opts.mapboxLng as number)
-    : hasCensus
-      ? (opts.censusLng as number)
-      : null;
-  const stableSource: DoorCoordSource = hasStored
-    ? "stored-mapbox"
-    : hasCensus
-      ? "census"
-      : "none";
-
-  if (hasStored) {
+  if (hasStable) {
     return {
       lat: stableLat,
       lng: stableLng,
-      coordSource: "stored-mapbox",
+      coordSource: stableSource,
       stableLat,
       stableLng,
     };
@@ -73,9 +59,9 @@ export function resolveDoorCoords(opts: {
   }
 
   return {
-    lat: stableLat,
-    lng: stableLng,
-    coordSource: stableSource,
+    lat: null,
+    lng: null,
+    coordSource: "none",
     stableLat,
     stableLng,
   };

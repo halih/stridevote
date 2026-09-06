@@ -130,7 +130,7 @@ statewide history even when the voter is not imported yet.
 
 History is classified from Washington election dates as general, primary,
 presidential primary, or special. Likely-primary and likely-general flags mean
-the voter participated in more than 66% of the applicable regular elections
+the voter participated in at least 50% of the applicable regular elections
 held since they registered.
 
 Only elections with a complete statewide ballot list count toward those rates.
@@ -202,24 +202,32 @@ no usable precinct code and so are counted geometrically.
 ### Household geocoding
 
 Addresses are normalized into `Household` rows (`npm run households:rebuild`).
-Units stay distinct doors; street abbreviations and casing collapse. Geocoding is
-what places a door inside a **drawn** polygon; precinct turfs do not need it.
+Units stay distinct doors; street abbreviations and casing collapse. Each door
+stores one persistent `lat` / `lng` plus `geocodeSource` (`census`, `county`,
+or legacy `mapbox`). Geocoding is what places a door inside a **drawn** polygon;
+precinct turfs do not need it.
+
+Write rank (equal ranks do not replace each other): **county ≈ mapbox > census**.
+Census street interpolations never overwrite county or Mapbox pins.
 
 1. **Census (bulk baseline)** — free US Census batch API, no API key.
    `npm run households:geocode-census` is resumable (`geocodeStatus`, `--limit`,
-   `--status`). Results land in `censusLat` / `censusLng` (`geocodeStatus`
-   records match vs unmatched). Public Nominatim is **not** used for bulk voter
-   geocoding.
-2. **Mapbox (walk session only)** — optional `MAPBOX_ACCESS_TOKEN`. When a
-   volunteer downloads a list, doors without stored coords get a **temporary**
-   geocode for that session (map + walk order). Results are not written to
-   `mapboxLat` / `mapboxLng` or the 72-hour offline packet. Turf generation
-   uses Census coords (plus any previously stored Mapbox points). Unresolved
-   doors are excluded from drawn turfs rather than silently assigned.
+   `--status`). Matched coords fill empty `lat`/`lng` with `geocodeSource=census`.
+   Public Nominatim is **not** used for bulk voter geocoding.
+2. **County GIS (fallback / upgrade)** — King and Snohomish address-point layers.
+   `npm run households:geocode-county` fills null pins and upgrades Census pins
+   (`--dry-run`, `--limit`, `--county KI|SN`). Uses FeatureServer geometry, not
+   rounded Lat/Long attributes. Does not replace Mapbox-sourced pins.
+3. **Mapbox (walk session only)** — optional `MAPBOX_ACCESS_TOKEN`. When a
+   volunteer downloads a list, doors still missing `lat` get a **temporary**
+   geocode for that session (map + walk order). Results are not written to the
+   database or the 72-hour offline packet. Permanent Mapbox geocoding is not used.
 
 ```bash
 npm run households:rebuild -- --campaign count-binface
 npm run households:geocode-census -- --limit 5000
+npm run households:geocode-county -- --dry-run
+npm run households:geocode-county
 ```
 
 **Platform super-admins** (via `PLATFORM_ADMIN_EMAILS` or `User.isPlatformAdmin`)

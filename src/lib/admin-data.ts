@@ -420,8 +420,8 @@ export async function getListEditView(
       return {
         id: household.id,
         address: household.displayAddress,
-        lat: household.mapboxLat ?? household.censusLat,
-        lng: household.mapboxLng ?? household.censusLng,
+        lat: household.lat,
+        lng: household.lng,
         outcome: latest?.outcome ?? null,
         latestOutcome: latest
           ? DOOR_OUTCOME_LABELS[

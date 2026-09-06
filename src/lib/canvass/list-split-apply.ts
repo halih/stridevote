@@ -91,10 +91,8 @@ export async function loadSplitDoors(
           addressLine: true,
           city: true,
           unit: true,
-          mapboxLat: true,
-          mapboxLng: true,
-          censusLat: true,
-          censusLng: true,
+          lat: true,
+          lng: true,
         },
       },
     },
@@ -103,8 +101,8 @@ export async function loadSplitDoors(
   const attempts = await getCurrentAttemptsForList(programId, listId);
 
   return rows.map((row) => {
-    const lat = row.household.mapboxLat ?? row.household.censusLat;
-    const lng = row.household.mapboxLng ?? row.household.censusLng;
+    const lat = row.household.lat;
+    const lng = row.household.lng;
     return {
       householdId: row.householdId,
       addressLine: row.household.addressLine,

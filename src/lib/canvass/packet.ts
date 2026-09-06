@@ -298,10 +298,9 @@ export async function buildFieldPacket(opts: {
   const doorsRaw: FieldPacketDoor[] = households.map((row) => {
     const h = row.household;
     const coords = resolveDoorCoords({
-      mapboxLat: h.mapboxLat,
-      mapboxLng: h.mapboxLng,
-      censusLat: h.censusLat,
-      censusLng: h.censusLng,
+      lat: h.lat,
+      lng: h.lng,
+      geocodeSource: h.geocodeSource,
       session: sessionByHousehold.get(h.id) ?? null,
     });
     const cur = current.get(row.householdId);
@@ -393,15 +392,15 @@ async function sessionMapboxOverlay(
       city: string;
       state: string;
       postalCode: string;
-      mapboxLat: number | null;
-      mapboxLng: number | null;
+      lat: number | null;
+      lng: number | null;
     };
   }>,
 ): Promise<Map<string, { lat: number; lng: number }>> {
   const overlay = new Map<string, { lat: number; lng: number }>();
   if (!mapboxToken()) return overlay;
   const needing = households.filter(
-    (row) => row.household.mapboxLat == null || row.household.mapboxLng == null,
+    (row) => row.household.lat == null || row.household.lng == null,
   );
   if (!needing.length) return overlay;
   const unique = new Map<

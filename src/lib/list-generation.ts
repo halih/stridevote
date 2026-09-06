@@ -180,15 +180,15 @@ async function campaignHouseholdsInBbox(
 ): Promise<BboxHousehold[]> {
   return prisma.$queryRaw<BboxHousehold[]>`
     SELECT h."id",
-           COALESCE(h."censusLat", h."mapboxLat") AS lat,
-           COALESCE(h."censusLng", h."mapboxLng") AS lng,
+           h."lat" AS lat,
+           h."lng" AS lng,
            COUNT(cv."voterId")::int AS voters
     FROM "Household" h
     JOIN "HouseholdVoter" hv ON hv."householdId" = h."id"
     JOIN "CampaignVoter" cv
       ON cv."voterId" = hv."voterId" AND cv."campaignId" = ${campaignId}
-    WHERE COALESCE(h."censusLat", h."mapboxLat") BETWEEN ${bbox.minLat} AND ${bbox.maxLat}
-      AND COALESCE(h."censusLng", h."mapboxLng") BETWEEN ${bbox.minLng} AND ${bbox.maxLng}
+    WHERE h."lat" BETWEEN ${bbox.minLat} AND ${bbox.maxLat}
+      AND h."lng" BETWEEN ${bbox.minLng} AND ${bbox.maxLng}
     GROUP BY h."id"
   `;
 }
@@ -200,7 +200,7 @@ async function ungeocodedCampaignDoors(campaignId: string): Promise<number> {
     JOIN "HouseholdVoter" hv ON hv."householdId" = h."id"
     JOIN "CampaignVoter" cv
       ON cv."voterId" = hv."voterId" AND cv."campaignId" = ${campaignId}
-    WHERE h."censusLat" IS NULL AND h."mapboxLat" IS NULL
+    WHERE h."lat" IS NULL
   `;
   return rows[0]?.n ?? 0;
 }
@@ -410,8 +410,8 @@ export async function generateHouseholdList(options: {
     const bbox = bboxOfPolygon(options.boundary);
     const near: typeof candidates = [];
     for (const h of candidates) {
-      const lat = h.censusLat ?? h.mapboxLat;
-      const lng = h.censusLng ?? h.mapboxLng;
+      const lat = h.lat;
+      const lng = h.lng;
       if (lat == null || lng == null) {
         excludedUnresolved += 1;
         continue;
@@ -428,11 +428,11 @@ export async function generateHouseholdList(options: {
     candidates = near;
   }
 
-  // Drawn turfs use Census (and any already-stored Mapbox) coords. Walk packets
+  // Drawn turfs use the single persistent Household pin. Walk packets may
   // overlay temporary Mapbox at download; we never geocode here.
   const includedRaw = options.precinct ? candidates : candidates.filter((h) => {
-    const lat = h.mapboxLat ?? h.censusLat;
-    const lng = h.mapboxLng ?? h.censusLng;
+    const lat = h.lat;
+    const lng = h.lng;
     if (lat == null || lng == null) {
       if (options.boundary?.length) excludedUnresolved += 1;
       return !options.boundary?.length;
@@ -445,10 +445,8 @@ export async function generateHouseholdList(options: {
   // sequence, streets chained by proximity.
   const included = orderForStreetWalk(includedRaw, {
     pointOf: (h) => {
-      const lat = h.mapboxLat ?? h.censusLat;
-      const lng = h.mapboxLng ?? h.censusLng;
-      if (lat == null || lng == null) return null;
-      return { lat, lng };
+      if (h.lat == null || h.lng == null) return null;
+      return { lat: h.lat, lng: h.lng };
     },
     addressOf: (h) => ({
       addressLine: h.addressLine,
@@ -481,10 +479,8 @@ export async function generateHouseholdList(options: {
 
   const geocodedPoints: Array<{ lat: number; lng: number }> = [];
   for (const household of included) {
-    const lat = household.mapboxLat ?? household.censusLat;
-    const lng = household.mapboxLng ?? household.censusLng;
-    if (lat == null || lng == null) continue;
-    geocodedPoints.push({ lat, lng });
+    if (household.lat == null || household.lng == null) continue;
+    geocodedPoints.push({ lat: household.lat, lng: household.lng });
   }
 
   let centroidLat: number | null = null;

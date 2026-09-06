@@ -831,11 +831,11 @@ select.field { appearance: none; -webkit-appearance: none; }
 }
 .voter-filter-groups {
   display: flex;
-  flex-wrap: nowrap;
-  gap: 16px 28px;
+  flex-wrap: wrap;
+  gap: 12px 20px;
   align-items: start;
-  overflow-x: auto;
 }
+.voter-filter-groups > .voter-audience-filters { flex: 1 1 auto; min-width: 0; }
 .voter-filter-actions {
   display: flex;
   align-items: center;

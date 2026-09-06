@@ -157,7 +157,7 @@ export default async function CampaignVotersPage({
                   <span
                     className="with-tooltip"
                     tabIndex={0}
-                    data-tip="More than 66% of complete primaries since they registered"
+                    data-tip="At least 50% of complete primaries since they registered"
                   >
                     Likely primary
                   </span>
@@ -172,7 +172,7 @@ export default async function CampaignVotersPage({
                   <span
                     className="with-tooltip"
                     tabIndex={0}
-                    data-tip="More than 66% of complete generals since they registered"
+                    data-tip="At least 50% of complete generals since they registered"
                   >
                     Likely general
                   </span>
