@@ -1,8 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUser, initialsFor } from "@/lib/session";
 import { TopBar } from "@/components/TopBar";
-import { Icon } from "@/components/Icon";
 import { ProfileForm, type ProfileInitial } from "@/components/profile/ProfileForm";
 
 export default async function ProfilePage() {
@@ -29,9 +27,6 @@ export default async function ProfilePage() {
     <>
       <TopBar title="Your profile" subtitle={user.email ?? user.phone ?? "Signed in"} initials={initials} />
       <div className="content">
-        <Link href="/campaigns" className="back-link">
-          <Icon name="chevronLeft" size={15} /> Campaigns
-        </Link>
         <div className="card">
           <ProfileForm initial={initial} />
         </div>

@@ -397,6 +397,101 @@ a { color: inherit; }
 .leaderboard-doors { font-size: 12.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 .stat-note { font-size: 11px; color: var(--ink-faint); margin-top: 8px; display: flex; align-items: center; gap: 5px; }
 
+.stats-scope-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 2px 6px;
+  scrollbar-width: none;
+}
+.stats-scope-scroll::-webkit-scrollbar { display: none; }
+.stats-scope-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-weight: 650;
+  padding: 7px 12px;
+  border-radius: 99px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.stats-scope-pill.active {
+  border-color: color-mix(in srgb, var(--scope-color, var(--accent)) 45%, var(--line));
+  background: color-mix(in srgb, var(--scope-color, var(--accent)) 14%, var(--surface));
+  color: var(--ink);
+}
+.stats-scope-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.week-chart { margin-top: 14px; }
+.week-chart-svg { width: 100%; height: auto; display: block; }
+.week-chart-dot { cursor: pointer; outline: none; }
+.week-chart-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  min-height: 1.2em;
+}
+.week-chart-tip.muted { color: var(--ink-faint); }
+.week-chart-tip strong { font-weight: 750; }
+
+.stats-break-row {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 7px 0;
+  text-align: left;
+  cursor: pointer;
+}
+.stats-break-row:hover .bar-label { color: var(--accent-ink); }
+
+.achievement-unlock-badge {
+  background: var(--good-soft) !important;
+  color: var(--good) !important;
+}
+
+.section-link {
+  color: var(--accent-ink);
+  text-decoration: none;
+  font-weight: 650;
+}
+.section-link:hover { text-decoration: underline; }
+
+.achievement-list { padding: 4px 14px; }
+.achievement-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.achievement-row:first-child { border-top: none; }
+.achievement-row.locked { opacity: .7; }
+.achievement-row .badge-icon { flex: none; margin-top: 1px; }
+.achievement-row-body { flex: 1; min-width: 0; }
+.achievement-row-body .badge-title { margin: 0; }
+.achievement-row-body .badge-desc { margin: 2px 0 0; }
+.achievement-row-body .badge-progress { margin-top: 8px; }
+.achievement-row-meta {
+  flex: none;
+  max-width: 96px;
+  text-align: right;
+  line-height: 1.25;
+  padding-top: 2px;
+  margin: 0;
+}
+
 .radius-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
 /* ---- toast ---- */

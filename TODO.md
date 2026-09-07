@@ -13,10 +13,6 @@ Jargon used below:
 
 ## Field-test blockers
 
-- [ ] **Stop sample stats when a user has no attempts**
-
-  The Stats tab still shows made-up numbers (hundreds of doors, a fake leaderboard) until a volunteer has synced at least one knock. A first-time canvasser will think that is their real impact. Empty should look empty: zeros, and a short “no results yet” state.
-
 - [ ] **One coordinate rule for drawn turfs (and generate from the nearby box, not the whole campaign)**
 
   Preview and generate do not always use the same lat/lng for a household (Census vs Mapbox). A door can look inside the polygon in the estimate and then get dropped (or the reverse) when the list is created. Drawn-turf create also loads every matching household in the campaign and then clips, which will time out on a real district. Preview already queries “households in this map box”; generate should do the same, and both should pick coordinates the same way (prefer stored Mapbox, else Census).
@@ -61,10 +57,6 @@ Jargon used below:
 
 ## Product / UX for real walking
 
-- [x] **Start walk order from volunteer GPS when available**
-
-  Done. The packet can order doors from where the volunteer is standing instead of a generic map corner.
-
 - [ ] **Ungeocoded doors on precinct walks should be obvious**
 
   Precinct turfs correctly include doors Census could not place (the voter file precinct is enough). On the walk those doors have no map pin, so they are easy to skip. Keep them on the list and mark them as “no map location” so people still knock them.
@@ -73,10 +65,6 @@ Jargon used below:
 
   Admin can still type a MiniVAN number or Civibyte URL and create a list. That does not import doors into native knocking; it only stores a pointer. Hide or relabel that until a real import exists, so organizers are not surprised.
 
-- [x] **Volunteer count from memberships, not a typed number**
-
-  Done. Campaign “active volunteers” comes from who actually joined, not a number on the campaign form.
-
 - [ ] **Batch precinct create: report each turf, not only the first error**
 
   Creating many precincts at once stops at the first failure message. If 18 of 20 succeed, the admin should see which two failed and why, and still keep the 18.
@@ -84,18 +72,6 @@ Jargon used below:
 - [ ] **Warn when drawn polygons overlap**
 
   Two drawn turfs can contain the same door. Precinct-by-code lists do not overlap; freehand polygons can. Warn (or block) when a new polygon covers doors already on another list in the same wave.
-
----
-
-## Cleanup (leftover)
-
-- [ ] **Leaderboard helper vs `moved` in stats**
-
-  `getAttemptLeaderboard` exists but nothing in the UI calls it (the page still has a sample board in some cases). Also `moved` is a real door outcome but is left out of the outcome bar chart. Either wire the real leaderboard and count `moved`, or delete the unused helper so stats cannot lie.
-
-- [x] **One geometry-simplify helper**
-
-  Done. District geocoding and precinct import no longer each have their own copy of the line-simplify math.
 
 ---
 

@@ -46,6 +46,7 @@ model User {
   savedFilters  SavedVoterFilter[]
   attempts    CanvassAttempt[]
   listSplits  ListSplit[]
+  achievementUnlocks UserAchievementUnlock[]
 }
 
 model Account {
@@ -129,6 +130,26 @@ model Campaign {
   savedFilters SavedVoterFilter[]
   programs    CanvassProgram[]
   attempts    CanvassAttempt[]
+  achievementUnlocks UserAchievementUnlock[]
+}
+
+// Persisted earn/seen state for catalog achievements. Definitions live in code.
+// scopeKey is "overall" or a campaignId so Postgres unique works with overall scope.
+model UserAchievementUnlock {
+  id            String    @id @default(cuid())
+  userId        String
+  achievementId String
+  scopeKey      String // "overall" | campaignId
+  campaignId    String?
+  earnedAt      DateTime  @default(now())
+  seenAt        DateTime?
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId, scopeKey])
+  @@index([userId, seenAt])
+  @@index([campaignId])
 }
 
 model CampaignContact {

@@ -2,7 +2,18 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { getCurrentAttemptsForList } from "@/lib/canvass/progress";
 import { DEFAULT_ORIGIN, haversineMiles, listDistanceMiles, pointInPolygon, roundMiles } from "@/lib/geo";
-import { getDoorStats, getSampleLeaderboard } from "@/lib/stats-source";
+import { getDoorStats, getAttemptLeaderboard } from "@/lib/stats-source";
+import { evaluateAchievements, listAllAchievements, type AchievementMetrics } from "@/lib/achievements/evaluate";
+import type {
+  AchievementListItem,
+  AchievementVM,
+  BreakdownRow,
+  LeaderRow,
+  OutcomeRow,
+  StatsCampaignOption,
+  StatsViewData,
+  UnseenUnlockVM,
+} from "@/lib/achievements/types";
 import type { User } from "@/generated/prisma";
 
 export type DoorPinStatus = "remaining" | "done";
@@ -479,79 +490,222 @@ function formatDate(d: Date): string {
 }
 
 // ---- Stats ----
-export interface OutcomeRow {
-  key: string;
-  label: string;
-  count: number;
-  color: string;
-}
-export interface BreakdownRow {
-  name: string;
-  color: string;
-  doors: number;
-}
-export interface AchievementVM {
-  id: string;
-  title: string;
-  desc: string;
-  earned: boolean;
-  progress: number; // 0..1
-  progressLabel: string;
-}
-export interface LeaderRow {
-  name: string;
-  doors: number;
-  you: boolean;
-}
-export interface StatsView {
-  isSample: boolean;
-  doorsKnocked: number;
-  votersReached: number;
-  litDropped: number;
-  hoursActive: number;
-  listsCheckedOut: number;
-  campaignsJoined: number;
-  responseRate: number;
-  weeklyHistory: number[];
-  outcomes: OutcomeRow[];
-  breakdown: BreakdownRow[];
-  achievements: AchievementVM[];
-  leaderboard: LeaderRow[];
-  rank: number;
+export type {
+  AchievementListItem,
+  AchievementVM,
+  BreakdownRow,
+  LeaderRow,
+  OutcomeRow,
+  StatsCampaignOption,
+  UnseenUnlockVM,
+};
+export type StatsView = StatsViewData;
+
+export interface AchievementsListView {
+  items: AchievementListItem[];
+  earnedCount: number;
+  totalCount: number;
+  campaigns: StatsCampaignOption[];
 }
 
-const OUTCOME_META: { key: keyof import("@/lib/stats-source").OutcomeCounts; label: string; color: string }[] = [
+const OUTCOME_META: {
+  key: keyof import("@/lib/stats-source").OutcomeCounts;
+  label: string;
+  color: string;
+}[] = [
   { key: "contact", label: "Spoke with voter", color: "#2e9e5b" },
   { key: "no_answer", label: "No answer", color: "#8a8f98" },
   { key: "refused", label: "Declined", color: "#c97a2e" },
   { key: "lit", label: "Left literature", color: "#378add" },
+  { key: "moved", label: "Moved", color: "#7c5cbf" },
   { key: "inaccessible", label: "Inaccessible", color: "#5b6067" },
   { key: "unsafe", label: "Unsafe / skip", color: "#d64545" },
 ];
 
-export async function getStatsView(user: User): Promise<StatsView> {
-  const [doorStats, activeMemberships, checkouts] = await Promise.all([
-    getDoorStats(user.id),
-    prisma.campaignMembership.findMany({
-      where: { userId: user.id, status: "active" },
-      include: { campaign: true },
-    }),
-    prisma.listCheckout.findMany({
-      where: { userId: user.id },
-      include: { list: { include: { campaignLinks: true } } },
-    }),
+async function checkoutCounts(
+  userId: string,
+  campaignId?: string | null,
+): Promise<{ listsCheckedOut: number; listsCompleted: number }> {
+  const where = {
+    userId,
+    ...(campaignId ? { program: { campaignId } } : {}),
+  };
+  const [listsCheckedOut, listsCompleted] = await Promise.all([
+    prisma.listCheckout.count({ where }),
+    prisma.listCheckout.count({ where: { ...where, status: "completed" } }),
   ]);
+  return { listsCheckedOut, listsCompleted };
+}
 
-  const realDoors = checkouts.reduce((s, c) => s + c.progressDone, 0);
-  // Prefer attempt-derived stats; only fold checkout counters into sample mode.
-  const doorsKnocked = doorStats.isSample
-    ? doorStats.doorsKnocked + realDoors
-    : doorStats.doorsKnocked;
-  const listsCheckedOut = checkouts.length;
+function toAchievementMetrics(
+  doorStats: Awaited<ReturnType<typeof getDoorStats>>,
+  listsCheckedOut: number,
+  listsCompleted: number,
+  campaignsJoined: number,
+): AchievementMetrics {
+  return {
+    doors_knocked: doorStats.doorsKnocked,
+    voters_reached: doorStats.votersReached,
+    lists_checked_out: listsCheckedOut,
+    lists_completed: listsCompleted,
+    campaigns_joined: campaignsJoined,
+    contacts: doorStats.contacts,
+    lit_dropped: doorStats.litDropped,
+  };
+}
+
+async function loadAchievementMetricContext(userId: string): Promise<{
+  campaigns: StatsCampaignOption[];
+  overallMetrics: AchievementMetrics;
+  campaignMetrics: { campaignId: string; name: string; metrics: AchievementMetrics }[];
+}> {
+  const activeMemberships = await prisma.campaignMembership.findMany({
+    where: { userId, status: "active" },
+    include: { campaign: true },
+    orderBy: { joinedAt: "asc" },
+  });
+
+  const campaigns: StatsCampaignOption[] = activeMemberships.map((m) => ({
+    id: m.campaign.id,
+    name: m.campaign.name,
+    color: m.campaign.color,
+    slug: m.campaign.slug,
+  }));
   const campaignsJoined = activeMemberships.length;
 
-  const totalOutcomes = Object.values(doorStats.outcomes).reduce((s, n) => s + n, 0) || 1;
-  const responseRate = Math.round((doorStats.outcomes.contact / totalOutcomes) * 100);
+  const [overallDoorStats, overallCheckouts] = await Promise.all([
+    getDoorStats(userId, null),
+    checkoutCounts(userId, null),
+  ]);
+  const overallMetrics = toAchievementMetrics(
+    overallDoorStats,
+    overallCheckouts.listsCheckedOut,
+    overallCheckouts.listsCompleted,
+    campaignsJoined,
+  );
+
+  const campaignMetrics = await Promise.all(
+    campaigns.map(async (c) => {
+      const [ds, co] = await Promise.all([
+        getDoorStats(userId, c.id),
+        checkoutCounts(userId, c.id),
+      ]);
+      return {
+        campaignId: c.id,
+        name: c.name,
+        metrics: toAchievementMetrics(
+          ds,
+          co.listsCheckedOut,
+          co.listsCompleted,
+          campaignsJoined,
+        ),
+      };
+    }),
+  );
+
+  return { campaigns, overallMetrics, campaignMetrics };
+}
+
+export async function getAchievementsListView(
+  user: User,
+): Promise<AchievementsListView> {
+  const { campaigns, overallMetrics, campaignMetrics } =
+    await loadAchievementMetricContext(user.id);
+  const items = await listAllAchievements({
+    userId: user.id,
+    overallMetrics,
+    campaignMetrics,
+  });
+  const earnedCount = items.filter((i) => i.earned).length;
+  return {
+    items,
+    earnedCount,
+    totalCount: items.length,
+    campaigns,
+  };
+}
+
+export async function getStatsView(
+  user: User,
+  campaignId: string | null = null,
+): Promise<StatsView> {
+  const activeMemberships = await prisma.campaignMembership.findMany({
+    where: { userId: user.id, status: "active" },
+    include: { campaign: true },
+    orderBy: { joinedAt: "asc" },
+  });
+
+  const campaigns: StatsCampaignOption[] = activeMemberships.map((m) => ({
+    id: m.campaign.id,
+    name: m.campaign.name,
+    color: m.campaign.color,
+    slug: m.campaign.slug,
+  }));
+
+  // Ignore unknown / non-member campaign query params.
+  const scopedId =
+    campaignId && campaigns.some((c) => c.id === campaignId) ? campaignId : null;
+
+  const membershipIds = campaigns.map((c) => c.id);
+
+  const [doorStats, checkouts, overallDoorStats, overallCheckouts, board] =
+    await Promise.all([
+      getDoorStats(user.id, scopedId),
+      checkoutCounts(user.id, scopedId),
+      scopedId ? getDoorStats(user.id, null) : Promise.resolve(null),
+      scopedId ? checkoutCounts(user.id, null) : Promise.resolve(null),
+      getAttemptLeaderboard(scopedId ? [scopedId] : membershipIds),
+    ]);
+
+  const campaignsJoined = activeMemberships.length;
+  const overallMetrics = toAchievementMetrics(
+    overallDoorStats ?? doorStats,
+    (overallCheckouts ?? checkouts).listsCheckedOut,
+    (overallCheckouts ?? checkouts).listsCompleted,
+    campaignsJoined,
+  );
+  const viewMetrics = toAchievementMetrics(
+    doorStats,
+    checkouts.listsCheckedOut,
+    checkouts.listsCompleted,
+    campaignsJoined,
+  );
+
+  const campaignMetrics = await Promise.all(
+    campaigns.map(async (c) => {
+      if (scopedId === c.id) {
+        return { campaignId: c.id, name: c.name, metrics: viewMetrics };
+      }
+      const [ds, co] = await Promise.all([
+        getDoorStats(user.id, c.id),
+        checkoutCounts(user.id, c.id),
+      ]);
+      return {
+        campaignId: c.id,
+        name: c.name,
+        metrics: toAchievementMetrics(
+          ds,
+          co.listsCheckedOut,
+          co.listsCompleted,
+          campaignsJoined,
+        ),
+      };
+    }),
+  );
+
+  const { achievements, unseenUnlocks } = await evaluateAchievements({
+    userId: user.id,
+    viewMetrics,
+    viewCampaignId: scopedId,
+    overallMetrics,
+    campaignMetrics,
+  });
+
+  const totalOutcomes = Object.values(doorStats.outcomes).reduce((s, n) => s + n, 0);
+  const responseRate =
+    totalOutcomes > 0
+      ? Math.round((doorStats.outcomes.contact / totalOutcomes) * 100)
+      : 0;
 
   const outcomes: OutcomeRow[] = OUTCOME_META.map((m) => ({
     key: m.key,
@@ -560,73 +714,58 @@ export async function getStatsView(user: User): Promise<StatsView> {
     color: m.color,
   }));
 
-  // Doors per active campaign — real progress where present, else a sample split.
-  const byCampaign = new Map<string, BreakdownRow>();
-  for (const m of activeMemberships) {
-    byCampaign.set(m.campaignId, { name: m.campaign.name, color: m.campaign.color, doors: 0 });
+  let breakdown: BreakdownRow[] = [];
+  if (!scopedId) {
+    const source = overallDoorStats ?? doorStats;
+    breakdown = campaigns
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        color: c.color,
+        doors: source.doorsByCampaign[c.id] ?? 0,
+      }))
+      .filter((b) => b.doors > 0)
+      .sort((a, b) => b.doors - a.doors);
   }
-  for (const co of checkouts) {
-    for (const link of co.list.campaignLinks) {
-      const row = byCampaign.get(link.campaignId);
-      if (row) row.doors += co.progressDone;
-    }
-  }
-  let breakdown = [...byCampaign.values()];
-  const realTotal = breakdown.reduce((s, b) => s + b.doors, 0);
-  if (realTotal === 0 && breakdown.length && doorStats.isSample) {
-    const per = Math.floor(doorStats.doorsKnocked / breakdown.length);
-    breakdown = breakdown.map((b, i) => ({
-      ...b,
-      doors: i === 0 ? doorStats.doorsKnocked - per * (breakdown.length - 1) : per,
-    }));
-  }
-  breakdown.sort((a, b) => b.doors - a.doors);
 
-  const achievements: AchievementVM[] = [
-    achievement("first-list", "First steps", "Check out your first list", listsCheckedOut, 1),
-    achievement("centurion", "Centurion", "Knock 100 doors", doorsKnocked, 100),
-    achievement("coalition", "Coalition builder", "Join 3 campaigns", campaignsJoined, 3),
-    achievement("marathon", "Marathoner", "Knock 1,000 doors", doorsKnocked, 1000),
-  ];
-
-  const leaderboard: LeaderRow[] = [
-    ...getSampleLeaderboard().map((e) => ({ ...e, you: false })),
-    { name: "You", doors: doorsKnocked, you: true },
-  ].sort((a, b) => b.doors - a.doors);
-  const rank = leaderboard.findIndex((e) => e.you) + 1;
+  const leaderboard: LeaderRow[] = board.map((e) => ({
+    userId: e.userId,
+    name: e.userId === user.id ? "You" : e.name,
+    doors: e.doors,
+    you: e.userId === user.id,
+  }));
+  if (doorStats.doorsKnocked > 0 && !leaderboard.some((e) => e.you)) {
+    leaderboard.push({
+      userId: user.id,
+      name: "You",
+      doors: doorStats.doorsKnocked,
+      you: true,
+    });
+    leaderboard.sort((a, b) => b.doors - a.doors);
+  }
+  const rank =
+    doorStats.doorsKnocked > 0
+      ? leaderboard.findIndex((e) => e.you) + 1
+      : 0;
 
   return {
-    isSample: doorStats.isSample,
-    doorsKnocked,
+    campaignId: scopedId,
+    campaigns,
+    doorsKnocked: doorStats.doorsKnocked,
     votersReached: doorStats.votersReached,
     litDropped: doorStats.litDropped,
     hoursActive: doorStats.hoursActive,
-    listsCheckedOut,
+    listsCheckedOut: checkouts.listsCheckedOut,
+    listsCompleted: checkouts.listsCompleted,
     campaignsJoined,
     responseRate,
     weeklyHistory: doorStats.weeklyHistory,
     outcomes,
     breakdown,
     achievements,
+    unseenUnlocks,
     leaderboard,
     rank,
-  };
-}
-
-function achievement(
-  id: string,
-  title: string,
-  desc: string,
-  value: number,
-  target: number,
-): AchievementVM {
-  const earned = value >= target;
-  return {
-    id,
-    title,
-    desc,
-    earned,
-    progress: Math.min(1, value / target),
-    progressLabel: earned ? "Earned" : `${Math.min(value, target)}/${target}`,
+    empty: doorStats.doorsKnocked === 0 && checkouts.listsCheckedOut === 0,
   };
 }

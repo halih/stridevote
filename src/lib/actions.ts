@@ -37,6 +37,22 @@ export async function doSignOut(): Promise<void> {
   await signOut({ redirectTo: "/login" });
 }
 
+export async function markAchievementsSeen(
+  unlockIds: string[],
+): Promise<ActionResult> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, message: "Please sign in." };
+  const ids = unlockIds.filter((id) => typeof id === "string" && id.length > 0);
+  if (!ids.length) return { ok: true, message: "Nothing to mark." };
+
+  const { markAchievementUnlocksSeen } = await import("@/lib/achievements/evaluate");
+  await markAchievementUnlocksSeen(user.id, ids);
+  // Do not revalidatePath here — the unlock sheet advances locally. Revalidating
+  // /stats on every "next" remounts the heavy stats RSC mid-queue and can abort
+  // the response (e.g. ngrok ERR_NGROK_3004).
+  return { ok: true, message: "Marked seen." };
+}
+
 export async function requestJoinCampaign(campaignId: string): Promise<ActionResult> {
   const user = await getSessionUser();
   if (!user) return { ok: false, message: "Please sign in." };

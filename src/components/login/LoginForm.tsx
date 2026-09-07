@@ -76,7 +76,7 @@ export function LoginForm({
     const res = await signIn("email", {
       email: email.trim(),
       redirect: false,
-      callbackUrl: "/campaigns",
+      callbackUrl: "/canvass",
     });
     setBusy(false);
     if (res?.error) setError("Couldn't send the link. Check the address and try again.");
@@ -110,12 +110,12 @@ export function LoginForm({
       channel,
       code: code.trim(),
       redirect: false,
-      callbackUrl: "/campaigns",
+      callbackUrl: "/canvass",
     });
     setBusy(false);
     if (res?.error) setError("That code is invalid or expired.");
     else if (res?.url) window.location.href = res.url;
-    else window.location.href = "/campaigns";
+    else window.location.href = "/canvass";
   }
 
   return (

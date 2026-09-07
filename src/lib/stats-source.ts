@@ -1,5 +1,4 @@
-// Door-outcome statistics. Prefer real canvass attempts; fall back to sample
-// data only when the user has no synced attempts yet.
+// Door-outcome and leaderboard stats from real CanvassAttempt rows.
 
 import { prisma } from "@/lib/db";
 import type { DoorOutcome } from "@/lib/canvass/outcomes";
@@ -11,54 +10,28 @@ export interface OutcomeCounts {
   lit: number;
   unsafe: number;
   inaccessible: number;
+  moved: number;
 }
 
 export interface DoorStats {
-  isSample: boolean;
   doorsKnocked: number;
   votersReached: number;
   litDropped: number;
+  contacts: number;
   hoursActive: number;
-  weeklyHistory: number[]; // last 8 weeks
+  weeklyHistory: number[]; // last 8 weeks, oldest → newest
   outcomes: OutcomeCounts;
+  /** Unique doors per campaignId (overall view only; empty when scoped). */
+  doorsByCampaign: Record<string, number>;
 }
 
-const SAMPLE: DoorStats = {
-  isSample: true,
-  doorsKnocked: 794,
-  votersReached: 463,
-  litDropped: 71,
-  hoursActive: 64,
-  weeklyHistory: [58, 72, 64, 90, 81, 110, 95, 64],
-  outcomes: {
-    contact: 327,
-    no_answer: 292,
-    refused: 73,
-    lit: 68,
-    unsafe: 9,
-    inaccessible: 27,
-  },
-};
-
 export interface LeaderboardEntry {
+  userId: string;
   name: string;
   doors: number;
 }
 
-const LEADERBOARD: LeaderboardEntry[] = [
-  { name: "Priya N.", doors: 1240 },
-  { name: "Tom R.", doors: 980 },
-  { name: "Sam K.", doors: 875 },
-  { name: "Grace T.", doors: 640 },
-  { name: "Derek O.", doors: 512 },
-  { name: "Noor H.", doors: 455 },
-  { name: "Felix B.", doors: 390 },
-  { name: "Rosa M.", doors: 310 },
-  { name: "Ken S.", doors: 275 },
-  { name: "Alicia P.", doors: 190 },
-];
-
-function emptyOutcomes(): OutcomeCounts {
+export function emptyOutcomes(): OutcomeCounts {
   return {
     contact: 0,
     no_answer: 0,
@@ -66,12 +39,48 @@ function emptyOutcomes(): OutcomeCounts {
     lit: 0,
     unsafe: 0,
     inaccessible: 0,
+    moved: 0,
   };
 }
 
-export async function getDoorStats(userId: string): Promise<DoorStats> {
+function emptyDoorStats(): DoorStats {
+  return {
+    doorsKnocked: 0,
+    votersReached: 0,
+    litDropped: 0,
+    contacts: 0,
+    hoursActive: 0,
+    weeklyHistory: Array.from({ length: 8 }, () => 0),
+    outcomes: emptyOutcomes(),
+    doorsByCampaign: {},
+  };
+}
+
+/** Display name as "First L." when possible. */
+export function anonymizeVolunteerName(
+  name: string | null | undefined,
+  initials?: string | null,
+): string {
+  const trimmed = name?.trim();
+  if (trimmed) {
+    const parts = trimmed.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0];
+    const last = parts[parts.length - 1];
+    return `${parts[0]} ${last.charAt(0).toUpperCase()}.`;
+  }
+  if (initials?.trim()) return initials.trim();
+  return "Volunteer";
+}
+
+export async function getDoorStats(
+  userId: string,
+  campaignId?: string | null,
+): Promise<DoorStats> {
   const attempts = await prisma.canvassAttempt.findMany({
-    where: { userId },
+    where: {
+      userId,
+      ...(campaignId ? { campaignId } : {}),
+    },
     orderBy: { capturedAt: "desc" },
     select: {
       clientAttemptId: true,
@@ -81,11 +90,12 @@ export async function getDoorStats(userId: string): Promise<DoorStats> {
       householdId: true,
       listId: true,
       programId: true,
+      campaignId: true,
       people: { select: { outcome: true } },
     },
   });
 
-  if (!attempts.length) return SAMPLE;
+  if (!attempts.length) return emptyDoorStats();
 
   const superseded = new Set(
     attempts
@@ -95,9 +105,11 @@ export async function getDoorStats(userId: string): Promise<DoorStats> {
 
   const outcomes = emptyOutcomes();
   const doors = new Set<string>();
+  const doorsByCampaign = new Map<string, Set<string>>();
   let votersReached = 0;
   let litDropped = 0;
-  let earliest = Date.now();
+  let contacts = 0;
+  let earliest = Number.POSITIVE_INFINITY;
   let latest = 0;
   const weekBuckets = Array.from({ length: 8 }, () => 0);
   const now = Date.now();
@@ -107,11 +119,22 @@ export async function getDoorStats(userId: string): Promise<DoorStats> {
     if (superseded.has(a.clientAttemptId)) continue;
     const key = `${a.programId}:${a.listId}:${a.householdId}`;
     doors.add(key);
-    const outcome = a.outcome as DoorOutcome | "moved";
+
+    if (!campaignId) {
+      let set = doorsByCampaign.get(a.campaignId);
+      if (!set) {
+        set = new Set();
+        doorsByCampaign.set(a.campaignId, set);
+      }
+      set.add(key);
+    }
+
+    const outcome = a.outcome as DoorOutcome;
     if (outcome in outcomes) {
       outcomes[outcome as keyof OutcomeCounts] += 1;
     }
     if (outcome === "lit") litDropped += 1;
+    if (outcome === "contact") contacts += 1;
     votersReached += a.people.filter((p) => p.outcome === "talked").length;
     const t = a.capturedAt.getTime();
     earliest = Math.min(earliest, t);
@@ -123,57 +146,71 @@ export async function getDoorStats(userId: string): Promise<DoorStats> {
   }
 
   const hoursActive =
-    latest > earliest
+    latest > earliest && Number.isFinite(earliest)
       ? Math.max(1, Math.round((latest - earliest) / (1000 * 60 * 60)))
       : doors.size > 0
         ? 1
         : 0;
 
+  const byCampaign: Record<string, number> = {};
+  for (const [id, set] of doorsByCampaign) {
+    byCampaign[id] = set.size;
+  }
+
   return {
-    isSample: false,
     doorsKnocked: doors.size,
     votersReached,
     litDropped,
+    contacts,
     hoursActive,
     weeklyHistory: weekBuckets,
     outcomes,
+    doorsByCampaign: byCampaign,
   };
 }
 
-export function getSampleLeaderboard(): LeaderboardEntry[] {
-  return LEADERBOARD.map((e) => ({ ...e }));
-}
-
-/** Campaign-scoped leaderboard from real attempts when available. */
+/** Unique-door leaderboard for the given campaigns. */
 export async function getAttemptLeaderboard(
   campaignIds: string[],
 ): Promise<LeaderboardEntry[]> {
-  if (!campaignIds.length) return getSampleLeaderboard();
+  if (!campaignIds.length) return [];
+
   const attempts = await prisma.canvassAttempt.findMany({
     where: { campaignId: { in: campaignIds } },
     select: {
       userId: true,
       clientAttemptId: true,
       supersedesClientId: true,
+      programId: true,
+      listId: true,
+      householdId: true,
       user: { select: { name: true, initials: true } },
     },
   });
-  if (!attempts.length) return getSampleLeaderboard();
+  if (!attempts.length) return [];
 
   const superseded = new Set(
     attempts
       .map((a) => a.supersedesClientId)
       .filter((id): id is string => Boolean(id)),
   );
-  const counts = new Map<string, { name: string; doors: number }>();
+  const doorsByUser = new Map<string, { name: string; doors: Set<string> }>();
   for (const a of attempts) {
     if (superseded.has(a.clientAttemptId)) continue;
-    const name =
-      a.user.name ??
-      (a.user.initials ? `${a.user.initials}` : "Volunteer");
-    const prev = counts.get(a.userId) ?? { name, doors: 0 };
-    prev.doors += 1;
-    counts.set(a.userId, prev);
+    const name = anonymizeVolunteerName(a.user.name, a.user.initials);
+    let entry = doorsByUser.get(a.userId);
+    if (!entry) {
+      entry = { name, doors: new Set() };
+      doorsByUser.set(a.userId, entry);
+    }
+    entry.doors.add(`${a.programId}:${a.listId}:${a.householdId}`);
   }
-  return [...counts.values()].sort((a, b) => b.doors - a.doors).slice(0, 10);
+  return [...doorsByUser.entries()]
+    .map(([userId, { name, doors }]) => ({
+      userId,
+      name,
+      doors: doors.size,
+    }))
+    .sort((a, b) => b.doors - a.doors)
+    .slice(0, 10);
 }
