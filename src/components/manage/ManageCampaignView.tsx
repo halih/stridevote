@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { CampaignAdminView, MemberRow } from "@/lib/admin-data";
-import { ASSIGNABLE_ROLES, ROLES, roleLabel, type RoleName } from "@/lib/roles";
+import {
+  ASSIGNABLE_ROLES,
+  ROLES,
+  expandRoles,
+  roleLabel,
+  type RoleName,
+} from "@/lib/roles";
 import { Icon } from "@/components/Icon";
 import { BottomSheet } from "@/components/BottomSheet";
 import { useToast } from "@/components/Toast";
@@ -31,22 +37,37 @@ function RoleToggle({
   selected: RoleName[];
   onChange: (roles: RoleName[]) => void;
 }) {
+  const current = expandRoles(selected);
+  const adminOn = current.includes("admin");
+
   function toggle(role: RoleName) {
-    onChange(selected.includes(role) ? selected.filter((r) => r !== role) : [...selected, role]);
+    if (current.includes(role)) {
+      if (role === "canvasser" && adminOn) return;
+      onChange(expandRoles(current.filter((r) => r !== role)));
+      return;
+    }
+    onChange(expandRoles([...current, role]));
   }
+
   return (
     <div className="role-toggle">
-      {ASSIGNABLE_ROLES.map((role) => (
-        <button
-          type="button"
-          key={role}
-          className={`role-option${selected.includes(role) ? " on" : ""}`}
-          onClick={() => toggle(role)}
-        >
-          <b>{ROLES[role].label}</b>
-          <span>{ROLES[role].description}</span>
-        </button>
-      ))}
+      {ASSIGNABLE_ROLES.map((role) => {
+        const on = current.includes(role);
+        const implied = role === "canvasser" && adminOn;
+        return (
+          <button
+            type="button"
+            key={role}
+            className={`role-option${on ? " on" : ""}`}
+            aria-pressed={on}
+            title={implied ? "Included with Admin" : undefined}
+            onClick={() => toggle(role)}
+          >
+            <b>{ROLES[role].label}</b>
+            <span>{implied ? "Included with Admin." : ROLES[role].description}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -90,7 +111,7 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
 
   function openEditRoles(m: MemberRow) {
     setEditMember(m);
-    setEditRoles(m.roles.filter((r): r is RoleName => (ASSIGNABLE_ROLES as string[]).includes(r)));
+    setEditRoles(expandRoles(m.roles));
   }
 
   function submitAddMember() {
@@ -187,7 +208,7 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                       <p className="member-name">{m.name}</p>
                       <p className="member-contact">{m.contact}</p>
                       <div className="role-chips">
-                        {m.roles.map((r) => (
+                        {expandRoles(m.roles).map((r) => (
                           <span key={r} className="role-chip">
                             {roleLabel(r)}
                           </span>
@@ -334,7 +355,9 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
         {editMember ? (
           <>
             <h2>Roles for {editMember.name}</h2>
-            <p className="sheet-sub">Roles are cumulative. Choose everything this member can do.</p>
+            <p className="sheet-sub">
+              Roles are cumulative. Admin includes canvassing, so Canvasser stays on with Admin.
+            </p>
             <RoleToggle selected={editRoles} onChange={setEditRoles} />
             <div className="form-actions">
               <button className="btn btn-outline" onClick={() => setEditMember(null)}>

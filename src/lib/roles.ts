@@ -30,7 +30,7 @@ export const ROLES: Record<RoleName, RoleDef> = {
   },
   admin: {
     label: "Admin",
-    description: "Full control: members, lists, roles, and campaign profile.",
+    description: "Full control: members, lists, roles, campaign profile, and canvassing.",
     permissions: [
       "members:approve",
       "members:add",
@@ -64,10 +64,25 @@ export function isRoleName(value: string): value is RoleName {
   return value === "canvasser" || value === "admin";
 }
 
+/** Roles granted automatically by holding a higher role. */
+const IMPLIED_ROLES: Record<RoleName, RoleName[]> = {
+  admin: ["canvasser"],
+  canvasser: [],
+};
+
+/** Include implied roles (admin includes canvasser), in assignable order. */
+export function expandRoles(roles: string[]): RoleName[] {
+  const set = new Set(roles.filter(isRoleName));
+  for (const role of [...set]) {
+    for (const implied of IMPLIED_ROLES[role]) set.add(implied);
+  }
+  return ASSIGNABLE_ROLES.filter((role) => set.has(role));
+}
+
 /** Drop unknown roles; fall back to the default if nothing valid remains. */
 export function normalizeRoles(roles: string[]): RoleName[] {
   const valid = Array.from(new Set(roles.filter(isRoleName)));
-  return valid.length ? valid : [...DEFAULT_ROLES];
+  return expandRoles(valid.length ? valid : [...DEFAULT_ROLES]);
 }
 
 export function permissionsForRoles(roles: string[]): Set<Permission> {
