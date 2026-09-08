@@ -246,6 +246,9 @@ function summarizeFilters(filters: PersistableVoterFilters): string {
   if (filters.noApartments === "1") parts.push("no apartments");
   if (filters.excludeCanvassed === "1") parts.push("exclude canvassed");
   if (filters.excludeInaccessible === "1") parts.push("exclude inaccessible");
+  if (filters.excludeUnsafe === "1") parts.push("exclude unsafe");
+  if (filters.excludeMoved === "1") parts.push("exclude moved");
+  if (filters.excludeRepublicans === "1") parts.push("exclude republicans");
   return parts.length ? parts.join(" · ") : "No criteria";
 }
 

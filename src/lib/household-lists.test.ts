@@ -74,6 +74,30 @@ describe("voter filter serialization", () => {
     assert.ok(serialized.includes('"countyCode":"KI"'));
     assert.ok(serialized.includes('"precinctCode":"0001"'));
   });
+
+  it("excludes Republicans from talk score 0 or observed 0 when talk is missing", () => {
+    const { where } = buildVoterWhere("camp-1", { excludeRepublicans: "1" });
+    const serialized = JSON.stringify(where);
+    assert.ok(serialized.includes('"talkScore":0'));
+    assert.ok(serialized.includes('"observedScore":0'));
+    assert.equal(serialized.includes("scoreMin"), false);
+  });
+
+  it("excludes inaccessible from this campaign or the master field layer", () => {
+    const { where } = buildVoterWhere(
+      "camp-1",
+      { excludeInaccessible: "1" },
+      new Date(),
+      {
+        canvassedHouseholdIds: [],
+        inaccessibleHouseholdIds: ["hh-1"],
+        unsafeHouseholdIds: [],
+      },
+    );
+    const serialized = JSON.stringify(where);
+    assert.ok(serialized.includes('"accessStatus":"inaccessible"'));
+    assert.ok(serialized.includes("hh-1"));
+  });
 });
 
 describe("address / unit normalization", () => {

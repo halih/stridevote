@@ -11,11 +11,13 @@ const SECTIONS = [
   { id: "waves", label: "Waves", icon: "layers" as const },
   { id: "turfs", label: "Turfs", icon: "map" as const },
   { id: "lists", label: "Lists", icon: "list" as const },
+  { id: "reports", label: "Reports", icon: "bars" as const },
   { id: "settings", label: "Settings", icon: "pencil" as const },
 ];
 
 function sectionHref(slug: string, id: string): string {
   if (id === "voters") return `/admin/${slug}/voters`;
+  if (id === "reports") return `/admin/${slug}/reports`;
   return `/admin/${slug}?section=${id}`;
 }
 
@@ -56,6 +58,10 @@ export function AdminNav({
       router.push(`/admin/${slug}/voters`);
       return;
     }
+    if (pathname.includes("/reports")) {
+      router.push(`/admin/${slug}/reports`);
+      return;
+    }
     if (pathname.includes("/waves") || pathname.includes("/programs")) {
       router.push(`/admin/${slug}?section=waves`);
       return;
@@ -69,6 +75,7 @@ export function AdminNav({
   function isActive(id: string): boolean {
     if (!navSlug) return false;
     if (id === "voters") return pathname.startsWith(`/admin/${navSlug}/voters`);
+    if (id === "reports") return pathname.startsWith(`/admin/${navSlug}/reports`);
     if (id === "waves") {
       return (
         pathname.startsWith(`/admin/${navSlug}/waves`) ||
@@ -79,6 +86,7 @@ export function AdminNav({
       );
     }
     if (pathname.startsWith(`/admin/${navSlug}/voters`)) return false;
+    if (pathname.startsWith(`/admin/${navSlug}/reports`)) return false;
     if (
       pathname.startsWith(`/admin/${navSlug}/waves`) ||
       pathname.startsWith(`/admin/${navSlug}/programs`)

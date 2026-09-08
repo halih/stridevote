@@ -197,6 +197,14 @@ async function upsertVoters(rows: VoterRow[]): Promise<void> {
       "congressionalDistrict" = EXCLUDED."congressionalDistrict",
       "registrationDate" = EXCLUDED."registrationDate",
       "lastVoted" = EXCLUDED."lastVoted",
+      "residenceStatus" = CASE
+        WHEN "Voter"."registrationAddress" IS DISTINCT FROM EXCLUDED."registrationAddress"
+          OR "Voter".city IS DISTINCT FROM EXCLUDED.city
+          OR "Voter".state IS DISTINCT FROM EXCLUDED.state
+          OR "Voter"."postalCode" IS DISTINCT FROM EXCLUDED."postalCode"
+        THEN 'ok'
+        ELSE "Voter"."residenceStatus"
+      END,
       "updatedAt" = CURRENT_TIMESTAMP
   `;
 }

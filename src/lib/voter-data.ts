@@ -13,6 +13,10 @@ import {
   type PersonOutcome,
 } from "@/lib/canvass/outcomes";
 import {
+  displayProgressiveScore,
+  progressiveScoreLabel,
+} from "@/lib/canvass/progressive-score";
+import {
   buildVoterWhere,
   filtersToSearchParams,
   needsCanvassAudience,
@@ -101,6 +105,7 @@ export async function resolveCanvassAudience(
   return {
     canvassedHouseholdIds: audience.canvassedHouseholdIds,
     inaccessibleHouseholdIds: audience.inaccessibleHouseholdIds,
+    unsafeHouseholdIds: audience.unsafeHouseholdIds,
   };
 }
 
@@ -149,6 +154,7 @@ export async function getCampaignVoterDirectory(
   const canvass: CanvassAudienceIds = {
     canvassedHouseholdIds: campaignAudience.canvassedHouseholdIds,
     inaccessibleHouseholdIds: campaignAudience.inaccessibleHouseholdIds,
+    unsafeHouseholdIds: campaignAudience.unsafeHouseholdIds,
   };
 
   const { where, filtered, page } = buildVoterWhere(
@@ -310,7 +316,30 @@ export interface VoterHistoryDetail {
     generalVoted: number | null;
     likelyPrimary: boolean;
     likelyGeneral: boolean;
+    residenceStatus: string;
+    talkScore: number | null;
+    scoreUpdatedAt: string | null;
   };
+  household: {
+    id: string;
+    accessStatus: string;
+    observedScore: number | null;
+    observedScoreAt: string | null;
+    accessUpdatedAt: string | null;
+  } | null;
+  displayScore: {
+    score: number | null;
+    source: "talk" | "observed" | null;
+    label: string;
+  };
+  fieldEvents: Array<{
+    id: string;
+    kind: string;
+    value: number | null;
+    capturedAt: string;
+    campaignName: string;
+    canvasser: string | null;
+  }>;
   history: Array<{
     id: string;
     electionDate: string;
@@ -328,6 +357,7 @@ export interface VoterHistoryDetail {
     personOutcome: string | null;
     personOutcomeLabel: string | null;
     support: number | null;
+    talkScore: number | null;
   }>;
 }
 
@@ -354,13 +384,25 @@ export async function getVoterHistoryDetail(
       },
       householdLinks: {
         take: 1,
-        select: { householdId: true },
+        select: {
+          householdId: true,
+          household: {
+            select: {
+              id: true,
+              accessStatus: true,
+              observedScore: true,
+              observedScoreAt: true,
+              accessUpdatedAt: true,
+            },
+          },
+        },
       },
     },
   });
   if (!voter) return null;
 
-  const householdId = voter.householdLinks[0]?.householdId ?? null;
+  const household = voter.householdLinks[0]?.household ?? null;
+  const householdId = household?.id ?? null;
   const attempts = householdId
     ? await prisma.canvassAttempt.findMany({
         where: {
@@ -379,18 +421,44 @@ export async function getVoterHistoryDetail(
           user: { select: { name: true, email: true, phone: true } },
           people: {
             where: { voterId },
-            select: { outcome: true, support: true },
+            select: { outcome: true, support: true, talkScore: true },
             take: 1,
           },
         },
       })
     : [];
 
+  const fieldEvents = await prisma.fieldEvent.findMany({
+    where: {
+      OR: [
+        { voterId },
+        ...(householdId ? [{ householdId }] : []),
+      ],
+    },
+    orderBy: { capturedAt: "desc" },
+    take: 40,
+    select: {
+      id: true,
+      kind: true,
+      value: true,
+      capturedAt: true,
+      campaign: { select: { name: true } },
+      user: { select: { name: true, email: true, phone: true } },
+    },
+  });
+
   const superseded = new Set(
     attempts
       .map((a) => a.supersedesClientId)
       .filter((id): id is string => Boolean(id)),
   );
+
+  const display = displayProgressiveScore({
+    talkScore: voter.talkScore,
+    scoreUpdatedAt: voter.scoreUpdatedAt,
+    observedScore: household?.observedScore,
+    observedScoreAt: household?.observedScoreAt,
+  });
 
   return {
     campaign,
@@ -415,7 +483,32 @@ export async function getVoterHistoryDetail(
       generalVoted: voter.generalVoted,
       likelyPrimary: voter.likelyPrimary,
       likelyGeneral: voter.likelyGeneral,
+      residenceStatus: voter.residenceStatus,
+      talkScore: voter.talkScore,
+      scoreUpdatedAt: voter.scoreUpdatedAt?.toISOString() ?? null,
     },
+    household: household
+      ? {
+          id: household.id,
+          accessStatus: household.accessStatus,
+          observedScore: household.observedScore,
+          observedScoreAt: household.observedScoreAt?.toISOString() ?? null,
+          accessUpdatedAt: household.accessUpdatedAt?.toISOString() ?? null,
+        }
+      : null,
+    displayScore: {
+      score: display.score,
+      source: display.source,
+      label: progressiveScoreLabel(display.score),
+    },
+    fieldEvents: fieldEvents.map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      value: e.value,
+      capturedAt: e.capturedAt.toISOString(),
+      campaignName: e.campaign.name,
+      canvasser: e.user?.name ?? e.user?.email ?? e.user?.phone ?? null,
+    })),
     history: voter.history.map((row) => ({
       id: row.id,
       electionDate: isoDate(row.electionDate),
@@ -439,6 +532,7 @@ export async function getVoterHistoryDetail(
             person.outcome
           : null,
         support: person?.support ?? null,
+        talkScore: person?.talkScore ?? null,
       };
     }),
   };

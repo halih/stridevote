@@ -377,8 +377,8 @@ function ListCard({
       {l.status === "mine" ? (
         <>
           {external ? <p className="taken-note">{external.hint}</p> : null}
-          <div className="list-foot">
-            <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          <div className="list-foot list-foot-compact">
+            <div className="list-foot-actions">
               <button type="button" className="btn btn-outline btn-sm" onClick={onPreview}>
                 <Icon name="map" size={14} /> Preview
               </button>
@@ -389,17 +389,17 @@ function ListCard({
                   disabled={pending}
                   onClick={onSplit}
                 >
-                  Split list
+                  Split
                 </button>
               ) : null}
               {!l.assignedToMe ? (
                 <button className="btn btn-outline btn-sm" disabled={pending} onClick={onRelease}>
-                  Release list
+                  Release
                 </button>
               ) : null}
             </div>
             <button className="btn btn-primary btn-sm" onClick={onOpen}>
-              {l.nativeCanvass ? "Open list" : external?.label ?? "Open externally"}
+              {l.nativeCanvass ? "Open" : external?.label ?? "Open externally"}
             </button>
           </div>
         </>

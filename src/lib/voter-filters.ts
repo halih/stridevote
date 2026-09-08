@@ -18,8 +18,14 @@ export const voterFiltersSchema = z.object({
   canvassed: z.string().optional(),
   /** Exclude voters at doors with any current result in the program. */
   excludeCanvassed: z.string().optional(),
-  /** Exclude voters at doors whose current result is inaccessible. */
+  /** Exclude doors marked inaccessible in this campaign or on the master field layer. */
   excludeInaccessible: z.string().optional(),
+  /** Exclude doors marked unsafe in this campaign or on the master field layer. */
+  excludeUnsafe: z.string().optional(),
+  /** Exclude voters marked moved on the master field layer. */
+  excludeMoved: z.string().optional(),
+  /** Exclude voters whose current progressive score is Republican (0). */
+  excludeRepublicans: z.string().optional(),
   page: z.string().optional(),
 });
 
@@ -32,6 +38,7 @@ export type PersistableVoterFilters = Omit<VoterFilters, "page">;
 export type CanvassAudienceIds = {
   canvassedHouseholdIds: readonly string[];
   inaccessibleHouseholdIds: readonly string[];
+  unsafeHouseholdIds: readonly string[];
 };
 
 const FILTER_KEYS = [
@@ -49,6 +56,9 @@ const FILTER_KEYS = [
   "canvassed",
   "excludeCanvassed",
   "excludeInaccessible",
+  "excludeUnsafe",
+  "excludeMoved",
+  "excludeRepublicans",
 ] as const;
 
 function positiveInt(value: string | undefined): number | null {
@@ -90,7 +100,8 @@ export function needsCanvassAudience(filters: VoterFilters): boolean {
   return (
     filters.canvassed === "1" ||
     filters.excludeCanvassed === "1" ||
-    filters.excludeInaccessible === "1"
+    filters.excludeInaccessible === "1" ||
+    filters.excludeUnsafe === "1"
   );
 }
 
@@ -124,6 +135,9 @@ export function searchParamsToFilters(
     canvassed: one(raw.canvassed),
     excludeCanvassed: one(raw.excludeCanvassed),
     excludeInaccessible: one(raw.excludeInaccessible),
+    excludeUnsafe: one(raw.excludeUnsafe),
+    excludeMoved: one(raw.excludeMoved),
+    excludeRepublicans: one(raw.excludeRepublicans),
     page: one(raw.page),
   });
 }
@@ -153,6 +167,23 @@ function atHouseholds(ids: readonly string[]): Prisma.VoterWhereInput {
   return {
     householdLinks: { some: { householdId: { in: [...ids] } } },
   };
+}
+
+function excludeCampaignOrMasterAccess(
+  status: "inaccessible" | "unsafe",
+  campaignHouseholdIds: readonly string[] | undefined,
+): Prisma.VoterWhereInput {
+  const or: Prisma.VoterWhereInput[] = [
+    {
+      householdLinks: {
+        some: { household: { accessStatus: status } },
+      },
+    },
+  ];
+  if (campaignHouseholdIds?.length) {
+    or.push(atHouseholds(campaignHouseholdIds));
+  }
+  return { NOT: { OR: or } };
 }
 
 export function buildVoterWhere(
@@ -218,9 +249,40 @@ export function buildVoterWhere(
       (canvass?.canvassedHouseholdIds.length ?? 0) > 0
         ? [{ NOT: atHouseholds(canvass!.canvassedHouseholdIds) }]
         : []),
-      ...(filters.excludeInaccessible === "1" &&
-      (canvass?.inaccessibleHouseholdIds.length ?? 0) > 0
-        ? [{ NOT: atHouseholds(canvass!.inaccessibleHouseholdIds) }]
+      ...(filters.excludeInaccessible === "1"
+        ? [
+            excludeCampaignOrMasterAccess(
+              "inaccessible",
+              canvass?.inaccessibleHouseholdIds,
+            ),
+          ]
+        : []),
+      ...(filters.excludeUnsafe === "1"
+        ? [excludeCampaignOrMasterAccess("unsafe", canvass?.unsafeHouseholdIds)]
+        : []),
+      ...(filters.excludeMoved === "1"
+        ? [{ NOT: { residenceStatus: "moved" } }]
+        : []),
+      ...(filters.excludeRepublicans === "1"
+        ? [
+            {
+              NOT: {
+                OR: [
+                  { talkScore: 0 },
+                  {
+                    AND: [
+                      { talkScore: null },
+                      {
+                        householdLinks: {
+                          some: { household: { observedScore: 0 } },
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ]
         : []),
       // Canvass include/exclude without audience data should match nothing / no-op.
       ...(filters.canvassed === "1" && !canvass

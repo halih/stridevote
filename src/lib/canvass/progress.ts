@@ -17,6 +17,7 @@ export async function getCurrentAttemptsForList(
       capturedAt: Date;
       userId: string;
       support: number | null;
+      observedScore: number | null;
     }
   >
 > {
@@ -30,6 +31,7 @@ export async function getCurrentAttemptsForList(
       capturedAt: true,
       userId: true,
       supersedesClientId: true,
+      observedScore: true,
       people: { select: { support: true, outcome: true } },
     },
   });
@@ -48,6 +50,7 @@ export async function getCurrentAttemptsForList(
       capturedAt: Date;
       userId: string;
       support: number | null;
+      observedScore: number | null;
     }
   >();
 
@@ -61,6 +64,7 @@ export async function getCurrentAttemptsForList(
       capturedAt: a.capturedAt,
       userId: a.userId,
       support: talked?.support ?? null,
+      observedScore: a.observedScore,
     });
   }
 
@@ -146,11 +150,13 @@ export type CampaignDoorAttempt = {
  * - `latestByHousehold`: newest current result (for the Canvass column)
  * - `canvassedHouseholdIds`: doors with a current result in any wave
  * - `inaccessibleHouseholdIds`: doors with a current inaccessible in any wave
+ * - `unsafeHouseholdIds`: doors with a current unsafe in any wave
  */
 export async function getCampaignCanvassAudience(campaignId: string): Promise<{
   latestByHousehold: Map<string, CampaignDoorAttempt>;
   canvassedHouseholdIds: string[];
   inaccessibleHouseholdIds: string[];
+  unsafeHouseholdIds: string[];
 }> {
   const attempts = await prisma.canvassAttempt.findMany({
     where: { program: { campaignId } },
@@ -193,11 +199,13 @@ export async function getCampaignCanvassAudience(campaignId: string): Promise<{
   const latestByHousehold = new Map<string, CampaignDoorAttempt>();
   const canvassed = new Set<string>();
   const inaccessible = new Set<string>();
+  const unsafe = new Set<string>();
 
   for (const [key, row] of perProgram) {
     const householdId = key.slice(key.indexOf(":") + 1);
     canvassed.add(householdId);
     if (row.outcome === "inaccessible") inaccessible.add(householdId);
+    if (row.outcome === "unsafe") unsafe.add(householdId);
     const prev = latestByHousehold.get(householdId);
     if (!prev || row.capturedAt > prev.capturedAt) {
       latestByHousehold.set(householdId, row);
@@ -208,6 +216,7 @@ export async function getCampaignCanvassAudience(campaignId: string): Promise<{
     latestByHousehold,
     canvassedHouseholdIds: [...canvassed],
     inaccessibleHouseholdIds: [...inaccessible],
+    unsafeHouseholdIds: [...unsafe],
   };
 }
 

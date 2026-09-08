@@ -154,6 +154,8 @@ export function mergeOutboxIntoPacket(
             DOOR_OUTCOME_LABELS[local.outcome as DoorOutcome] ?? local.outcome,
           closed: true,
           support,
+          observedScore:
+            local.observedScore !== undefined ? local.observedScore : null,
           capturedAt: local.capturedAt,
         },
       };

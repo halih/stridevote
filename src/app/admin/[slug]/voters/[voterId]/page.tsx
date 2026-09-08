@@ -52,6 +52,27 @@ function participationNote(
   return `Voted in ${voted ?? 0} of ${eligible} ${label}${since}`;
 }
 
+function fieldEventLabel(kind: string, value: number | null): string {
+  switch (kind) {
+    case "inaccessible":
+      return "Inaccessible";
+    case "unsafe":
+      return "Unsafe";
+    case "moved":
+      return "Moved";
+    case "access_cleared":
+      return "Access cleared";
+    case "score_observed":
+      return value == null ? "Observed score cleared" : `Observed score ${value}`;
+    case "score_talk":
+      return value == null ? "Talk score cleared" : `Talk score ${value}`;
+    case "score_cleared":
+      return "Score cleared";
+    default:
+      return kind;
+  }
+}
+
 export default async function VoterHistoryPage({
   params,
 }: {
@@ -142,6 +163,86 @@ export default async function VoterHistoryPage({
         <section className="card voter-history-card">
           <div className="voter-history-heading">
             <div>
+              <h2>Field</h2>
+              <p>
+                Cross-campaign access, residence, and progressive score (volunteer
+                only — not SOS data)
+              </p>
+            </div>
+          </div>
+          <div className="voter-propensity-grid" style={{ marginTop: 12 }}>
+            <div className="card voter-propensity-card">
+              <span>Door access</span>
+              <b>
+                {detail.household?.accessStatus === "unsafe"
+                  ? "Unsafe"
+                  : detail.household?.accessStatus === "inaccessible"
+                    ? "Inaccessible"
+                    : "OK"}
+              </b>
+              <small>
+                Confirmed after two campaigns for inaccessible/unsafe.
+                {detail.household?.accessUpdatedAt
+                  ? ` · Updated ${formatCapturedAt(detail.household.accessUpdatedAt)}`
+                  : ""}
+              </small>
+            </div>
+            <div className="card voter-propensity-card">
+              <span>Residence</span>
+              <b>
+                {detail.voter.residenceStatus === "moved" ? "Moved" : "OK"}
+              </b>
+              <small>
+                Cleared automatically if the voter-file address changes.
+              </small>
+            </div>
+            <div className="card voter-propensity-card">
+              <span>Progressive score</span>
+              <b>{detail.displayScore.label}</b>
+              <small>
+                {detail.displayScore.source === "talk"
+                  ? "From conversation"
+                  : detail.displayScore.source === "observed"
+                    ? "Observed (signs)"
+                    : "No score yet"}
+                {detail.voter.talkScore != null
+                  ? ` · Talk raw: ${detail.voter.talkScore}`
+                  : ""}
+                {detail.household?.observedScore != null
+                  ? ` · Observed raw: ${detail.household.observedScore}`
+                  : ""}
+              </small>
+            </div>
+          </div>
+          {detail.fieldEvents.length ? (
+            <ul className="voter-history-list voter-canvass-list" style={{ marginTop: 14 }}>
+              {detail.fieldEvents.map((row) => (
+                <li key={row.id}>
+                  <div className="voter-canvass-main">
+                    <b>{fieldEventLabel(row.kind, row.value)}</b>
+                    <span>
+                      {row.campaignName}
+                      {row.canvasser ? ` · ${row.canvasser}` : ""}
+                    </span>
+                  </div>
+                  <div className="voter-canvass-meta">
+                    <time dateTime={row.capturedAt}>
+                      {formatCapturedAt(row.capturedAt)}
+                    </time>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="voter-history-empty" style={{ marginTop: 12 }}>
+              No field events yet.
+            </p>
+          )}
+        </section>
+
+        <section className="card voter-history-card">
+          <div className="voter-history-heading">
+            <div>
               <h2>Canvass history</h2>
               <p>
                 {detail.canvassHistory.length
@@ -167,6 +268,9 @@ export default async function VoterHistoryPage({
                       <span>
                         This voter: {row.personOutcomeLabel}
                         {row.support != null ? ` · support ${row.support}` : ""}
+                        {row.talkScore != null
+                          ? ` · progressive ${row.talkScore}`
+                          : ""}
                       </span>
                     ) : null}
                   </div>

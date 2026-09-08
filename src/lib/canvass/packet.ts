@@ -28,6 +28,12 @@ export interface FieldPacketDoor {
   coordSource: DoorCoordSource;
   stableLat: number | null;
   stableLng: number | null;
+  /** Durable field layer for this household (cross-campaign). */
+  field?: {
+    accessStatus: string;
+    observedScore: number | null;
+    observedScoreAt: string | null;
+  };
   voters: Array<{
     voterId: string;
     firstName: string;
@@ -35,6 +41,9 @@ export interface FieldPacketDoor {
     age: number | null;
     sex: string | null;
     matchedSeed: boolean;
+    residenceStatus?: string;
+    talkScore?: number | null;
+    scoreUpdatedAt?: string | null;
   }>;
   current: {
     clientAttemptId: string;
@@ -42,6 +51,7 @@ export interface FieldPacketDoor {
     outcomeLabel: string;
     closed: boolean;
     support: number | null;
+    observedScore: number | null;
     capturedAt: string;
   } | null;
   history: Array<{
@@ -76,6 +86,25 @@ function approxAge(yearOfBirth: number | null | undefined): number | null {
   const age = new Date().getFullYear() - yearOfBirth;
   return age >= 0 && age < 130 ? age : null;
 }
+
+const packetVoterSelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  yearOfBirth: true,
+  gender: true,
+  residenceStatus: true,
+  talkScore: true,
+  scoreUpdatedAt: true,
+} as const;
+
+const packetHouseholdInclude = {
+  voters: {
+    include: {
+      voter: { select: packetVoterSelect },
+    },
+  },
+} as const;
 
 export async function buildFieldPacket(opts: {
   userId: string;
@@ -125,21 +154,7 @@ export async function buildFieldPacket(opts: {
     orderBy: { sortOrder: "asc" },
     include: {
       household: {
-        include: {
-          voters: {
-            include: {
-              voter: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  yearOfBirth: true,
-                  gender: true,
-                },
-              },
-            },
-          },
-        },
+        include: packetHouseholdInclude,
       },
     },
   });
@@ -157,21 +172,7 @@ export async function buildFieldPacket(opts: {
       orderBy: { sortOrder: "asc" },
       include: {
         household: {
-          include: {
-            voters: {
-              include: {
-                voter: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    yearOfBirth: true,
-                    gender: true,
-                  },
-                },
-              },
-            },
-          },
+          include: packetHouseholdInclude,
         },
       },
     });
@@ -183,21 +184,7 @@ export async function buildFieldPacket(opts: {
       orderBy: { sortOrder: "asc" },
       include: {
         household: {
-          include: {
-            voters: {
-              include: {
-                voter: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    yearOfBirth: true,
-                    gender: true,
-                  },
-                },
-              },
-            },
-          },
+          include: packetHouseholdInclude,
         },
       },
     });
@@ -322,6 +309,11 @@ export async function buildFieldPacket(opts: {
       coordSource: coords.coordSource,
       stableLat: coords.stableLat,
       stableLng: coords.stableLng,
+      field: {
+        accessStatus: h.accessStatus,
+        observedScore: h.observedScore,
+        observedScoreAt: h.observedScoreAt?.toISOString() ?? null,
+      },
       voters: voters.map((hv) => ({
         voterId: hv.voter.id,
         firstName: hv.voter.firstName,
@@ -329,6 +321,9 @@ export async function buildFieldPacket(opts: {
         age: approxAge(hv.voter.yearOfBirth),
         sex: hv.voter.gender,
         matchedSeed: matchedSeedByVoter.get(hv.voterId) ?? false,
+        residenceStatus: hv.voter.residenceStatus,
+        talkScore: hv.voter.talkScore,
+        scoreUpdatedAt: hv.voter.scoreUpdatedAt?.toISOString() ?? null,
       })),
       current: cur
         ? {
@@ -339,6 +334,7 @@ export async function buildFieldPacket(opts: {
             // Any logged result is done; volunteers can update it again anytime.
             closed: isDoneDoorOutcome(cur.outcome),
             support: cur.support,
+            observedScore: cur.observedScore,
             capturedAt: cur.capturedAt.toISOString(),
           }
         : null,

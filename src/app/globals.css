@@ -328,6 +328,13 @@ a { color: inherit; }
 .progress-fill { height: 100%; background: var(--accent); border-radius: 99px; }
 .progress-label { font-size: 11.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .list-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; }
+.list-foot-compact { flex-wrap: nowrap; }
+.list-foot-actions { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; min-width: 0; }
+.list-foot-compact .btn { white-space: nowrap; }
+@media (max-width: 420px) {
+  .list-foot-compact { gap: 6px; }
+  .list-foot-compact .btn-sm { padding: 7px 9px; font-size: 12px; }
+}
 .taken-note { font-size: 12px; color: var(--ink-faint); }
 .section-count { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
 .list-door-grid {
@@ -924,13 +931,15 @@ select.field { appearance: none; -webkit-appearance: none; }
 .voter-filter-row-audience {
   display: block;
 }
+/* Include and Exclude sit side by side; the split favors Exclude, which has
+   more boxes, so neither fieldset wraps to a second line. */
 .voter-filter-groups {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 0.43fr) minmax(0, 0.57fr);
+  gap: 10px;
   align-items: start;
 }
-.voter-filter-groups > .voter-audience-filters { flex: 1 1 auto; min-width: 0; }
+.voter-filter-groups > .voter-audience-filters { min-width: 0; }
 .voter-filter-actions {
   display: flex;
   align-items: center;
@@ -998,17 +1007,18 @@ select.field { appearance: none; -webkit-appearance: none; }
   border-color: var(--accent);
 }
 .voter-audience-filters {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
-  margin: 0; padding: 4px 12px 6px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: 0; padding: 4px 9px 6px;
   border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--paper);
 }
 .voter-audience-filters legend {
   padding: 0 6px; background: var(--surface); color: var(--ink-faint);
 }
 .voter-audience-filters label {
-  display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-size: 12px;
+  display: inline-flex; align-items: center; gap: 5px; color: var(--ink); font-size: 11.5px;
+  white-space: nowrap;
 }
-.voter-audience-filters input { accent-color: var(--accent); }
+.voter-audience-filters input { flex: none; margin: 0; accent-color: var(--accent); }
 .with-tooltip {
   position: relative; cursor: help; border-bottom: 1px dotted var(--ink-faint);
 }
@@ -1174,17 +1184,82 @@ select.field { appearance: none; -webkit-appearance: none; }
   display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
 }
 .walk-door-title-row h3 { margin: 1px 0 2px; font-size: 13px; flex: 1; min-width: 0; }
-.walk-door-nav {
-  display: flex; align-items: center; gap: 2px; flex: none;
+.walk-door-nav-btns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
 }
-.walk-door-nav .pill { max-width: none; margin-right: 4px; }
+.walk-door-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+.walk-door-meta-row p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+.walk-door-meta-row .pill { max-width: none; flex: none; }
 .walk-history { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .walk-script { margin: 6px 0 12px; color: var(--ink-soft); font-size: 13px; line-height: 1.4; }
 .walk-list-item { text-align: left; width: 100%; cursor: pointer; border: 1px solid var(--line); background: var(--surface); }
 .walk-door-card { padding: 14px 16px; }
+.walk-door-card .list-door-voters {
+  margin-left: 0;
+  padding-left: 35px;
+}
+.walk-door-actions-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.walk-door-actions-block .progressive-score-control {
+  margin-top: 10px;
+}
 .walk-door-actions {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  margin-top: 12px; flex-wrap: wrap;
+  margin-top: 0; flex-wrap: wrap;
+}
+.progressive-score-control {
+  margin-top: 8px;
+  min-width: 0;
+}
+.progressive-score-control > .field-label { margin-bottom: 4px; }
+.progressive-score-buttons {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+.progressive-score-btn {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.progressive-score-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.progressive-score-caption {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  line-height: 1.3;
 }
 .walk-quick-results {
   display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
@@ -1212,12 +1287,102 @@ select.field { appearance: none; -webkit-appearance: none; }
 .results-stat span { color: var(--ink-soft); font-size: 11px; }
 .stale-flag { color: var(--warn); font-size: 11px; font-weight: 600; }
 
+.report-chart-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.report-donut {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.report-donut-legend { flex: 1; min-width: 160px; }
+.report-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.report-bars { display: flex; flex-direction: column; gap: 8px; }
+.report-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr) auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.report-bar-label { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-bar-track {
+  height: 10px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.report-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  min-width: 2px;
+}
+.report-stack-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px;
+  padding: 4px 0;
+}
+.report-stack-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+}
+.report-stack-bar {
+  width: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 3px 3px 0 0;
+  overflow: hidden;
+  min-height: 2px;
+}
+.report-text-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.report-text-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.report-text-list li:last-child { border-bottom: 0; }
+
+@media (min-width: 720px) {
+  .reports-dashboard .results-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1100px) {
   .voter-filter-row {
     grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.7fr);
   }
   .voter-filter-row-audience { grid-template-columns: 1fr auto; }
   .voter-profile-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Below this the two fieldsets can no longer share a line without one of them
+   wrapping internally, so stack them instead. */
+@media (max-width: 1340px) {
+  .voter-filter-groups { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {

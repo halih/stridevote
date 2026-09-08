@@ -8,11 +8,17 @@ import {
 } from "@/lib/canvass/outcomes";
 import { refreshCheckoutProgress } from "@/lib/canvass/progress";
 import { resolveSplitRedirect } from "@/lib/canvass/list-split-redirect";
+import { applyFieldWriteback } from "@/lib/canvass/field-layer";
+import { isProgressiveScore } from "@/lib/canvass/progressive-score";
+
+const progressiveScoreSchema = z.number().int().min(0).max(5).nullable();
 
 const personResponseSchema = z.object({
   voterId: z.string().min(1),
   outcome: z.enum(PERSON_OUTCOMES),
   support: z.number().int().min(1).max(5).nullable().optional(),
+  talkScore: progressiveScoreSchema.optional(),
+  clearTalkScore: z.boolean().optional(),
   answers: z.record(z.unknown()).optional(),
   notes: z.string().max(2000).nullable().optional(),
 });
@@ -29,6 +35,8 @@ export const syncAttemptSchema = z.object({
   capturedAt: z.string().datetime(),
   supersedesClientId: z.string().uuid().nullable().optional(),
   packetVersion: z.string().max(80).nullable().optional(),
+  observedScore: progressiveScoreSchema.optional(),
+  clearObservedScore: z.boolean().optional(),
   people: z.array(personResponseSchema).max(40).optional(),
 });
 
@@ -257,7 +265,12 @@ async function syncOneAttempt(
     }
   }
 
-  await prisma.canvassAttempt.create({
+  const capturedAt = new Date(input.capturedAt);
+  const observedScore = isProgressiveScore(input.observedScore)
+    ? input.observedScore
+    : null;
+
+  const created = await prisma.canvassAttempt.create({
     data: {
       clientAttemptId: input.clientAttemptId,
       programId: input.programId,
@@ -268,21 +281,46 @@ async function syncOneAttempt(
       campaignId: input.campaignId,
       outcome: input.outcome,
       notes: input.notes ?? null,
-      capturedAt: new Date(input.capturedAt),
+      capturedAt,
       supersedesClientId: input.supersedesClientId ?? null,
       staleCheckout,
       packetVersion: input.packetVersion ?? null,
+      observedScore,
       people: {
         create: people.map((p) => ({
           voter: { connect: { id: p.voterId } },
           outcome: p.outcome,
           support: p.support ?? null,
+          talkScore: isProgressiveScore(p.talkScore) ? p.talkScore : null,
           answers: (p.answers ?? {}) as Prisma.InputJsonValue,
           notes: p.notes ?? null,
         })),
       },
     },
+    select: { id: true },
   });
+
+  try {
+    await applyFieldWriteback({
+      attemptId: created.id,
+      householdId: input.householdId,
+      campaignId: input.campaignId,
+      programId: input.programId,
+      userId,
+      outcome: input.outcome,
+      capturedAt,
+      observedScore,
+      clearObservedScore: input.clearObservedScore === true,
+      people: people.map((p) => ({
+        voterId: p.voterId,
+        outcome: p.outcome,
+        talkScore: isProgressiveScore(p.talkScore) ? p.talkScore : null,
+        clearTalkScore: p.clearTalkScore === true,
+      })),
+    });
+  } catch {
+    // Attempt already persisted; field write-back is best-effort.
+  }
 
   return {
     clientAttemptId: input.clientAttemptId,

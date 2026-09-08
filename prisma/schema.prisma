@@ -47,6 +47,7 @@ model User {
   attempts    CanvassAttempt[]
   listSplits  ListSplit[]
   achievementUnlocks UserAchievementUnlock[]
+  fieldEvents FieldEvent[]
 }
 
 model Account {
@@ -131,6 +132,7 @@ model Campaign {
   programs    CanvassProgram[]
   attempts    CanvassAttempt[]
   achievementUnlocks UserAchievementUnlock[]
+  fieldEvents FieldEvent[]
 }
 
 // Persisted earn/seen state for catalog achievements. Definitions live in code.
@@ -200,6 +202,7 @@ model CanvassProgram {
   voters        ProgramListVoter[]
   attempts      CanvassAttempt[]
   listSplits    ListSplit[]
+  fieldEvents   FieldEvent[]
 
   @@unique([campaignId, name])
   @@index([campaignId, status])
@@ -325,6 +328,8 @@ model CanvassAttempt {
   supersedesClientId String?
   staleCheckout      Boolean  @default(false)
   packetVersion      String?
+  // Progressive score from signs / observation on this knock (0–5); null = unknown.
+  observedScore      Int?
   createdAt          DateTime @default(now())
 
   program   CanvassProgram          @relation(fields: [programId], references: [id], onDelete: Cascade)
@@ -334,6 +339,7 @@ model CanvassAttempt {
   user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaign  Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   people    CanvassPersonResponse[]
+  fieldEvents FieldEvent[]
 
   @@index([programId, listId, householdId, capturedAt])
   @@index([campaignId, programId, capturedAt])
@@ -348,7 +354,9 @@ model CanvassPersonResponse {
   attemptId  String
   voterId    String
   outcome    String // talked | refused | moved | not_home
-  support    Int? // 1–5
+  support    Int? // 1–5 race support
+  // Progressive talk score (0–5); null = unknown / not collected.
+  talkScore  Int?
   answers    Json    @default("{}")
   notes      String?
 
@@ -357,6 +365,33 @@ model CanvassPersonResponse {
 
   @@unique([attemptId, voterId])
   @@index([voterId])
+}
+
+// Append-only field intelligence across campaigns (access, moved, scores).
+model FieldEvent {
+  id          String   @id @default(cuid())
+  householdId String?
+  voterId     String?
+  kind        String // inaccessible | unsafe | moved | access_cleared | score_observed | score_talk | score_cleared
+  value       Int? // score 0–5 when applicable; null for clears / access kinds
+  campaignId  String
+  programId   String?
+  attemptId   String?
+  userId      String?
+  capturedAt  DateTime
+  createdAt   DateTime @default(now())
+
+  household Household?      @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  voter     Voter?          @relation(fields: [voterId], references: [id], onDelete: Cascade)
+  campaign  Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  program   CanvassProgram? @relation(fields: [programId], references: [id], onDelete: SetNull)
+  attempt   CanvassAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+  user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([householdId, kind, capturedAt])
+  @@index([voterId, kind, capturedAt])
+  @@index([campaignId, capturedAt])
+  @@index([attemptId])
 }
 
 model ListWatch {
@@ -401,6 +436,10 @@ model Voter {
   generalVoted          Int?
   likelyPrimary         Boolean  @default(false)
   likelyGeneral         Boolean  @default(false)
+  // Field layer: durable across campaigns (not SOS identity).
+  residenceStatus       String   @default("ok") // ok | moved
+  talkScore             Int? // progressive 0–5 from conversation
+  scoreUpdatedAt        DateTime?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -410,11 +449,14 @@ model Voter {
   listLinks     ListVoter[]
   programLinks  ProgramListVoter[]
   personResponses CanvassPersonResponse[]
+  fieldEvents   FieldEvent[]
 
   @@index([lastName, firstName])
   @@index([precinctCode])
   @@index([legislativeDistrict])
   @@index([congressionalDistrict])
+  @@index([residenceStatus])
+  @@index([talkScore])
 }
 
 // One SOS ballot record. Older files (2007–2012) have no VoterHistoryID and
@@ -516,6 +558,11 @@ model Household {
   geocodeSource    String?  // census | county | mapbox
   geocodeRef       String?  // source-specific id when available
   geocodeStatus    String   @default("pending") // pending | matched | unmatched | ambiguous (Census pipeline)
+  // Field layer: durable across campaigns.
+  accessStatus     String   @default("ok") // ok | inaccessible | unsafe
+  observedScore    Int? // progressive 0–5 from yard/window signs
+  observedScoreAt  DateTime?
+  accessUpdatedAt  DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -524,10 +571,13 @@ model Household {
   programLists ProgramListHousehold[]
   attempts     CanvassAttempt[]
   redirects    ListHouseholdRedirect[]
+  fieldEvents  FieldEvent[]
 
   @@index([geocodeStatus])
   @@index([geocodeSource])
   @@index([lat, lng])
+  @@index([accessStatus])
+  @@index([observedScore])
 }
 
 // Maps a household that left a list during a volunteer split so stale offline

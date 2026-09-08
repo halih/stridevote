@@ -55,6 +55,9 @@ export default async function CampaignVotersPage({
     canvassed: one(raw.canvassed),
     excludeCanvassed: one(raw.excludeCanvassed),
     excludeInaccessible: one(raw.excludeInaccessible),
+    excludeUnsafe: one(raw.excludeUnsafe),
+    excludeMoved: one(raw.excludeMoved),
+    excludeRepublicans: one(raw.excludeRepublicans),
     page: one(raw.page),
   };
   const directory = await getCampaignVoterDirectory(slug, user, filters);
@@ -216,7 +219,7 @@ export default async function CampaignVotersPage({
                   />
                   Canvassed
                 </label>
-                <label title="Voters at doors marked inaccessible in any wave">
+                <label title="Marked inaccessible in this campaign, or confirmed inaccessible on the master field layer">
                   <input
                     type="checkbox"
                     name="excludeInaccessible"
@@ -224,6 +227,33 @@ export default async function CampaignVotersPage({
                     defaultChecked={filters.excludeInaccessible === "1"}
                   />
                   Inaccessible
+                </label>
+                <label title="Marked unsafe in this campaign, or confirmed unsafe on the master field layer">
+                  <input
+                    type="checkbox"
+                    name="excludeUnsafe"
+                    value="1"
+                    defaultChecked={filters.excludeUnsafe === "1"}
+                  />
+                  Unsafe
+                </label>
+                <label title="Voters marked moved on the master field layer">
+                  <input
+                    type="checkbox"
+                    name="excludeMoved"
+                    value="1"
+                    defaultChecked={filters.excludeMoved === "1"}
+                  />
+                  Moved
+                </label>
+                <label title="Volunteer progressive score of 0 (talk, or observed signs if no talk). Washington has no party registration.">
+                  <input
+                    type="checkbox"
+                    name="excludeRepublicans"
+                    value="1"
+                    defaultChecked={filters.excludeRepublicans === "1"}
+                  />
+                  Republicans
                 </label>
               </fieldset>
               </div>

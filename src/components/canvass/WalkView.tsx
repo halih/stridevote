@@ -28,6 +28,9 @@ import {
 } from "@/lib/canvass/offline-store";
 import { orderFieldPacketFrom } from "@/lib/canvass/packet-order";
 import { DoorSheet } from "@/components/canvass/DoorSheet";
+import { ProgressiveScoreControl } from "@/components/canvass/ProgressiveScoreControl";
+import type { ProgressiveScore } from "@/lib/canvass/progressive-score";
+import { isProgressiveScore } from "@/lib/canvass/progressive-score";
 import { ListCompleteSheet } from "@/components/canvass/ListCompleteSheet";
 import { MapHelp, type MapHelpItem } from "@/components/map/MapHelp";
 import { useVolunteerLocation } from "@/lib/use-volunteer-location";
@@ -63,9 +66,8 @@ export function WalkView({
   const [packet, setPacket] = useState<FieldPacket | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [online, setOnline] = useState(
-    typeof navigator === "undefined" ? true : navigator.onLine,
-  );
+  // Always start true so SSR and first client paint match; sync after mount.
+  const [online, setOnline] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
   const [filter, setFilter] = useState<WalkFilter>("all");
   const [view, setView] = useState<WalkViewMode>("map");
@@ -73,6 +75,11 @@ export function WalkView({
   const [sheetDoor, setSheetDoor] = useState<FieldPacketDoor | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [quickObserved, setQuickObserved] = useState<{
+    householdId: string;
+    score: ProgressiveScore | null;
+    touched: boolean;
+  } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const pendingDoorId = useRef<string | null>(null);
   const gpsOrderedVersion = useRef<string | null>(null);
@@ -153,6 +160,7 @@ export function WalkView({
   }, [packet, location.you]);
 
   useEffect(() => {
+    setOnline(navigator.onLine);
     function onOnline() {
       setOnline(true);
       void syncOutbox(listId)
@@ -201,6 +209,22 @@ export function WalkView({
   }, [packet, filter]);
 
   const currentDoor = filteredDoors[index] ?? filteredDoors[0] ?? null;
+  const savedObservedRaw =
+    currentDoor?.current?.observedScore ?? currentDoor?.field?.observedScore;
+  const savedObservedScore = isProgressiveScore(savedObservedRaw)
+    ? savedObservedRaw
+    : null;
+  const quickObservedScore =
+    currentDoor && quickObserved?.householdId === currentDoor.householdId
+      ? quickObserved.score
+      : null;
+  const quickObservedTouched =
+    currentDoor != null &&
+    quickObserved?.householdId === currentDoor.householdId &&
+    quickObserved.touched;
+  const displayObservedScore = quickObservedTouched
+    ? quickObservedScore
+    : savedObservedScore;
 
   useEffect(() => {
     if (pendingDoorId.current) return;
@@ -237,6 +261,8 @@ export function WalkView({
     outcome: DoorOutcome;
     notes: string | null;
     supersedesClientId: string | null;
+    observedScore?: number | null;
+    clearObservedScore?: boolean;
     people: SyncAttemptInput["people"];
   }) {
     if (!packet) return;
@@ -258,6 +284,8 @@ export function WalkView({
       capturedAt: new Date().toISOString(),
       supersedesClientId: input.supersedesClientId,
       packetVersion: packet.version,
+      observedScore: input.observedScore,
+      clearObservedScore: input.clearObservedScore,
       people: input.people,
     };
 
@@ -287,6 +315,11 @@ export function WalkView({
     // Set before setPacket so the filteredDoors effect sees it on the same update.
     pendingDoorId.current = nextDoor?.householdId ?? null;
 
+    // The saved attempt is now the source of truth for this door, so drop the
+    // quick pick — otherwise it keeps overriding what the sheet just saved.
+    setQuickObserved((prev) =>
+      prev?.householdId === input.door.householdId ? null : prev,
+    );
     setPacket(merged);
     await refreshPending();
     setSheetDoor(null);
@@ -312,12 +345,19 @@ export function WalkView({
   }
 
   function quickLog(door: FieldPacketDoor, outcome: DoorOutcome) {
+    const scorePayload = quickObservedTouched
+      ? {
+          observedScore: quickObservedScore,
+          clearObservedScore: quickObservedScore == null ? true : undefined,
+        }
+      : {};
     void saveAttempt({
       door,
       outcome,
       notes: null,
       supersedesClientId: door.current?.clientAttemptId ?? null,
       people: [],
+      ...scorePayload,
     });
   }
 
@@ -541,23 +581,7 @@ export function WalkView({
                     <div className="walk-door-heading-text">
                       <div className="walk-door-title-row">
                         <h3>{currentDoor.address}</h3>
-                        <div className="walk-door-nav">
-                          {currentDoor.current ? (
-                            <span
-                              className={`pill ${
-                                doorStatus(currentDoor) === "done"
-                                  ? "pill-active"
-                                  : "pill-pending"
-                              }`}
-                            >
-                              {currentDoor.current.outcomeLabel}
-                              {currentDoor.current.support != null
-                                ? ` · ${currentDoor.current.support}`
-                                : ""}
-                            </span>
-                          ) : (
-                            <span className="pill pill-neutral">Not visited</span>
-                          )}
+                        <div className="walk-door-nav-btns">
                           <button
                             type="button"
                             className="icon-btn"
@@ -580,10 +604,28 @@ export function WalkView({
                           </button>
                         </div>
                       </div>
-                      <p>
-                        {currentDoor.voters.length} voter
-                        {currentDoor.voters.length === 1 ? "" : "s"}
-                      </p>
+                      <div className="walk-door-meta-row">
+                        <p>
+                          {currentDoor.voters.length} voter
+                          {currentDoor.voters.length === 1 ? "" : "s"}
+                        </p>
+                        {currentDoor.current ? (
+                          <span
+                            className={`pill ${
+                              doorStatus(currentDoor) === "done"
+                                ? "pill-active"
+                                : "pill-pending"
+                            }`}
+                          >
+                            {currentDoor.current.outcomeLabel}
+                            {currentDoor.current.support != null
+                              ? ` · ${currentDoor.current.support}`
+                              : ""}
+                          </span>
+                        ) : (
+                          <span className="pill pill-neutral">Not visited</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   {currentDoor.history.length ? (
@@ -619,33 +661,55 @@ export function WalkView({
                       </li>
                     )}
                   </ul>
-                  <div className="walk-door-actions">
-                    <div className="walk-quick-results">
+                  <div className="walk-door-actions-block">
+                    <div className="walk-door-actions">
+                      <div className="walk-quick-results">
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${
+                            currentDoor.current?.outcome === "lit"
+                              ? "btn-primary"
+                              : "btn-outline"
+                          }`}
+                          onClick={() => quickLog(currentDoor, "lit")}
+                        >
+                          Lit drop
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${
+                            currentDoor.current?.outcome === "inaccessible"
+                              ? "btn-primary"
+                              : "btn-outline"
+                          }`}
+                          onClick={() => quickLog(currentDoor, "inaccessible")}
+                        >
+                          Inaccessible
+                        </button>
+                      </div>
                       <button
                         type="button"
-                        className="btn btn-outline btn-sm"
-                        onClick={() => quickLog(currentDoor, "lit")}
+                        className="btn btn-primary btn-sm"
+                        onClick={() => {
+                          walkStarted.current = true;
+                          setSheetDoor(currentDoor);
+                        }}
                       >
-                        Lit drop
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        onClick={() => quickLog(currentDoor, "inaccessible")}
-                      >
-                        Inaccessible
+                        {currentDoor.current ? "Update result" : "Log result"}
                       </button>
                     </div>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => {
-                        walkStarted.current = true;
-                        setSheetDoor(currentDoor);
+                    <ProgressiveScoreControl
+                      label="Observed progressive score (signs)"
+                      value={displayObservedScore}
+                      onChange={(v) => {
+                        if (!currentDoor) return;
+                        setQuickObserved({
+                          householdId: currentDoor.householdId,
+                          score: v,
+                          touched: true,
+                        });
                       }}
-                    >
-                      {currentDoor.current ? "Update result" : "Log result"}
-                    </button>
+                    />
                   </div>
                 </div>
               ) : (
