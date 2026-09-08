@@ -57,7 +57,9 @@ export async function markAchievementsSeen(
 export async function requestJoinCampaign(campaignId: string): Promise<ActionResult> {
   const user = await getSessionUser();
   if (!user) return { ok: false, message: "Please sign in." };
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, archivedAt: null },
+  });
   if (!campaign) return { ok: false, message: "Campaign not found." };
 
   await prisma.campaignMembership.upsert({
@@ -75,7 +77,11 @@ async function canAccessListProgram(
   programId: string,
 ): Promise<{ campaignId: string } | null> {
   const memberships = await prisma.campaignMembership.findMany({
-    where: { userId, status: "active" },
+    where: {
+      userId,
+      status: "active",
+      campaign: { archivedAt: null },
+    },
     select: { campaignId: true, roles: true },
   });
   const campaignIds = memberships
@@ -89,6 +95,7 @@ async function canAccessListProgram(
     where: {
       listId,
       programId,
+      list: { deletedAt: null },
       campaignId: { in: campaignIds },
       OR: [
         { visibility: "volunteers" },
@@ -107,8 +114,8 @@ export async function checkoutList(
   const user = await getSessionUser();
   if (!user) return { ok: false, message: "Please sign in." };
 
-  const list = await prisma.list.findUnique({
-    where: { id: listId },
+  const list = await prisma.list.findFirst({
+    where: { id: listId, deletedAt: null },
     include: {
       campaignLinks: {
         where: {
@@ -179,7 +186,9 @@ export async function releaseList(
   const user = await getSessionUser();
   if (!user) return { ok: false, message: "Please sign in." };
 
-  const list = await prisma.list.findUnique({ where: { id: listId } });
+  const list = await prisma.list.findFirst({
+    where: { id: listId, deletedAt: null },
+  });
   if (!list) return { ok: false, message: "List not found." };
 
   const active = await prisma.listCheckout.findFirst({
@@ -220,7 +229,11 @@ export async function toggleWatch(listId: string): Promise<ActionResult> {
 
   // Any visible program link is enough to watch.
   const memberships = await prisma.campaignMembership.findMany({
-    where: { userId: user.id, status: "active" },
+    where: {
+      userId: user.id,
+      status: "active",
+      campaign: { archivedAt: null },
+    },
     select: { campaignId: true, roles: true },
   });
   const campaignIds = memberships
@@ -229,6 +242,7 @@ export async function toggleWatch(listId: string): Promise<ActionResult> {
   const link = await prisma.listCampaign.findFirst({
     where: {
       listId,
+      list: { deletedAt: null },
       campaignId: { in: campaignIds },
       OR: [
         { visibility: "volunteers" },
@@ -238,7 +252,9 @@ export async function toggleWatch(listId: string): Promise<ActionResult> {
   });
   if (!link) return { ok: false, message: "This turf is not available to you." };
 
-  const list = await prisma.list.findUnique({ where: { id: listId } });
+  const list = await prisma.list.findFirst({
+    where: { id: listId, deletedAt: null },
+  });
   if (!list) return { ok: false, message: "List not found." };
 
   const existing = await prisma.listWatch.findUnique({
@@ -264,8 +280,8 @@ async function requireOwnedCheckout(
   listId: string,
   programId?: string,
 ) {
-  const list = await prisma.list.findUnique({
-    where: { id: listId },
+  const list = await prisma.list.findFirst({
+    where: { id: listId, deletedAt: null },
     select: {
       id: true,
       name: true,

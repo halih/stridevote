@@ -127,6 +127,7 @@ export async function applyFieldWriteback(
         kind: e.kind,
         value: e.value ?? null,
         campaignId: input.campaignId,
+        sourceCampaignId: input.campaignId,
         programId: input.programId,
         attemptId: input.attemptId,
         userId: input.userId,
@@ -147,7 +148,7 @@ async function recomputeHouseholdAccess(householdId: string): Promise<void> {
       kind: { in: ["inaccessible", "unsafe", "access_cleared"] },
     },
     orderBy: { capturedAt: "asc" },
-    select: { kind: true, campaignId: true, capturedAt: true },
+    select: { kind: true, sourceCampaignId: true, capturedAt: true },
   });
 
   let lastClearAt: Date | null = null;
@@ -161,12 +162,12 @@ async function recomputeHouseholdAccess(householdId: string): Promise<void> {
   const inaccessibleCampaigns = new Set(
     events
       .filter((e) => e.kind === "inaccessible" && afterClear(e))
-      .map((e) => e.campaignId),
+      .map((e) => e.sourceCampaignId),
   );
   const unsafeCampaigns = new Set(
     events
       .filter((e) => e.kind === "unsafe" && afterClear(e))
-      .map((e) => e.campaignId),
+      .map((e) => e.sourceCampaignId),
   );
 
   let accessStatus: AccessStatus = "ok";

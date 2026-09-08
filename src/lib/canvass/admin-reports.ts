@@ -98,8 +98,8 @@ export async function getCampaignReportsView(
   user: User,
   opts: { programId?: string | null; range?: ReportRange | null },
 ): Promise<CampaignReportsView | null> {
-  const campaign = await prisma.campaign.findUnique({
-    where: { slug },
+  const campaign = await prisma.campaign.findFirst({
+    where: { slug, archivedAt: null },
     select: { id: true, slug: true, name: true },
   });
   if (!campaign) return null;

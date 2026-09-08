@@ -296,6 +296,14 @@ a { color: inherit; }
 .card-footer-row .btn { flex: 1; }
 
 /* ---- list cards ---- */
+.list-status-filters { margin-bottom: 12px; }
+.list-filter-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-faint);
+}
+.stats-scope-pill.active .list-filter-count { color: var(--ink-soft); }
 .list-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .list-card { padding: 14px 16px; }
 /* The whole tile opens the list, so the name carries a stretched overlay link
@@ -328,6 +336,14 @@ a { color: inherit; }
 .progress-track { flex: 1; height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 .progress-fill { height: 100%; background: var(--accent); border-radius: 99px; }
 .progress-label { font-size: 11.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.list-release-reminder {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 12px 0; border-color: color-mix(in srgb, var(--good) 35%, var(--line));
+  background: color-mix(in srgb, var(--good-soft) 55%, var(--surface));
+}
+.list-release-reminder b { font-size: 13px; }
+.list-release-reminder p { margin: 2px 0 0; color: var(--ink-soft); font-size: 12px; }
+.list-release-reminder .btn { flex: none; }
 .list-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; }
 .list-foot-compact { flex-wrap: nowrap; }
 .list-foot-actions { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; min-width: 0; }
@@ -883,7 +899,10 @@ select.field { appearance: none; -webkit-appearance: none; }
   color: var(--accent-ink); font-size: 9.5px; font-weight: 750;
 }
 .turf-status.assigned { background: var(--warn-soft); color: var(--warn); }
-.turf-status.draft { background: var(--surface-2); color: var(--ink-soft); }
+.turf-status.draft,
+.turf-status.private { background: var(--surface-2); color: var(--ink-soft); }
+.turf-status.checked_out { background: var(--warn-soft); color: var(--warn); }
+.turf-status.completed { background: var(--good-soft); color: var(--good); }
 .turf-access-card > .btn { align-self: flex-end; }
 
 @media (max-width: 1050px) {

@@ -23,13 +23,20 @@ export interface ManageCampaignCard {
 
 export async function getManageableCampaigns(user: User): Promise<ManageCampaignCard[]> {
   const ids = await getManageableCampaignIds(user);
-  const where = ids === "all" ? {} : { id: { in: ids } };
+  const where = {
+    archivedAt: null,
+    ...(ids === "all" ? {} : { id: { in: ids } }),
+  };
   const campaigns = await prisma.campaign.findMany({
     where,
     orderBy: { name: "asc" },
     include: {
       memberships: { select: { status: true } },
-      _count: { select: { listLinks: true } },
+      _count: {
+        select: {
+          listLinks: { where: { list: { deletedAt: null } } },
+        },
+      },
     },
   });
   return campaigns.map((c) => ({
@@ -110,6 +117,7 @@ export interface CampaignAdminView {
   pickupDetail: string | null;
   minivanEnabled: boolean;
   minivanAdapterKey: string | null;
+  civibyteEnabled: boolean;
   minivanAdapters: Array<{ key: string; label: string }>;
   contact: { name: string; role: string; phone: string | null; email: string | null } | null;
   perms: AdminPerms;
@@ -136,12 +144,13 @@ export async function getCampaignAdminView(
   slug: string,
   user: User,
 ): Promise<CampaignAdminView | null> {
-  const campaign = await prisma.campaign.findUnique({
-    where: { slug },
+  const campaign = await prisma.campaign.findFirst({
+    where: { slug, archivedAt: null },
     include: {
       contacts: { take: 1 },
       memberships: { include: { user: true } },
       listLinks: {
+        where: { list: { deletedAt: null } },
         include: {
           assignedUser: true,
           program: { select: { id: true, name: true, status: true } },
@@ -158,7 +167,14 @@ export async function getCampaignAdminView(
       },
       programs: {
         orderBy: [{ status: "asc" }, { createdAt: "desc" }],
-        include: { _count: { select: { listLinks: true, attempts: true } } },
+        include: {
+          _count: {
+            select: {
+              listLinks: { where: { list: { deletedAt: null } } },
+              attempts: true,
+            },
+          },
+        },
       },
     },
   });
@@ -223,6 +239,7 @@ export async function getCampaignAdminView(
     pickupDetail: campaign.pickupDetail,
     minivanEnabled: campaign.minivanEnabled,
     minivanAdapterKey: campaign.minivanAdapterKey,
+    civibyteEnabled: campaign.civibyteEnabled,
     minivanAdapters: listMinivanAdapters(),
     contact: campaign.contacts[0]
       ? {
@@ -334,8 +351,8 @@ export async function getListEditView(
   user: User,
   campaignSlug?: string,
 ): Promise<ListEditView | null> {
-  const list = await prisma.list.findUnique({
-    where: { id: listId },
+  const list = await prisma.list.findFirst({
+    where: { id: listId, deletedAt: null },
     include: {
       campaignLinks: {
         include: {
@@ -412,7 +429,7 @@ export async function getListEditView(
       ? {}
       : { id: { in: Array.from(new Set([...manageable, ...linkedIds])) } };
   const campaignOptions = await prisma.campaign.findMany({
-    where,
+    where: { ...where, archivedAt: null },
     orderBy: { name: "asc" },
     select: { id: true, name: true },
   });

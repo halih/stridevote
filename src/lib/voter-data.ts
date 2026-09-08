@@ -137,8 +137,8 @@ export async function getCampaignVoterDirectory(
   user: User,
   filters: VoterFilters,
 ): Promise<CampaignVoterDirectory | null> {
-  const campaign = await prisma.campaign.findUnique({
-    where: { slug },
+  const campaign = await prisma.campaign.findFirst({
+    where: { slug, archivedAt: null },
     select: {
       id: true,
       slug: true,
@@ -369,8 +369,8 @@ export async function getVoterHistoryDetail(
   voterId: string,
   user: User,
 ): Promise<VoterHistoryDetail | null> {
-  const campaign = await prisma.campaign.findUnique({
-    where: { slug },
+  const campaign = await prisma.campaign.findFirst({
+    where: { slug, archivedAt: null },
     select: { id: true, slug: true, name: true, district: true },
   });
   if (!campaign || !(await can(user, campaign.id, "voters:view"))) return null;
@@ -513,7 +513,7 @@ export async function getVoterHistoryDetail(
       kind: e.kind,
       value: e.value,
       capturedAt: e.capturedAt.toISOString(),
-      campaignName: e.campaign.name,
+      campaignName: e.campaign?.name ?? "Deleted campaign",
       canvasser: e.user?.name ?? e.user?.email ?? e.user?.phone ?? null,
     })),
     history: voter.history.map((row) => ({

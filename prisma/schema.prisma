@@ -14,15 +14,15 @@ datasource db {
 
 // ---- Auth.js (NextAuth v5) core tables + StrideVote user fields ----
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
+  id              String    @id @default(cuid())
+  name            String?
+  email           String?   @unique
+  emailVerified   DateTime?
+  image           String?
   // StrideVote profile
   firstName       String?
   lastName        String?
-  phone           String? @unique
+  phone           String?   @unique
   initials        String?
   homeLat         Float?
   homeLng         Float?
@@ -32,22 +32,22 @@ model User {
   state           String?
   postalCode      String?
   locationSource  String? // "address" | "city" | "zip" | "gps"
-  isPlatformAdmin Boolean @default(false)
+  isPlatformAdmin Boolean   @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts    Account[]
-  sessions    Session[]
-  memberships CampaignMembership[]
-  checkouts   ListCheckout[]
-  watches     ListWatch[]
-  assignedTurfs ListCampaign[] @relation("AssignedTurfs")
-  savedFilters  SavedVoterFilter[]
-  attempts    CanvassAttempt[]
-  listSplits  ListSplit[]
+  accounts           Account[]
+  sessions           Session[]
+  memberships        CampaignMembership[]
+  checkouts          ListCheckout[]
+  watches            ListWatch[]
+  assignedTurfs      ListCampaign[]          @relation("AssignedTurfs")
+  savedFilters       SavedVoterFilter[]
+  attempts           CanvassAttempt[]
+  listSplits         ListSplit[]
   achievementUnlocks UserAchievementUnlock[]
-  fieldEvents FieldEvent[]
+  fieldEvents        FieldEvent[]
 }
 
 model Account {
@@ -102,41 +102,46 @@ model OtpChallenge {
 
 // ---- Campaigns ----
 model Campaign {
-  id           String   @id @default(cuid())
-  slug         String   @unique
-  name         String
-  office       String
-  district     String
-  website      String?
-  iconUrl      String?
-  tags         String[]
-  color        String
-  centroidLat  Float?
-  centroidLng  Float?
-  regionType   String? // "state" | "county" | "city" | "legislative" | "congressional"
-  regionName   String?
-  regionState  String?  @default("WA")
-  boundary     Json? // polygon: number[][] of [lat, lng]
-  pickupType   String? // "locker" | "address"
-  pickupLabel  String?
-  pickupAddress String?
-  pickupDetail String?
+  id                String   @id @default(cuid())
+  slug              String   @unique
+  name              String
+  office            String
+  district          String
+  website           String?
+  iconUrl           String?
+  tags              String[]
+  color             String
+  centroidLat       Float?
+  centroidLng       Float?
+  regionType        String? // "state" | "county" | "city" | "legislative" | "congressional"
+  regionName        String?
+  regionState       String?  @default("WA")
+  boundary          Json? // polygon: number[][] of [lat, lng]
+  pickupType        String? // "locker" | "address"
+  pickupLabel       String?
+  pickupAddress     String?
+  pickupDetail      String?
   // MiniVAN integration (platform-admin only). Adapter key selects typed mapping.
-  minivanEnabled    Boolean @default(false)
+  minivanEnabled    Boolean  @default(false)
   minivanAdapterKey String?
+  // CiviByte integration (platform-admin only).
+  civibyteEnabled   Boolean  @default(false)
 
-  createdAt DateTime @default(now())
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
 
-  contacts    CampaignContact[]
-  memberships CampaignMembership[]
-  listLinks   ListCampaign[]
-  voterLinks  CampaignVoter[]
-  savedFilters SavedVoterFilter[]
-  programs    CanvassProgram[]
-  attempts    CanvassAttempt[]
+  contacts           CampaignContact[]
+  memberships        CampaignMembership[]
+  listLinks          ListCampaign[]
+  voterLinks         CampaignVoter[]
+  savedFilters       SavedVoterFilter[]
+  programs           CanvassProgram[]
+  attempts           CanvassAttempt[]
   achievementUnlocks UserAchievementUnlock[]
-  fieldEvents FieldEvent[]
-  minivanJobs MiniVanJob[]
+  fieldEvents        FieldEvent[]
+  minivanJobs        MiniVanJob[]
+
+  @@index([archivedAt])
 }
 
 // Persisted earn/seen state for catalog achievements. Definitions live in code.
@@ -174,7 +179,7 @@ model CampaignMembership {
   userId      String
   campaignId  String
   status      String // "active" | "pending"
-  roles       String[] @default(["canvasser"]) // see src/lib/roles.ts
+  roles       String[]  @default(["canvasser"]) // see src/lib/roles.ts
   joinedAt    DateTime?
   requestedAt DateTime?
 
@@ -199,14 +204,14 @@ model CanvassProgram {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  campaign      Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  listLinks     ListCampaign[]
-  checkouts     ListCheckout[]
-  households    ProgramListHousehold[]
-  voters        ProgramListVoter[]
-  attempts      CanvassAttempt[]
-  listSplits    ListSplit[]
-  fieldEvents   FieldEvent[]
+  campaign    Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  listLinks   ListCampaign[]
+  checkouts   ListCheckout[]
+  households  ProgramListHousehold[]
+  voters      ProgramListVoter[]
+  attempts    CanvassAttempt[]
+  listSplits  ListSplit[]
+  fieldEvents FieldEvent[]
 
   @@unique([campaignId, name])
   @@index([campaignId, status])
@@ -214,32 +219,35 @@ model CanvassProgram {
 
 // ---- Lists (turf) sourced from external platforms ----
 model List {
-  id           String  @id @default(cuid())
-  slug         String  @unique
-  name         String
-  source       String // "minivan" | "civibyte" | "stridevote"
-  sourceRef    String? // Minivan list-number OR Civibyte URL
-  doorsCount   Int     @default(0)
-  centroidLat  Float?
-  centroidLng  Float?
-  boundary     Json? // polygon: number[][] of [lat, lng]
-  data         Json    @default("{}") // split metadata and optional per-platform payload
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  source      String // "minivan" | "civibyte" | "stridevote"
+  sourceRef   String? // Minivan list-number OR Civibyte URL
+  doorsCount  Int     @default(0)
+  centroidLat Float?
+  centroidLng Float?
+  boundary    Json? // polygon: number[][] of [lat, lng]
+  data        Json    @default("{}") // split metadata and optional per-platform payload
 
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
 
-  campaignLinks ListCampaign[]
-  checkouts     ListCheckout[]
-  watches       ListWatch[]
-  households    ListHousehold[]
-  voters        ListVoter[]
+  campaignLinks     ListCampaign[]
+  checkouts         ListCheckout[]
+  watches           ListWatch[]
+  households        ListHousehold[]
+  voters            ListVoter[]
   programHouseholds ProgramListHousehold[]
   programVoters     ProgramListVoter[]
   attempts          CanvassAttempt[]
   redirectsFrom     ListHouseholdRedirect[] @relation("RedirectFrom")
   redirectsTo       ListHouseholdRedirect[] @relation("RedirectTo")
-  splitsAsSource    ListSplit[] @relation("SplitSource")
-  splitsAsReleased  ListSplit[] @relation("SplitReleased")
+  splitsAsSource    ListSplit[]             @relation("SplitSource")
+  splitsAsReleased  ListSplit[]             @relation("SplitReleased")
   minivanJobs       MiniVanJob[]
+
+  @@index([deletedAt])
 }
 
 // Per-program publish of a list into a campaign (visibility + assignee).
@@ -274,15 +282,15 @@ model ListCheckout {
   progressDone  Int       @default(0)
   progressTotal Int       @default(0)
 
-  list    List           @relation(fields: [listId], references: [id], onDelete: Cascade)
-  program CanvassProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
-  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  list     List             @relation(fields: [listId], references: [id], onDelete: Cascade)
+  program  CanvassProgram   @relation(fields: [programId], references: [id], onDelete: Cascade)
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   attempts CanvassAttempt[]
+  // Partial unique: ListCheckout_listId_programId_active_key (listId, programId WHERE status = 'active')
 
   @@index([listId, programId, status])
   @@index([userId, status])
   @@index([programId, status])
-  // Partial unique: ListCheckout_listId_programId_active_key (listId, programId WHERE status = 'active')
 }
 
 // Frozen walk order for a list inside a program (survives later turf edits).
@@ -338,13 +346,13 @@ model CanvassAttempt {
   observedScore      Int?
   createdAt          DateTime @default(now())
 
-  program   CanvassProgram          @relation(fields: [programId], references: [id], onDelete: Cascade)
-  list      List                    @relation(fields: [listId], references: [id], onDelete: Cascade)
-  household Household               @relation(fields: [householdId], references: [id], onDelete: Cascade)
-  checkout  ListCheckout?           @relation(fields: [checkoutId], references: [id], onDelete: SetNull)
-  user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaign  Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  people    CanvassPersonResponse[]
+  program     CanvassProgram          @relation(fields: [programId], references: [id], onDelete: Cascade)
+  list        List                    @relation(fields: [listId], references: [id], onDelete: Cascade)
+  household   Household               @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  checkout    ListCheckout?           @relation(fields: [checkoutId], references: [id], onDelete: SetNull)
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign    Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  people      CanvassPersonResponse[]
   fieldEvents FieldEvent[]
 
   @@index([programId, listId, householdId, capturedAt])
@@ -356,15 +364,15 @@ model CanvassAttempt {
 }
 
 model CanvassPersonResponse {
-  id         String  @id @default(cuid())
-  attemptId  String
-  voterId    String
-  outcome    String // talked | refused | moved | not_home
-  support    Int? // 1–5 race support
+  id        String  @id @default(cuid())
+  attemptId String
+  voterId   String
+  outcome   String // talked | refused | moved | not_home
+  support   Int? // 1–5 race support
   // Progressive talk score (0–5); null = unknown / not collected.
-  talkScore  Int?
-  answers    Json    @default("{}")
-  notes      String?
+  talkScore Int?
+  answers   Json    @default("{}")
+  notes     String?
 
   attempt CanvassAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
   voter   Voter          @relation(fields: [voterId], references: [id], onDelete: Cascade)
@@ -375,21 +383,22 @@ model CanvassPersonResponse {
 
 // Append-only field intelligence across campaigns (access, moved, scores).
 model FieldEvent {
-  id          String   @id @default(cuid())
-  householdId String?
-  voterId     String?
-  kind        String // inaccessible | unsafe | moved | access_cleared | score_observed | score_talk | score_cleared
-  value       Int? // score 0–5 when applicable; null for clears / access kinds
-  campaignId  String
-  programId   String?
-  attemptId   String?
-  userId      String?
-  capturedAt  DateTime
-  createdAt   DateTime @default(now())
+  id               String   @id @default(cuid())
+  householdId      String?
+  voterId          String?
+  kind             String // inaccessible | unsafe | moved | access_cleared | score_observed | score_talk | score_cleared
+  value            Int? // score 0–5 when applicable; null for clears / access kinds
+  campaignId       String?
+  sourceCampaignId String
+  programId        String?
+  attemptId        String?
+  userId           String?
+  capturedAt       DateTime
+  createdAt        DateTime @default(now())
 
   household Household?      @relation(fields: [householdId], references: [id], onDelete: Cascade)
   voter     Voter?          @relation(fields: [voterId], references: [id], onDelete: Cascade)
-  campaign  Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign  Campaign?       @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   program   CanvassProgram? @relation(fields: [programId], references: [id], onDelete: SetNull)
   attempt   CanvassAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull)
   user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -397,6 +406,7 @@ model FieldEvent {
   @@index([householdId, kind, capturedAt])
   @@index([voterId, kind, capturedAt])
   @@index([campaignId, capturedAt])
+  @@index([sourceCampaignId, capturedAt])
   @@index([attemptId])
 }
 
@@ -414,8 +424,8 @@ model ListWatch {
 
 // ---- Public voter-file records (restricted to political use) ----
 model Voter {
-  id                    String   @id @default(cuid())
-  stateVoterId          String   @unique
+  id                    String    @id @default(cuid())
+  stateVoterId          String    @unique
   firstName             String
   middleName            String?
   lastName              String
@@ -423,45 +433,45 @@ model Voter {
   yearOfBirth           Int?
   gender                String?
   registrationAddress   String
-  city                   String
-  state                  String
-  postalCode             String
-  countyCode             String?
-  precinctCode           String?
-  precinctPart           String?
+  city                  String
+  state                 String
+  postalCode            String
+  countyCode            String?
+  precinctCode          String?
+  precinctPart          String?
   legislativeDistrict   String?
   congressionalDistrict String?
   registrationDate      DateTime?
   lastVoted             DateTime? @db.Date
-  electionsVoted        String[] @default([]) // denormalized cache; full history is VoterHistory
+  electionsVoted        String[]  @default([]) // denormalized cache; full history is VoterHistory
   primaryParticipation  Float?
   generalParticipation  Float?
   primaryEligible       Int?
   primaryVoted          Int?
   generalEligible       Int?
   generalVoted          Int?
-  likelyPrimary         Boolean  @default(false)
-  likelyGeneral         Boolean  @default(false)
+  likelyPrimary         Boolean   @default(false)
+  likelyGeneral         Boolean   @default(false)
   // Field layer: durable across campaigns (not SOS identity).
-  residenceStatus       String   @default("ok") // ok | moved
+  residenceStatus       String    @default("ok") // ok | moved
   talkScore             Int? // progressive 0–5 (conversation or import seed)
   scoreUpdatedAt        DateTime?
   // How talkScore was last set: "talk" (canvass) | "import" (MiniVAN likely party).
   scoreSource           String?
   // Enrichment from MiniVAN / other vendors (not SOS identity).
-  phones                String[] @default([])
-  emails                String[] @default([])
+  phones                String[]  @default([])
+  emails                String[]  @default([])
   likelyParty           String?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  campaignLinks CampaignVoter[]
-  history       VoterHistory[]
-  householdLinks HouseholdVoter[]
-  listLinks     ListVoter[]
-  programLinks  ProgramListVoter[]
+  campaignLinks   CampaignVoter[]
+  history         VoterHistory[]
+  householdLinks  HouseholdVoter[]
+  listLinks       ListVoter[]
+  programLinks    ProgramListVoter[]
   personResponses CanvassPersonResponse[]
-  fieldEvents   FieldEvent[]
+  fieldEvents     FieldEvent[]
 
   @@index([lastName, firstName])
   @@index([precinctCode])
@@ -474,14 +484,14 @@ model Voter {
 // One SOS ballot record. Older files (2007–2012) have no VoterHistoryID and
 // use WA-prefixed voter IDs; those are stored with a normalized stateVoterId.
 model VoterHistory {
-  id               String    @id @default(cuid())
-  sosHistoryId     String?   @unique
+  id               String   @id @default(cuid())
+  sosHistoryId     String?  @unique
   stateVoterId     String
   voterId          String?
   countyCode       String?
   countyCodeVoting String?
-  electionDate     DateTime  @db.Date
-  electionType     String    @default("special") // general | primary | presidential_primary | special
+  electionDate     DateTime @db.Date
+  electionType     String   @default("special") // general | primary | presidential_primary | special
   source           String?
 
   voter Voter? @relation(fields: [voterId], references: [id], onDelete: SetNull)
@@ -512,8 +522,8 @@ model CampaignVoter {
 // counted from registration data without geocoding. The bbox columns let a
 // campaign load only the precincts near its district.
 model Precinct {
-  id          String @id @default(cuid())
-  state       String @default("WA")
+  id          String   @id @default(cuid())
+  state       String   @default("WA")
   countyCode  String // "KI"
   countyName  String
   code        String // precinct code as it appears in the voter file, e.g. "2202"
@@ -557,29 +567,29 @@ model SavedVoterFilter {
 // One physical door / mailing address. A single lat/lng is the persistent pin;
 // geocodeSource records where it came from (census | county | mapbox).
 model Household {
-  id               String   @id @default(cuid())
-  normalizedKey    String   @unique
-  displayAddress   String
-  addressLine      String
-  city             String
-  state            String
-  postalCode       String
-  unit             String?
-  lat              Float?
-  lng              Float?
-  geocodeSource    String?  // census | county | mapbox
-  geocodeRef       String?  // source-specific id when available
-  geocodeStatus    String   @default("pending") // pending | matched | unmatched | ambiguous (Census pipeline)
+  id              String    @id @default(cuid())
+  normalizedKey   String    @unique
+  displayAddress  String
+  addressLine     String
+  city            String
+  state           String
+  postalCode      String
+  unit            String?
+  lat             Float?
+  lng             Float?
+  geocodeSource   String? // census | county | mapbox
+  geocodeRef      String? // source-specific id when available
+  geocodeStatus   String    @default("pending") // pending | matched | unmatched | ambiguous (Census pipeline)
   // Field layer: durable across campaigns.
-  accessStatus     String   @default("ok") // ok | inaccessible | unsafe
-  observedScore    Int? // progressive 0–5 from yard/window signs
-  observedScoreAt  DateTime?
-  accessUpdatedAt  DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  accessStatus    String    @default("ok") // ok | inaccessible | unsafe
+  observedScore   Int? // progressive 0–5 from yard/window signs
+  observedScoreAt DateTime?
+  accessUpdatedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  voters HouseholdVoter[]
-  lists  ListHousehold[]
+  voters       HouseholdVoter[]
+  lists        ListHousehold[]
   programLists ProgramListHousehold[]
   attempts     CanvassAttempt[]
   redirects    ListHouseholdRedirect[]
@@ -660,13 +670,13 @@ model ListHousehold {
 }
 
 model ListVoter {
-  id         String   @id @default(cuid())
-  listId     String
-  voterId    String
-  matchedSeed Boolean @default(false)
+  id          String   @id @default(cuid())
+  listId      String
+  voterId     String
+  matchedSeed Boolean  @default(false)
   // MiniVAN VanID when this list voter came from a MiniVAN import.
-  vanId      Int?
-  createdAt  DateTime @default(now())
+  vanId       Int?
+  createdAt   DateTime @default(now())
 
   list  List  @relation(fields: [listId], references: [id], onDelete: Cascade)
   voter Voter @relation(fields: [voterId], references: [id], onDelete: Cascade)

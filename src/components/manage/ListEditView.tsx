@@ -98,8 +98,8 @@ export function ListEditView({ list }: { list: ListEditData }) {
 
   function remove() {
     const warning = list.activeCheckouts
-      ? `This list has ${list.activeCheckouts} active checkout${list.activeCheckouts === 1 ? "" : "s"}. Deleting it will cancel ${list.activeCheckouts === 1 ? "that checkout" : "those checkouts"} for canvassers. Continue?`
-      : "Delete this list? This cannot be undone.";
+      ? `This list has ${list.activeCheckouts} active checkout${list.activeCheckouts === 1 ? "" : "s"}. Archiving it will release ${list.activeCheckouts === 1 ? "that checkout" : "those checkouts"}. Door results and volunteer stats are kept. Continue?`
+      : "Archive this list? Door results and volunteer stats are kept.";
     if (!window.confirm(warning)) return;
     run(
       () => deleteList(list.id),
@@ -321,7 +321,7 @@ export function ListEditView({ list }: { list: ListEditData }) {
 
       <section className="section">
         <button className="btn btn-outline btn-block" disabled={pending} onClick={remove} style={{ color: "var(--critical)" }}>
-          Delete list
+          Archive list
         </button>
       </section>
     </>

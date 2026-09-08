@@ -21,6 +21,7 @@ export default async function WalkListPage({
   let checkout = await prisma.listCheckout.findFirst({
     where: {
       listId,
+      list: { deletedAt: null },
       userId: user.id,
       status: "active",
       ...(programIdParam ? { programId: programIdParam } : {}),
@@ -37,6 +38,7 @@ export default async function WalkListPage({
     const assignment = await prisma.listCampaign.findFirst({
       where: {
         listId,
+        list: { deletedAt: null },
         assignedUserId: user.id,
         visibility: "assigned",
         program: { status: "active" },

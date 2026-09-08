@@ -16,8 +16,8 @@ export default async function ProgramResultsPage({
   if (!user) redirect("/login");
   const { slug, programId } = await params;
 
-  const campaign = await prisma.campaign.findUnique({
-    where: { slug },
+  const campaign = await prisma.campaign.findFirst({
+    where: { slug, archivedAt: null },
     select: { id: true, name: true },
   });
   if (!campaign) notFound();

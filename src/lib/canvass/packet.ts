@@ -116,6 +116,7 @@ export async function buildFieldPacket(opts: {
   const checkout = await prisma.listCheckout.findFirst({
     where: {
       listId: opts.listId,
+      list: { deletedAt: null },
       programId: opts.programId,
       userId: opts.userId,
       status: "active",
@@ -128,6 +129,7 @@ export async function buildFieldPacket(opts: {
   const link = await prisma.listCampaign.findFirst({
     where: {
       listId: opts.listId,
+      list: { deletedAt: null },
       programId: opts.programId,
       OR: [
         { visibility: "volunteers" },

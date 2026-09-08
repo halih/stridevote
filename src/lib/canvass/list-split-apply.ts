@@ -266,8 +266,8 @@ export async function applyListSplit(opts: {
   keepHalf: SplitHalfKey;
   checkoutId: string;
 }): Promise<ApplySplitResult> {
-  const list = await prisma.list.findUnique({
-    where: { id: opts.listId },
+  const list = await prisma.list.findFirst({
+    where: { id: opts.listId, deletedAt: null },
     include: {
       campaignLinks: true,
       voters: { select: { voterId: true, matchedSeed: true } },

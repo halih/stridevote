@@ -412,6 +412,7 @@ export function WalkView({
 
   const closed = packet?.doors.filter((d) => doorStatus(d) === "done").length ?? 0;
   const total = packet?.doors.length ?? 0;
+  const allDoorsComplete = total > 0 && closed === total;
   const pct = total ? Math.round((closed / total) * 100) : 0;
   const mappedDoors = filteredDoors.filter((d) => d.lat != null && d.lng != null);
   const mapHelpItems = useMemo((): MapHelpItem[] => {
@@ -512,6 +513,23 @@ export function WalkView({
           </div>
         ) : null}
       </header>
+
+      {allDoorsComplete && !completeOpen ? (
+        <div className="card list-release-reminder" role="status">
+          <div>
+            <b>All doors are complete</b>
+            <p>Release this list so it moves to Completed.</p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={pending}
+            onClick={onRelease}
+          >
+            Release list
+          </button>
+        </div>
+      ) : null}
 
       {loading ? <div className="empty-state">Loading doors…</div> : null}
       {error ? <div className="empty-state">{error}</div> : null}

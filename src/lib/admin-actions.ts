@@ -74,7 +74,9 @@ function revalidateCampaign(slug?: string) {
 async function canManageList(userId: string, listId: string): Promise<boolean> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return false;
-  const links = await prisma.listCampaign.findMany({ where: { listId } });
+  const links = await prisma.listCampaign.findMany({
+    where: { listId, list: { deletedAt: null } },
+  });
   for (const l of links) {
     if (await can(user, l.campaignId, "lists:manage")) return true;
   }
@@ -230,6 +232,43 @@ export async function updateCampaignProfile(
 
   revalidateCampaign(campaign.slug);
   return { ok: true, message: "Campaign updated" };
+}
+
+export async function archiveCampaign(campaignId: string): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "campaign:delete"))) return fail("Not allowed.");
+
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, archivedAt: null },
+    select: { name: true },
+  });
+  if (!campaign) return fail("Campaign not found.");
+
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.listCheckout.updateMany({
+      where: { program: { campaignId }, status: "active" },
+      data: { status: "released", releasedAt: now },
+    }),
+    prisma.miniVanJob.updateMany({
+      where: { campaignId, status: { in: ["pending", "running"] } },
+      data: {
+        status: "failed",
+        error: "Campaign archived before this job completed.",
+        completedAt: now,
+      },
+    }),
+    prisma.campaign.update({
+      where: { id: campaignId },
+      data: { archivedAt: now },
+    }),
+  ]);
+
+  revalidatePath("/admin");
+  revalidatePath("/campaigns");
+  revalidatePath("/canvass");
+  return { ok: true, message: `Archived ${campaign.name}` };
 }
 
 export async function deleteCampaign(campaignId: string): Promise<AdminResult> {
@@ -516,7 +555,7 @@ const turfVisibilitySchema = z.enum(["volunteers", "assigned", "draft"]);
 
 const listSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  source: z.enum(["minivan", "civibyte", "stridevote"]),
+  source: z.enum(["minivan", "civibyte"]),
   sourceRef: z.string().optional().or(z.literal("")),
   doorsCount: z.number().int().min(0).default(0),
 });
@@ -984,7 +1023,7 @@ export async function setTurfAccess(
       },
     },
   });
-  if (!link) return fail("Turf not found in this wave.");
+  if (!link || link.list.deletedAt) return fail("Turf not found in this wave.");
   const activeCheckout = link.list.checkouts[0];
   if (
     activeCheckout &&
@@ -1046,6 +1085,9 @@ export async function createList(
 
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
   if (!campaign) return fail("Campaign not found.");
+  if (!campaign.civibyteEnabled) {
+    return fail("CiviByte is not enabled for this campaign.");
+  }
 
   const program = await ensureActiveProgram(campaignId);
   const slug = await uniqueSlug(slugify(d.name), async (s) =>
@@ -1079,7 +1121,7 @@ export async function updateList(listId: string, input: unknown): Promise<AdminR
   const d = parsed.data;
 
   await prisma.list.update({
-    where: { id: listId },
+    where: { id: listId, deletedAt: null },
     data: {
       name: d.name,
       sourceRef: d.sourceRef || null,
@@ -1096,10 +1138,28 @@ export async function deleteList(listId: string): Promise<AdminResult> {
   if (!user) return fail("Please sign in.");
   if (!(await canManageList(user.id, listId))) return fail("Not allowed.");
 
-  await prisma.list.delete({ where: { id: listId } });
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.listCheckout.updateMany({
+      where: { listId, status: "active" },
+      data: { status: "released", releasedAt: now },
+    });
+    await tx.miniVanJob.updateMany({
+      where: { listId, status: { in: ["pending", "running"] } },
+      data: {
+        status: "failed",
+        error: "List archived before this job completed.",
+        completedAt: now,
+      },
+    });
+    await tx.list.update({
+      where: { id: listId },
+      data: { deletedAt: now },
+    });
+  });
   revalidatePath("/admin");
   revalidatePath("/canvass");
-  return { ok: true, message: "List deleted" };
+  return { ok: true, message: "List archived" };
 }
 
 export async function setListCampaigns(
@@ -1289,6 +1349,35 @@ export async function setCampaignMinivan(
   };
 }
 
+const civibyteSettingsSchema = z.object({
+  enabled: z.boolean(),
+});
+
+/** Platform admins only: enable CiviByte list links for a campaign. */
+export async function setCampaignCivibyte(
+  campaignId: string,
+  input: unknown,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!isPlatformAdmin(user)) {
+    return fail("Only platform admins can configure CiviByte.");
+  }
+
+  const parsed = civibyteSettingsSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid settings");
+
+  const campaign = await prisma.campaign.update({
+    where: { id: campaignId },
+    data: { civibyteEnabled: parsed.data.enabled },
+  });
+  revalidateCampaign(campaign.slug);
+  return {
+    ok: true,
+    message: parsed.data.enabled ? "CiviByte enabled" : "CiviByte disabled",
+  };
+}
+
 const printedListNumberSchema = z
   .string()
   .trim()
@@ -1340,8 +1429,8 @@ export async function enqueueMinivanPull(listId: string): Promise<AdminResult> {
   const user = await getSessionUser();
   if (!user) return fail("Please sign in.");
 
-  const list = await prisma.list.findUnique({
-    where: { id: listId },
+  const list = await prisma.list.findFirst({
+    where: { id: listId, deletedAt: null },
     include: {
       campaignLinks: {
         include: {
@@ -1390,8 +1479,8 @@ export async function enqueueMinivanPush(listId: string): Promise<AdminResult> {
   if (!user) return fail("Please sign in.");
   if (!(await canManageList(user.id, listId))) return fail("Not allowed.");
 
-  const list = await prisma.list.findUnique({
-    where: { id: listId },
+  const list = await prisma.list.findFirst({
+    where: { id: listId, deletedAt: null },
     include: {
       campaignLinks: {
         include: {

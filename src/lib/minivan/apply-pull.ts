@@ -43,7 +43,7 @@ export async function applyMinivanPull(
   if (!job || job.type !== "pull_canvass" || job.status !== "running") {
     return { ok: false, error: "Job not found or not running" };
   }
-  if (!job.listId || !job.list) {
+  if (!job.listId || !job.list || job.list.deletedAt) {
     await failMinivanJob(jobId, "Pull job has no list");
     return { ok: false, error: "No list" };
   }

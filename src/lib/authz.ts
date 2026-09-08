@@ -22,8 +22,15 @@ export async function can(
   if (perm === "campaign:create") return false; // platform-only
   const membership = await prisma.campaignMembership.findUnique({
     where: { userId_campaignId: { userId: user.id, campaignId } },
+    include: { campaign: { select: { archivedAt: true } } },
   });
-  if (!membership || membership.status !== "active") return false;
+  if (
+    !membership ||
+    membership.status !== "active" ||
+    membership.campaign.archivedAt
+  ) {
+    return false;
+  }
   return permissionsForRoles(membership.roles).has(perm);
 }
 
@@ -33,7 +40,11 @@ export async function getManageableCampaignIds(
 ): Promise<string[] | "all"> {
   if (isPlatformAdmin(user)) return "all";
   const memberships = await prisma.campaignMembership.findMany({
-    where: { userId: user.id, status: "active" },
+    where: {
+      userId: user.id,
+      status: "active",
+      campaign: { archivedAt: null },
+    },
     select: { campaignId: true, roles: true },
   });
   return memberships.filter((m) => rolesGrantManage(m.roles)).map((m) => m.campaignId);

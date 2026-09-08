@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { CampaignAdminView, MemberRow } from "@/lib/admin-data";
+import type { AdminListRow, CampaignAdminView, MemberRow } from "@/lib/admin-data";
 import {
   ASSIGNABLE_ROLES,
   ROLES,
@@ -27,11 +27,45 @@ import {
   enqueueMinivanListImport,
   enqueueMinivanPull,
   enqueueMinivanPush,
+  setCampaignCivibyte,
   setCampaignMinivan,
   setMemberRoles,
 } from "@/lib/admin-actions";
 
 type Tab = "members" | "turfs" | "lists" | "waves" | "settings";
+
+type ListStatusFilter =
+  | "all"
+  | "available"
+  | "private"
+  | "assigned"
+  | "checked_out"
+  | "completed";
+
+const LIST_FILTERS: Array<{ id: ListStatusFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "available", label: "Available" },
+  { id: "private", label: "Private" },
+  { id: "assigned", label: "Assigned" },
+  { id: "checked_out", label: "Checked out" },
+  { id: "completed", label: "Completed" },
+];
+
+const LIST_STATUS_LABELS: Record<Exclude<ListStatusFilter, "all">, string> = {
+  available: "Open",
+  private: "Private",
+  assigned: "Assigned",
+  checked_out: "Checked out",
+  completed: "Completed",
+};
+
+function listStatusBucket(list: AdminListRow): Exclude<ListStatusFilter, "all"> {
+  if (list.checkedOutBy) return "checked_out";
+  if (list.completed) return "completed";
+  if (list.visibility === "draft") return "private";
+  if (list.visibility === "assigned") return "assigned";
+  return "available";
+}
 
 function RoleToggle({
   selected,
@@ -100,6 +134,7 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
   const [addContact, setAddContact] = useState("");
   const [addRoles, setAddRoles] = useState<RoleName[]>(["canvasser"]);
   const [listOpen, setListOpen] = useState(false);
+  const [listFilter, setListFilter] = useState<ListStatusFilter>("all");
 
   function run(action: () => Promise<{ ok: boolean; message: string }>, after?: () => void) {
     startTransition(async () => {
@@ -129,10 +164,33 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
     });
   }
 
+  const listCounts = useMemo(() => {
+    const counts: Record<ListStatusFilter, number> = {
+      all: view.lists.length,
+      available: 0,
+      private: 0,
+      assigned: 0,
+      checked_out: 0,
+      completed: 0,
+    };
+    for (const list of view.lists) {
+      counts[listStatusBucket(list)] += 1;
+    }
+    return counts;
+  }, [view.lists]);
+
+  const visibleLists = useMemo(
+    () =>
+      listFilter === "all"
+        ? view.lists
+        : view.lists.filter((list) => listStatusBucket(list) === listFilter),
+    [view.lists, listFilter],
+  );
+
   function removeList(list: { id: string; name: string; checkedOutBy: string | null }) {
     const warning = list.checkedOutBy
-      ? `This list is checked out by ${list.checkedOutBy}. Deleting it will cancel that checkout. Continue?`
-      : `Delete ${list.name}? This cannot be undone.`;
+      ? `This list is checked out by ${list.checkedOutBy}. Archiving it will release that checkout. Door results and volunteer stats are kept. Continue?`
+      : `Archive ${list.name}? Door results and volunteer stats are kept.`;
     if (!window.confirm(warning)) return;
     run(() => deleteList(list.id));
   }
@@ -256,16 +314,38 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
         <section className="section">
           <div className="section-head">
             <span className="eyebrow">Lists</span>
-            {view.perms.manageLists ? (
+            {view.perms.manageLists &&
+            (view.minivanEnabled || view.civibyteEnabled) ? (
               <button className="btn btn-ghost btn-sm" onClick={() => setListOpen(true)}>
                 <Icon name="plus" size={14} /> New list
               </button>
             ) : null}
           </div>
           {view.lists.length ? (
+            <div
+              className="stats-scope-scroll list-status-filters"
+              role="tablist"
+              aria-label="Filter lists"
+            >
+              {LIST_FILTERS.map((filter) => (
+                <button
+                  key={filter.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={listFilter === filter.id}
+                  className={`stats-scope-pill${listFilter === filter.id ? " active" : ""}`}
+                  onClick={() => setListFilter(filter.id)}
+                >
+                  {filter.label}
+                  <span className="list-filter-count">{listCounts[filter.id]}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {visibleLists.length ? (
             <div className="list-grid">
-              {view.lists.map((l) => (
-                <div key={l.id} className="card list-card">
+              {visibleLists.map((l) => (
+                <div key={`${l.programId}:${l.id}`} className="card list-card">
                   <div className="list-top">
                     <div>
                       <Link
@@ -276,6 +356,9 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                       </Link>
                     </div>
                     <div className="list-top-actions">
+                      <span className={`turf-status ${listStatusBucket(l)}`}>
+                        {LIST_STATUS_LABELS[listStatusBucket(l)]}
+                      </span>
                       {l.source === "minivan" ? (
                         <span className="source-chip source-chip-minivan">MiniVAN</span>
                       ) : null}
@@ -284,7 +367,7 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                           type="button"
                           className="icon-btn"
                           style={{ color: "var(--critical)" }}
-                          aria-label={`Delete ${l.name}`}
+                          aria-label={`Archive ${l.name}`}
                           disabled={pending}
                           onClick={() => removeList(l)}
                         >
@@ -297,19 +380,17 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                     <span className="meta-stat">
                       <b>{l.doorsCanvassed}</b> of {l.doorsCount} canvassed
                     </span>
-                    {l.completed ? (
-                      <span className="meta-stat">
-                        <b>Completed</b>
-                      </span>
-                    ) : l.checkedOutBy ? (
+                    {l.checkedOutBy ? (
                       <span className="meta-stat">
                         Checked out by <b>{l.checkedOutBy}</b>
                       </span>
+                    ) : l.visibility === "draft" ? (
+                      <span className="meta-stat">Private draft</span>
                     ) : l.assignedUserName ? (
                       <span className="meta-stat">
                         Assigned to <b>{l.assignedUserName}</b>
                       </span>
-                    ) : (
+                    ) : l.completed ? null : (
                       <span className="meta-stat">Available</span>
                     )}
                   </div>
@@ -338,7 +419,11 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
               ))}
             </div>
           ) : (
-            <div className="empty-state">No lists yet. Create one to get canvassers started.</div>
+            <div className="empty-state">
+              {view.lists.length
+                ? "No lists match this filter."
+                : "No lists yet. Create one to get canvassers started."}
+            </div>
           )}
         </section>
       ) : null}
@@ -365,19 +450,26 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
             />
           </div>
           {view.perms.isPlatformAdmin ? (
-            <MinivanSettingsCard
-              enabled={view.minivanEnabled}
-              adapterKey={view.minivanAdapterKey}
-              adapters={view.minivanAdapters}
-              pending={pending}
-              onSave={(input) => run(() => setCampaignMinivan(view.id, input))}
-            />
+            <>
+              <MinivanSettingsCard
+                enabled={view.minivanEnabled}
+                adapterKey={view.minivanAdapterKey}
+                adapters={view.minivanAdapters}
+                pending={pending}
+                onSave={(input) => run(() => setCampaignMinivan(view.id, input))}
+              />
+              <CivibyteSettingsCard
+                enabled={view.civibyteEnabled}
+                pending={pending}
+                onSave={(enabled) => run(() => setCampaignCivibyte(view.id, { enabled }))}
+              />
+            </>
           ) : null}
           {view.perms.deleteCampaign ? (
             <div className="danger-zone">
               <div>
-                <b>Delete campaign</b>
-                <p>Permanently remove this campaign and its private data.</p>
+                <b>Archive or delete campaign</b>
+                <p>Archive to preserve campaign history. Permanent deletion remains available.</p>
               </div>
               <DeleteCampaignButton
                 campaignId={view.id}
@@ -455,27 +547,30 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
       </BottomSheet>
 
       {/* New list sheet */}
-      <BottomSheet open={listOpen} onClose={() => setListOpen(false)}>
-        <NewListForm
-          pending={pending}
-          minivanEnabled={view.minivanEnabled}
-          onCancel={() => setListOpen(false)}
-          onSubmit={(input) => {
-            if (input.source === "minivan") {
-              run(
-                () =>
-                  enqueueMinivanListImport(view.id, {
-                    name: input.name,
-                    printedListNumber: input.sourceRef,
-                  }),
-                () => setListOpen(false),
-              );
-              return;
-            }
-            run(() => createList(view.id, input), () => setListOpen(false));
-          }}
-        />
-      </BottomSheet>
+      {view.minivanEnabled || view.civibyteEnabled ? (
+        <BottomSheet open={listOpen} onClose={() => setListOpen(false)}>
+          <NewListForm
+            pending={pending}
+            minivanEnabled={view.minivanEnabled}
+            civibyteEnabled={view.civibyteEnabled}
+            onCancel={() => setListOpen(false)}
+            onSubmit={(input) => {
+              if (input.source === "minivan") {
+                run(
+                  () =>
+                    enqueueMinivanListImport(view.id, {
+                      name: input.name,
+                      printedListNumber: input.sourceRef,
+                    }),
+                  () => setListOpen(false),
+                );
+                return;
+              }
+              run(() => createList(view.id, input), () => setListOpen(false));
+            }}
+          />
+        </BottomSheet>
+      ) : null}
     </>
   );
 }
@@ -574,25 +669,70 @@ function MinivanSettingsCard({
   );
 }
 
+function CivibyteSettingsCard({
+  enabled,
+  pending,
+  onSave,
+}: {
+  enabled: boolean;
+  pending: boolean;
+  onSave: (enabled: boolean) => void;
+}) {
+  const [on, setOn] = useState(enabled);
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="section-head" style={{ marginBottom: 8 }}>
+        <span className="eyebrow">CiviByte (platform admin)</span>
+      </div>
+      <p className="sheet-sub" style={{ marginTop: 0 }}>
+        When enabled, admins can add lists that link to CiviByte.
+      </p>
+      <label className="role-option" style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) => setOn(e.target.checked)}
+        />
+        <span>
+          <b>Enable CiviByte for this campaign</b>
+        </span>
+      </label>
+      <div className="form-actions">
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={pending}
+          onClick={() => onSave(on)}
+        >
+          Save CiviByte settings
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function NewListForm({
   pending,
   minivanEnabled,
+  civibyteEnabled,
   onCancel,
   onSubmit,
 }: {
   pending: boolean;
   minivanEnabled: boolean;
+  civibyteEnabled: boolean;
   onCancel: () => void;
   onSubmit: (input: {
     name: string;
-    source: "minivan" | "civibyte" | "stridevote";
+    source: "minivan" | "civibyte";
     sourceRef: string;
     doorsCount: number;
   }) => void;
 }) {
   const [name, setName] = useState("");
-  const [source, setSource] = useState<"minivan" | "civibyte" | "stridevote">(
-    "stridevote",
+  const [source, setSource] = useState<"minivan" | "civibyte">(
+    minivanEnabled ? "minivan" : "civibyte",
   );
   const [sourceRef, setSourceRef] = useState("");
   const [doors, setDoors] = useState("0");
@@ -601,9 +741,7 @@ function NewListForm({
     <>
       <h2>New list</h2>
       <p className="sheet-sub">
-        {minivanEnabled
-          ? "Turf from MiniVAN (emulator import), Civibyte, or StrideVote."
-          : "Turf sourced from Civibyte or StrideVote."}
+        Add turf from an enabled campaign integration.
       </p>
       <div className="form">
         <div className="form-field">
@@ -618,9 +756,8 @@ function NewListForm({
               value={source}
               onChange={(e) => setSource(e.target.value as typeof source)}
             >
-              <option value="stridevote">StrideVote</option>
-              {minivanEnabled ? <option value="minivan">Minivan</option> : null}
-              <option value="civibyte">Civibyte</option>
+              {minivanEnabled ? <option value="minivan">MiniVAN</option> : null}
+              {civibyteEnabled ? <option value="civibyte">CiviByte</option> : null}
             </select>
           </div>
           {source !== "minivan" ? (
@@ -647,9 +784,7 @@ function NewListForm({
           <label className="field-label">
             {source === "minivan"
               ? "Printed list number"
-              : source === "civibyte"
-                ? "List URL"
-                : "Reference"}
+              : "List URL"}
           </label>
           <input
             className="field"

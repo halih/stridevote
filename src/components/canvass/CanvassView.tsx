@@ -326,6 +326,8 @@ function ListCard({
 }) {
   const pct =
     l.progressTotal > 0 ? Math.round((l.progressDone / l.progressTotal) * 100) : 0;
+  const allDoorsComplete =
+    l.progressTotal > 0 && l.progressDone >= l.progressTotal;
   const external = l.source === "minivan" || !l.nativeCanvass
     ? externalListOpen(l.source, l.sourceRef)
     : null;
@@ -406,6 +408,11 @@ function ListCard({
               {l.source === "minivan" ? " Pull imports door results only." : ""}
             </p>
           ) : null}
+          {allDoorsComplete ? (
+            <p className="taken-note">
+              All doors are complete. Release this list to mark it Completed.
+            </p>
+          ) : null}
           <div className="list-foot list-foot-compact">
             <div className="list-foot-actions">
               <button type="button" className="btn btn-outline btn-sm" onClick={onPreview}>
@@ -432,9 +439,9 @@ function ListCard({
                   Split
                 </button>
               ) : null}
-              {!l.assignedToMe ? (
+              {allDoorsComplete || !l.assignedToMe ? (
                 <button className="btn btn-outline btn-sm" disabled={pending} onClick={onRelease}>
-                  Release
+                  {allDoorsComplete ? "Complete & release" : "Release"}
                 </button>
               ) : null}
             </div>

@@ -34,7 +34,9 @@ export async function buildMinivanPushPayload(jobId: string): Promise<{
   if (!job || job.type !== "push_canvass" || job.status !== "running") {
     return { ok: false, error: "Job not found or not running" };
   }
-  if (!job.list) return { ok: false, error: "No list on job" };
+  if (!job.list || job.list.deletedAt) {
+    return { ok: false, error: "No active list on job" };
+  }
 
   let adapter;
   try {

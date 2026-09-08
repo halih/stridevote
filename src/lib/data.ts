@@ -98,6 +98,7 @@ function pickupOf(c: {
 
 export async function getCampaignBoard(user: User): Promise<CampaignBoard> {
   const campaigns = await prisma.campaign.findMany({
+    where: { archivedAt: null },
     orderBy: { name: "asc" },
     include: {
       contacts: { take: 1 },
@@ -109,6 +110,7 @@ export async function getCampaignBoard(user: User): Promise<CampaignBoard> {
       },
       listLinks: {
         where: {
+          list: { deletedAt: null },
           OR: [
             { visibility: "volunteers" },
             { visibility: "assigned", assignedUserId: user.id },
@@ -254,7 +256,11 @@ export interface ListVM {
 
 export async function getCanvassBoard(user: User): Promise<ListVM[]> {
   const activeMemberships = await prisma.campaignMembership.findMany({
-    where: { userId: user.id, status: "active" },
+    where: {
+      userId: user.id,
+      status: "active",
+      campaign: { archivedAt: null },
+    },
     select: { campaignId: true },
   });
   const activeIds = activeMemberships.map((m) => m.campaignId);
@@ -262,6 +268,7 @@ export async function getCanvassBoard(user: User): Promise<ListVM[]> {
 
   const lists = await prisma.list.findMany({
     where: {
+      deletedAt: null,
       campaignLinks: {
         some: {
           campaignId: { in: activeIds },
@@ -568,7 +575,11 @@ async function loadAchievementMetricContext(userId: string): Promise<{
   campaignMetrics: { campaignId: string; name: string; metrics: AchievementMetrics }[];
 }> {
   const activeMemberships = await prisma.campaignMembership.findMany({
-    where: { userId, status: "active" },
+    where: {
+      userId,
+      status: "active",
+      campaign: { archivedAt: null },
+    },
     include: { campaign: true },
     orderBy: { joinedAt: "asc" },
   });
@@ -638,7 +649,11 @@ export async function getStatsView(
   campaignId: string | null = null,
 ): Promise<StatsView> {
   const activeMemberships = await prisma.campaignMembership.findMany({
-    where: { userId: user.id, status: "active" },
+    where: {
+      userId: user.id,
+      status: "active",
+      campaign: { archivedAt: null },
+    },
     include: { campaign: true },
     orderBy: { joinedAt: "asc" },
   });

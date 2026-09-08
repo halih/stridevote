@@ -20,6 +20,21 @@ export async function claimActiveCheckout(input: {
   progressTotal: number;
   progressDone?: number;
 }): Promise<ClaimCheckoutResult> {
+  const completed = await prisma.listCheckout.findFirst({
+    where: {
+      listId: input.listId,
+      programId: input.programId,
+      status: "completed",
+    },
+    select: { id: true },
+  });
+  if (completed) {
+    return {
+      ok: false,
+      message: "This list is already completed for this wave.",
+    };
+  }
+
   const held = await prisma.listCheckout.findFirst({
     where: {
       listId: input.listId,
