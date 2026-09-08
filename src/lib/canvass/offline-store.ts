@@ -3,6 +3,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type { FieldPacket } from "@/lib/canvass/packet";
 import type { SyncAttemptInput } from "@/lib/canvass/sync";
+import { chunkItems, clipSyncAttempt } from "@/lib/canvass/sync-payload";
 import {
   DOOR_OUTCOME_LABELS,
   type DoorOutcome,
@@ -88,7 +89,10 @@ export function isPacketExpired(packet: FieldPacket, now = Date.now()): boolean 
 
 export async function enqueueAttempt(attempt: SyncAttemptInput): Promise<void> {
   const db = await getDb();
-  await db.put("outbox", { ...attempt, queuedAt: new Date().toISOString() });
+  await db.put("outbox", {
+    ...clipSyncAttempt(attempt),
+    queuedAt: new Date().toISOString(),
+  });
 }
 
 export async function getOutboxForList(listId: string): Promise<SyncAttemptInput[]> {
@@ -195,31 +199,36 @@ export async function syncOutbox(listId?: string): Promise<{
     : await db.getAll("outbox");
   if (!rows.length) return { synced: 0, failed: 0, errors: [] };
 
-  const attempts = rows.map(({ queuedAt: _q, ...rest }) => rest);
-  const res = await fetch("/api/canvass/sync", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ attempts }),
-  });
-  const data = (await res.json()) as {
-    ok: boolean;
-    message?: string;
-    acks?: Array<{ clientAttemptId: string; ok: boolean; error?: string }>;
-  };
-  if (!res.ok || !data.ok || !data.acks) {
-    throw new Error(data.message ?? "Sync failed");
+  const attempts = rows.map(({ queuedAt: _q, ...rest }) => clipSyncAttempt(rest));
+  let synced = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const chunk of chunkItems(attempts)) {
+    const res = await fetch("/api/canvass/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attempts: chunk }),
+    });
+    const data = (await res.json()) as {
+      ok: boolean;
+      message?: string;
+      acks?: Array<{ clientAttemptId: string; ok: boolean; error?: string }>;
+    };
+    if (!res.ok || !data.ok || !data.acks) {
+      throw new Error(data.message ?? "Sync failed");
+    }
+
+    const okIds = data.acks.filter((a) => a.ok).map((a) => a.clientAttemptId);
+    await removeOutboxItems(okIds);
+    synced += okIds.length;
+    failed += data.acks.length - okIds.length;
+    for (const ack of data.acks) {
+      if (!ack.ok) errors.push(ack.error ?? "Unknown error");
+    }
   }
 
-  const okIds = data.acks.filter((a) => a.ok).map((a) => a.clientAttemptId);
-  await removeOutboxItems(okIds);
-  const errors = data.acks
-    .filter((a) => !a.ok)
-    .map((a) => a.error ?? "Unknown error");
-  return {
-    synced: okIds.length,
-    failed: data.acks.length - okIds.length,
-    errors,
-  };
+  return { synced, failed, errors };
 }
 
 /** Purge packet only when outbox for that list is empty. */

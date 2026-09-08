@@ -2,10 +2,14 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma";
 import { prisma } from "@/lib/db";
 import {
+  DOOR_NOTES_MAX,
   DOOR_OUTCOMES,
+  PERSON_NOTES_MAX,
   PERSON_OUTCOMES,
+  SYNC_BATCH_MAX,
   isDoorOutcome,
 } from "@/lib/canvass/outcomes";
+import { clipUnknownAttempt } from "@/lib/canvass/sync-payload";
 import { refreshCheckoutProgress } from "@/lib/canvass/progress";
 import { resolveSplitRedirect } from "@/lib/canvass/list-split-redirect";
 import { applyFieldWriteback } from "@/lib/canvass/field-layer";
@@ -20,7 +24,7 @@ const personResponseSchema = z.object({
   talkScore: progressiveScoreSchema.optional(),
   clearTalkScore: z.boolean().optional(),
   answers: z.record(z.unknown()).optional(),
-  notes: z.string().max(2000).nullable().optional(),
+  notes: z.string().max(PERSON_NOTES_MAX).nullable().optional(),
 });
 
 export const syncAttemptSchema = z.object({
@@ -31,7 +35,7 @@ export const syncAttemptSchema = z.object({
   checkoutId: z.string().min(1).nullable().optional(),
   campaignId: z.string().min(1),
   outcome: z.enum(DOOR_OUTCOMES),
-  notes: z.string().max(4000).nullable().optional(),
+  notes: z.string().max(DOOR_NOTES_MAX).nullable().optional(),
   capturedAt: z.string().datetime(),
   supersedesClientId: z.string().uuid().nullable().optional(),
   packetVersion: z.string().max(80).nullable().optional(),
@@ -41,8 +45,56 @@ export const syncAttemptSchema = z.object({
 });
 
 export const syncBatchSchema = z.object({
-  attempts: z.array(syncAttemptSchema).min(1).max(100),
+  attempts: z.array(syncAttemptSchema).min(1).max(SYNC_BATCH_MAX),
 });
+
+const syncBatchEnvelopeSchema = z.object({
+  attempts: z.array(z.unknown()).min(1).max(SYNC_BATCH_MAX),
+});
+
+export type ParsedSyncBatch =
+  | { ok: false; message: string }
+  | { ok: true; attempts: SyncAttemptInput[]; rejected: SyncAck[] };
+
+function clientAttemptIdOf(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const id = (raw as { clientAttemptId?: unknown }).clientAttemptId;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+/** Validate each knock on its own so one bad item cannot 400 the whole POST. */
+export function parseSyncBatch(body: unknown): ParsedSyncBatch {
+  const envelope = syncBatchEnvelopeSchema.safeParse(body);
+  if (!envelope.success) {
+    return {
+      ok: false,
+      message: envelope.error.issues[0]?.message ?? "Invalid sync payload",
+    };
+  }
+
+  const attempts: SyncAttemptInput[] = [];
+  const rejected: SyncAck[] = [];
+  for (const raw of envelope.data.attempts) {
+    const parsed = syncAttemptSchema.safeParse(clipUnknownAttempt(raw));
+    if (parsed.success) {
+      attempts.push(parsed.data);
+      continue;
+    }
+    const clientAttemptId = clientAttemptIdOf(raw);
+    if (!clientAttemptId) continue;
+    rejected.push({
+      clientAttemptId,
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid knock",
+    });
+  }
+
+  if (!attempts.length && !rejected.length) {
+    return { ok: false, message: "Invalid sync payload" };
+  }
+
+  return { ok: true, attempts, rejected };
+}
 
 export type SyncAttemptInput = z.infer<typeof syncAttemptSchema>;
 

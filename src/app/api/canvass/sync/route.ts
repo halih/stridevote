@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
-import { syncBatchSchema, syncAttemptsForUser } from "@/lib/canvass/sync";
+import { parseSyncBatch, syncAttemptsForUser } from "@/lib/canvass/sync";
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -15,17 +15,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: "Invalid JSON." }, { status: 400 });
   }
 
-  const parsed = syncBatchSchema.safeParse(body);
-  if (!parsed.success) {
+  const parsed = parseSyncBatch(body);
+  if (!parsed.ok) {
     return NextResponse.json(
-      {
-        ok: false,
-        message: parsed.error.issues[0]?.message ?? "Invalid sync payload",
-      },
+      { ok: false, message: parsed.message },
       { status: 400 },
     );
   }
 
-  const acks = await syncAttemptsForUser(user.id, parsed.data.attempts);
-  return NextResponse.json({ ok: true, acks });
+  const acks = parsed.attempts.length
+    ? await syncAttemptsForUser(user.id, parsed.attempts)
+    : [];
+  return NextResponse.json({
+    ok: true,
+    acks: [...parsed.rejected, ...acks],
+  });
 }

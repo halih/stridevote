@@ -7,6 +7,7 @@ import { signOut } from "@/lib/auth";
 import { permissionsForRoles } from "@/lib/roles";
 import { ensureActiveProgram } from "@/lib/canvass/programs";
 import { countClosedDoors } from "@/lib/canvass/progress";
+import { claimActiveCheckout } from "@/lib/canvass/checkout";
 import {
   applyListSplit,
   buildSplitPreview,
@@ -157,16 +158,14 @@ export async function checkoutList(
   const mine = activeCheckouts.find((c) => c.userId === user.id);
   if (!mine) {
     const closed = await countClosedDoors(resolvedProgramId, listId);
-    await prisma.listCheckout.create({
-      data: {
-        listId,
-        programId: resolvedProgramId,
-        userId: user.id,
-        status: "active",
-        progressTotal: list.doorsCount,
-        progressDone: closed,
-      },
+    const claimed = await claimActiveCheckout({
+      listId,
+      programId: resolvedProgramId,
+      userId: user.id,
+      progressTotal: list.doorsCount,
+      progressDone: closed,
     });
+    if (!claimed.ok) return claimed;
   }
   await prisma.listWatch.deleteMany({ where: { userId: user.id, listId } });
   revalidatePath("/canvass");

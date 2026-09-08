@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/db";
+import { claimActiveCheckout } from "@/lib/canvass/checkout";
 import { getCurrentAttemptsForList } from "@/lib/canvass/progress";
 import { DEFAULT_ORIGIN, haversineMiles, listDistanceMiles, pointInPolygon, roundMiles } from "@/lib/geo";
 import { getDoorStats, getAttemptLeaderboard } from "@/lib/stats-source";
@@ -306,17 +307,18 @@ export async function getCanvassBoard(user: User): Promise<ListVM[]> {
           co.status === "active",
       );
       if (held) continue;
-      const created = await prisma.listCheckout.create({
-        data: {
-          listId: l.id,
-          programId: link.programId,
-          userId: user.id,
-          status: "active",
-          progressTotal: l.doorsCount,
-        },
+      const claimed = await claimActiveCheckout({
+        listId: l.id,
+        programId: link.programId,
+        userId: user.id,
+        progressTotal: l.doorsCount,
+      });
+      if (!claimed.ok) continue;
+      const created = await prisma.listCheckout.findUnique({
+        where: { id: claimed.id },
         include: { user: true },
       });
-      l.checkouts.push(created);
+      if (created) l.checkouts.push(created);
     }
   }
 

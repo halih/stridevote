@@ -277,6 +277,7 @@ model ListCheckout {
   @@index([listId, programId, status])
   @@index([userId, status])
   @@index([programId, status])
+  // Partial unique: ListCheckout_listId_programId_active_key (listId, programId WHERE status = 'active')
 }
 
 // Frozen walk order for a list inside a program (survives later turf edits).

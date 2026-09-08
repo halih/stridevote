@@ -28,6 +28,7 @@ import {
   snapshotListIntoProgram,
 } from "@/lib/canvass/programs";
 import { programQuestionSchema } from "@/lib/canvass/outcomes";
+import { claimActiveCheckout } from "@/lib/canvass/checkout";
 
 export interface AdminResult {
   ok: boolean;
@@ -598,23 +599,16 @@ async function checkOutToAssignee(
   programId: string,
   userId: string,
   doorsCount: number,
-): Promise<void> {
-  const held = await prisma.listCheckout.findFirst({
-    where: { listId, programId, userId, status: "active" },
-    select: { id: true },
+): Promise<AdminResult | null> {
+  const claimed = await claimActiveCheckout({
+    listId,
+    programId,
+    userId,
+    progressTotal: doorsCount,
   });
-  if (!held) {
-    await prisma.listCheckout.create({
-      data: {
-        listId,
-        programId,
-        userId,
-        status: "active",
-        progressTotal: doorsCount,
-      },
-    });
-  }
+  if (!claimed.ok) return fail(claimed.message);
   await prisma.listWatch.deleteMany({ where: { listId, userId } });
+  return null;
 }
 
 export async function loadCampaignPrecincts(
@@ -746,12 +740,13 @@ export async function createTurf(
         await snapshotListIntoProgram(program.id, generated.listId);
       }
       if (data.visibility === "assigned" && data.assignedUserId) {
-        await checkOutToAssignee(
+        const checkoutError = await checkOutToAssignee(
           generated.listId,
           program.id,
           data.assignedUserId,
           generated.doorsCount,
         );
+        if (checkoutError) return checkoutError;
       }
       revalidateCampaign(campaign.slug);
       const excluded =
@@ -805,12 +800,13 @@ export async function createTurf(
   }
 
   if (data.visibility === "assigned" && data.assignedUserId) {
-    await checkOutToAssignee(
+    const checkoutError = await checkOutToAssignee(
       list.id,
       program.id,
       data.assignedUserId,
       list.doorsCount,
     );
+    if (checkoutError) return checkoutError;
   }
 
   revalidateCampaign(campaign.slug);
@@ -1012,12 +1008,13 @@ export async function setTurfAccess(
 
   const assigned = parsedVisibility.data === "assigned" && assignedUserId;
   if (assigned) {
-    await checkOutToAssignee(
+    const checkoutError = await checkOutToAssignee(
       listId,
       resolvedProgramId,
       assignedUserId,
       link.list.doorsCount,
     );
+    if (checkoutError) return checkoutError;
   }
 
   revalidateCampaign(link.campaign.slug);
@@ -1174,12 +1171,6 @@ export async function createProgram(
   });
 
   try {
-    if (parsed.data.status === "active") {
-      await prisma.canvassProgram.updateMany({
-        where: { campaignId, status: "active" },
-        data: { status: "closed" },
-      });
-    }
     const row = await prisma.canvassProgram.create({
       data: {
         campaignId,
@@ -1218,28 +1209,21 @@ export async function updateProgram(
     return result.success ? [result.data] : [];
   });
 
-  if (parsed.data.status === "active") {
-    await prisma.canvassProgram.updateMany({
-      where: {
-        campaignId: existing.campaignId,
-        status: "active",
-        id: { not: programId },
+  try {
+    await prisma.canvassProgram.update({
+      where: { id: programId },
+      data: {
+        name: parsed.data.name,
+        status: parsed.data.status,
+        script: parsed.data.script ?? null,
+        questions,
+        startsAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : null,
+        endsAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : null,
       },
-      data: { status: "closed" },
     });
+  } catch {
+    return fail("Could not update wave (duplicate name?).");
   }
-
-  await prisma.canvassProgram.update({
-    where: { id: programId },
-    data: {
-      name: parsed.data.name,
-      status: parsed.data.status,
-      script: parsed.data.script ?? null,
-      questions,
-      startsAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : null,
-      endsAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : null,
-    },
-  });
 
   const campaign = await prisma.campaign.findUnique({
     where: { id: existing.campaignId },

@@ -5,6 +5,7 @@ import { BottomSheet } from "@/components/BottomSheet";
 import { ProgressiveScoreControl } from "@/components/canvass/ProgressiveScoreControl";
 import type { FieldPacketDoor } from "@/lib/canvass/packet";
 import {
+  DOOR_NOTES_MAX,
   DOOR_OUTCOMES,
   DOOR_OUTCOME_LABELS,
   type DoorOutcome,
@@ -407,7 +408,8 @@ export function DoorSheet({
         <textarea
           className="field field-textarea"
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+          maxLength={DOOR_NOTES_MAX}
+          onChange={(e) => setNotes(e.target.value.slice(0, DOOR_NOTES_MAX))}
           rows={3}
           placeholder="Optional"
         />

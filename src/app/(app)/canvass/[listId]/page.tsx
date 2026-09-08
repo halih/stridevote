@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { WalkView } from "@/components/canvass/WalkView";
 import { countClosedDoors } from "@/lib/canvass/progress";
+import { claimActiveCheckout } from "@/lib/canvass/checkout";
 
 export default async function WalkListPage({
   params,
@@ -57,15 +58,18 @@ export default async function WalkListPage({
       });
       if (!alreadyCompleted) {
         const closed = await countClosedDoors(assignment.programId, listId);
-        checkout = await prisma.listCheckout.create({
-          data: {
-            listId,
-            programId: assignment.programId,
-            userId: user.id,
-            status: "active",
-            progressTotal: assignment.list.doorsCount,
-            progressDone: closed,
-          },
+        const claimed = await claimActiveCheckout({
+          listId,
+          programId: assignment.programId,
+          userId: user.id,
+          progressTotal: assignment.list.doorsCount,
+          progressDone: closed,
+        });
+        if (!claimed.ok) {
+          redirect("/canvass");
+        }
+        checkout = await prisma.listCheckout.findFirst({
+          where: { id: claimed.id },
           include: {
             list: true,
             program: true,

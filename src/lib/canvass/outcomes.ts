@@ -108,6 +108,11 @@ export const programQuestionSchema = z.object({
 
 export const PACKET_TTL_MS = 72 * 60 * 60 * 1000;
 
+/** Server Zod + client outbox POST size. */
+export const SYNC_BATCH_MAX = 100;
+export const DOOR_NOTES_MAX = 4000;
+export const PERSON_NOTES_MAX = 2000;
+
 export const DOOR_OUTCOME_LABELS: Record<DoorOutcome, string> = {
   contact: "Contact",
   no_answer: "No answer",
