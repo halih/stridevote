@@ -30,6 +30,7 @@ const PATHS: Record<string, string> = {
   pencil: "M12 20h9 M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z",
   externalLink: "M14 3h7v7 M21 3l-9 9 M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6",
   menu: "M3 6h18 M3 12h18 M3 18h18",
+  copy: "M9 9h11v11H9z M5 15H4V4h11v1",
   x: "M18 6L6 18 M6 6l12 12",
   layers: "M12 2l10 5-10 5L2 7l10-5z M2 12l10 5 10-5 M2 17l10 5 10-5",
   help: "M12 2a10 10 0 100 20 10 10 0 000-20z M9.1 9a3 3 0 015.8 1c0 2-3 2.5-3 4.5 M12 17h.01",

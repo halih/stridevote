@@ -319,6 +319,9 @@ export interface VoterHistoryDetail {
     residenceStatus: string;
     talkScore: number | null;
     scoreUpdatedAt: string | null;
+    scoreSource: string | null;
+    phones: string[];
+    emails: string[];
   };
   household: {
     id: string;
@@ -329,7 +332,7 @@ export interface VoterHistoryDetail {
   } | null;
   displayScore: {
     score: number | null;
-    source: "talk" | "observed" | null;
+    source: "talk" | "import" | "observed" | null;
     label: string;
   };
   fieldEvents: Array<{
@@ -456,6 +459,7 @@ export async function getVoterHistoryDetail(
   const display = displayProgressiveScore({
     talkScore: voter.talkScore,
     scoreUpdatedAt: voter.scoreUpdatedAt,
+    scoreSource: voter.scoreSource,
     observedScore: household?.observedScore,
     observedScoreAt: household?.observedScoreAt,
   });
@@ -486,6 +490,9 @@ export async function getVoterHistoryDetail(
       residenceStatus: voter.residenceStatus,
       talkScore: voter.talkScore,
       scoreUpdatedAt: voter.scoreUpdatedAt?.toISOString() ?? null,
+      scoreSource: voter.scoreSource,
+      phones: voter.phones ?? [],
+      emails: voter.emails ?? [],
     },
     household: household
       ? {

@@ -78,9 +78,19 @@ describe("voter filter serialization", () => {
   it("excludes Republicans from talk score 0 or observed 0 when talk is missing", () => {
     const { where } = buildVoterWhere("camp-1", { excludeRepublicans: "1" });
     const serialized = JSON.stringify(where);
-    assert.ok(serialized.includes('"talkScore":0'));
+    assert.ok(serialized.includes('"talkScore":{"gt":0}'));
     assert.ok(serialized.includes('"observedScore":0'));
     assert.equal(serialized.includes("scoreMin"), false);
+  });
+
+  it("keeps unscored voters when excluding Republicans", () => {
+    const { where } = buildVoterWhere("camp-1", { excludeRepublicans: "1" });
+    const serialized = JSON.stringify(where);
+    // A SQL `NOT (talkScore = 0)` drops NULL rows, so the clause must be
+    // expressed as positive matches that include unscored voters.
+    assert.equal(serialized.includes('"NOT"'), false);
+    assert.ok(serialized.includes('"talkScore":null'));
+    assert.ok(serialized.includes('"none"'));
   });
 
   it("excludes inaccessible from this campaign or the master field layer", () => {

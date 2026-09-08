@@ -30,7 +30,10 @@ import { orderFieldPacketFrom } from "@/lib/canvass/packet-order";
 import { DoorSheet } from "@/components/canvass/DoorSheet";
 import { ProgressiveScoreControl } from "@/components/canvass/ProgressiveScoreControl";
 import type { ProgressiveScore } from "@/lib/canvass/progressive-score";
-import { isProgressiveScore } from "@/lib/canvass/progressive-score";
+import {
+  isProgressiveScore,
+  progressiveScoreCaption,
+} from "@/lib/canvass/progressive-score";
 import { ListCompleteSheet } from "@/components/canvass/ListCompleteSheet";
 import { MapHelp, type MapHelpItem } from "@/components/map/MapHelp";
 import { useVolunteerLocation } from "@/lib/use-volunteer-location";
@@ -643,18 +646,31 @@ export function WalkView({
                   ) : null}
                   <ul className="list-door-voters">
                     {currentDoor.voters.length ? (
-                      currentDoor.voters.map((v) => (
-                        <li key={v.voterId}>
-                          <span>
-                            {v.firstName} {v.lastName}
-                          </span>
-                          <small>
-                            {[v.age != null ? String(v.age) : null, v.sex]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </small>
-                        </li>
-                      ))
+                      currentDoor.voters.map((v) => {
+                        const score = progressiveScoreCaption({
+                          talkScore: v.talkScore ?? null,
+                          scoreUpdatedAt: v.scoreUpdatedAt ?? null,
+                          scoreSource: v.scoreSource ?? null,
+                          observedScore: currentDoor.field?.observedScore ?? null,
+                          observedScoreAt: currentDoor.field?.observedScoreAt ?? null,
+                        });
+                        return (
+                          <li key={v.voterId}>
+                            <span>
+                              {v.firstName} {v.lastName}
+                            </span>
+                            <small>
+                              {[
+                                v.age != null ? String(v.age) : null,
+                                v.sex,
+                                score,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </small>
+                          </li>
+                        );
+                      })
                     ) : (
                       <li>
                         <span>No voters linked at this door</span>

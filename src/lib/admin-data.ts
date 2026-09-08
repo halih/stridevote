@@ -5,6 +5,8 @@ import { initialsFor } from "@/lib/session";
 import type { User } from "@/generated/prisma";
 import { parseProgramQuestions } from "@/lib/canvass/programs";
 import { countClosedDoors } from "@/lib/canvass/progress";
+import { progressiveScoreCaption } from "@/lib/canvass/progressive-score";
+import { listMinivanAdapters } from "@/lib/minivan/adapters";
 
 export interface ManageCampaignCard {
   id: string;
@@ -106,6 +108,9 @@ export interface CampaignAdminView {
   pickupLabel: string | null;
   pickupAddress: string | null;
   pickupDetail: string | null;
+  minivanEnabled: boolean;
+  minivanAdapterKey: string | null;
+  minivanAdapters: Array<{ key: string; label: string }>;
   contact: { name: string; role: string; phone: string | null; email: string | null } | null;
   perms: AdminPerms;
   members: MemberRow[];
@@ -216,6 +221,9 @@ export async function getCampaignAdminView(
     pickupLabel: campaign.pickupLabel,
     pickupAddress: campaign.pickupAddress,
     pickupDetail: campaign.pickupDetail,
+    minivanEnabled: campaign.minivanEnabled,
+    minivanAdapterKey: campaign.minivanAdapterKey,
+    minivanAdapters: listMinivanAdapters(),
     contact: campaign.contacts[0]
       ? {
           name: campaign.contacts[0].name,
@@ -306,12 +314,15 @@ export interface ListEditView {
       /** Approximate: the voter file records a birth year, not a birth date. */
       age: number | null;
       sex: string | null;
+      /** Recent talk, import, or observed score, if any. */
+      progressiveScore: string | null;
     }>;
   }>;
   linkedCampaignIds: string[];
   campaignOptions: { id: string; name: string }[];
   activeCheckouts: number;
   programName: string | null;
+  minivanEnabled: boolean;
 }
 
 // A precinct turf runs a few hundred doors, but a campaign-wide generated list
@@ -321,13 +332,16 @@ const DOOR_PAGE_SIZE = 400;
 export async function getListEditView(
   listId: string,
   user: User,
+  campaignSlug?: string,
 ): Promise<ListEditView | null> {
   const list = await prisma.list.findUnique({
     where: { id: listId },
     include: {
       campaignLinks: {
         include: {
-          campaign: { select: { slug: true, name: true } },
+          campaign: {
+            select: { slug: true, name: true, minivanEnabled: true },
+          },
           program: { select: { id: true, name: true, status: true } },
         },
       },
@@ -349,6 +363,9 @@ export async function getListEditView(
                       suffix: true,
                       yearOfBirth: true,
                       gender: true,
+                      talkScore: true,
+                      scoreUpdatedAt: true,
+                      scoreSource: true,
                     },
                   },
                 },
@@ -412,7 +429,13 @@ export async function getListEditView(
     boundary: Array.isArray(list.boundary)
       ? (list.boundary as [number, number][])
       : null,
-    returnCampaign: list.campaignLinks[0]?.campaign ?? null,
+    returnCampaign:
+      (campaignSlug
+        ? list.campaignLinks.find((l) => l.campaign.slug === campaignSlug)
+            ?.campaign
+        : null) ??
+      list.campaignLinks[0]?.campaign ??
+      null,
     doorsStored: list._count.households,
     programName: activeProgramLink?.program.name ?? null,
     doors: list.households.map(({ household }) => {
@@ -444,11 +467,19 @@ export async function getListEditView(
               : null,
           // "U" is the voter file's unknown marker, which is not worth showing.
           sex: voter.gender && voter.gender !== "U" ? voter.gender : null,
+          progressiveScore: progressiveScoreCaption({
+            talkScore: voter.talkScore,
+            scoreUpdatedAt: voter.scoreUpdatedAt,
+            scoreSource: voter.scoreSource,
+            observedScore: household.observedScore,
+            observedScoreAt: household.observedScoreAt,
+          }),
         })),
       };
     }),
     linkedCampaignIds: linkedIds,
     campaignOptions,
     activeCheckouts: list._count.checkouts,
+    minivanEnabled: list.campaignLinks.some((l) => l.campaign.minivanEnabled),
   };
 }

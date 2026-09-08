@@ -7,7 +7,6 @@ import { Icon } from "@/components/Icon";
 import { Map } from "@/components/map/Map";
 import { MapHelp, type MapHelpItem } from "@/components/map/MapHelp";
 import { doorPinColor, DOOR_PIN_COLORS } from "@/lib/canvass/outcomes";
-import { sourceLabel } from "@/lib/format";
 import { useMemo, useState } from "react";
 
 const HALF_A_COLOR = "#185FA5";
@@ -18,6 +17,7 @@ export type SheetState =
   | { kind: "checkout"; list: ListVM }
   | { kind: "pickup"; list: ListVM }
   | { kind: "split"; list: ListVM; preview: SplitPreview }
+  | { kind: "open"; list: ListVM }
   | null;
 
 function PickupDetails({ list }: { list: ListVM }) {
@@ -217,11 +217,87 @@ function SplitSheetBody({
   );
 }
 
+function MinivanOpenSheetBody({
+  list,
+  onWalkHere,
+  onCopyFailed,
+}: {
+  list: ListVM;
+  onWalkHere: () => void;
+  onCopyFailed: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyListNumber(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard is blocked without HTTPS or permission — the number is on screen.
+      onCopyFailed();
+    }
+  }
+
+  return (
+    <>
+      <h2>How do you want to walk {list.name}?</h2>
+      <p className="sheet-sub">
+        These doors came from MiniVAN, so you can knock them here or in MiniVAN
+        itself. Results only sync back to VAN from the doors you knock here.
+      </p>
+
+      <button
+        className="btn btn-primary btn-block"
+        style={{ marginTop: 14 }}
+        onClick={onWalkHere}
+      >
+        Canvass in StrideVote
+      </button>
+
+      <div className="eyebrow" style={{ marginTop: 18 }}>
+        Or use MiniVAN
+      </div>
+      {list.sourceRef ? (
+        <div className="minivan-list-number">
+          <span className="section-sub">
+            List number <b>{list.sourceRef}</b>
+          </span>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => void copyListNumber(list.sourceRef!)}
+          >
+            <Icon name={copied ? "check" : "copy"} size={14} />{" "}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+      ) : null}
+      <ol className="sheet-steps">
+        <li>Open MiniVAN on your phone and sign in with your VAN account.</li>
+        <li>Tap the menu, then “Download a new list”.</li>
+        <li>
+          {list.sourceRef
+            ? `Enter list number ${list.sourceRef} and confirm.`
+            : "Enter the list number your organizer gave you and confirm."}
+        </li>
+        <li>Knock the doors in MiniVAN — nothing to log here.</li>
+        <li>
+          When you are done, come back here and tap Pull MiniVAN so the door
+          counts sync in StrideVote.
+        </li>
+      </ol>
+    </>
+  );
+}
+
 export function ListSheets({
   sheet,
   onClose,
   onConfirmCheckout,
   onConfirmSplit,
+  onWalkHere,
+  onCopyFailed,
   checkoutPending,
   home,
   you,
@@ -230,6 +306,8 @@ export function ListSheets({
   onClose: () => void;
   onConfirmCheckout: (l: ListVM) => void;
   onConfirmSplit?: (keepHalf: SplitHalfKey) => void;
+  onWalkHere?: (l: ListVM) => void;
+  onCopyFailed?: () => void;
   checkoutPending: boolean;
   home: { lat: number; lng: number } | null;
   you: { lat: number; lng: number } | null;
@@ -302,8 +380,13 @@ export function ListSheets({
             <p className="section-sub" style={{ marginTop: 10 }}>
               {l.status === "mine"
                 ? "Preview of this list’s turf and doors."
-                : "Preview only — check out this list to work it."}{" "}
-              <span className="source-chip">{sourceLabel(l.source)}</span>
+                : "Preview only — check out this list to work it."}
+              {l.source === "minivan" ? (
+                <>
+                  {" "}
+                  <span className="source-chip source-chip-minivan">MiniVAN</span>
+                </>
+              ) : null}
             </p>
             {l.status === "available" ? (
               <button
@@ -329,6 +412,12 @@ export function ListSheets({
             preview={sheet.preview}
             pending={checkoutPending}
             onConfirm={(keepHalf) => onConfirmSplit?.(keepHalf)}
+          />
+        ) : sheet.kind === "open" ? (
+          <MinivanOpenSheetBody
+            list={l}
+            onWalkHere={() => onWalkHere?.(l)}
+            onCopyFailed={() => onCopyFailed?.()}
           />
         ) : (
           <>

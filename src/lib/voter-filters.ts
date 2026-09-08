@@ -266,21 +266,21 @@ export function buildVoterWhere(
       ...(filters.excludeRepublicans === "1"
         ? [
             {
-              NOT: {
-                OR: [
-                  { talkScore: 0 },
-                  {
-                    AND: [
-                      { talkScore: null },
-                      {
-                        householdLinks: {
-                          some: { household: { observedScore: 0 } },
-                        },
+              // Written as positive matches so unscored voters are kept:
+              // a SQL NOT over `talkScore = 0` drops every NULL row.
+              OR: [
+                { talkScore: { gt: 0 } },
+                {
+                  AND: [
+                    { talkScore: null },
+                    {
+                      householdLinks: {
+                        none: { household: { observedScore: 0 } },
                       },
-                    ],
-                  },
-                ],
-              },
+                    },
+                  ],
+                },
+              ],
             },
           ]
         : []),

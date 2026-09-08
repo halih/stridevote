@@ -36,3 +36,8 @@ next-env.d.ts
 
 # working files not part of the app
 /brand-src
+
+# MiniVAN emulator local secrets / caches
+/minivan_tools/.device_uid_cache
+/minivan_tools/*.db
+/tmp/

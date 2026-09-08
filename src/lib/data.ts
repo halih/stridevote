@@ -244,6 +244,8 @@ export interface ListVM {
   programName: string | null;
   checkoutId: string | null;
   nativeCanvass: boolean;
+  /** MiniVAN pull available (campaign gated + list sourced from MiniVAN). */
+  minivanPull: boolean;
   /** Admin assigned this list to the volunteer — already theirs, no checkout step. */
   assignedToMe: boolean;
   /** Door pins for map preview (coords + walk status; capped). */
@@ -288,6 +290,7 @@ export async function getCanvassBoard(user: User): Promise<ListVM[]> {
         },
         include: { campaign: true, program: true },
       },
+      _count: { select: { households: true } },
     },
   });
 
@@ -468,7 +471,10 @@ export async function getCanvassBoard(user: User): Promise<ListVM[]> {
         programId: primaryLink?.programId ?? null,
         programName: primaryLink?.program.name ?? null,
         checkoutId: mineCheckout?.id ?? null,
-        nativeCanvass: l.source === "stridevote",
+        nativeCanvass: l.source === "stridevote" || l._count.households > 0,
+        minivanPull:
+          l.source === "minivan" &&
+          openLinks.some((cl) => cl.campaign.minivanEnabled),
         assignedToMe,
         doorPins,
         campaigns: openLinks.map((cl) => ({

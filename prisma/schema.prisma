@@ -121,6 +121,9 @@ model Campaign {
   pickupLabel  String?
   pickupAddress String?
   pickupDetail String?
+  // MiniVAN integration (platform-admin only). Adapter key selects typed mapping.
+  minivanEnabled    Boolean @default(false)
+  minivanAdapterKey String?
 
   createdAt DateTime @default(now())
 
@@ -133,6 +136,7 @@ model Campaign {
   attempts    CanvassAttempt[]
   achievementUnlocks UserAchievementUnlock[]
   fieldEvents FieldEvent[]
+  minivanJobs MiniVanJob[]
 }
 
 // Persisted earn/seen state for catalog achievements. Definitions live in code.
@@ -235,6 +239,7 @@ model List {
   redirectsTo       ListHouseholdRedirect[] @relation("RedirectTo")
   splitsAsSource    ListSplit[] @relation("SplitSource")
   splitsAsReleased  ListSplit[] @relation("SplitReleased")
+  minivanJobs       MiniVanJob[]
 }
 
 // Per-program publish of a list into a campaign (visibility + assignee).
@@ -439,8 +444,14 @@ model Voter {
   likelyGeneral         Boolean  @default(false)
   // Field layer: durable across campaigns (not SOS identity).
   residenceStatus       String   @default("ok") // ok | moved
-  talkScore             Int? // progressive 0–5 from conversation
+  talkScore             Int? // progressive 0–5 (conversation or import seed)
   scoreUpdatedAt        DateTime?
+  // How talkScore was last set: "talk" (canvass) | "import" (MiniVAN likely party).
+  scoreSource           String?
+  // Enrichment from MiniVAN / other vendors (not SOS identity).
+  phones                String[] @default([])
+  emails                String[] @default([])
+  likelyParty           String?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -653,6 +664,8 @@ model ListVoter {
   listId     String
   voterId    String
   matchedSeed Boolean @default(false)
+  // MiniVAN VanID when this list voter came from a MiniVAN import.
+  vanId      Int?
   createdAt  DateTime @default(now())
 
   list  List  @relation(fields: [listId], references: [id], onDelete: Cascade)
@@ -661,4 +674,29 @@ model ListVoter {
   @@unique([listId, voterId])
   @@index([listId])
   @@index([voterId])
+  @@index([listId, vanId])
+}
+
+// Local emulator worker queue. Next.js enqueues; minivan_tools/worker.py claims.
+model MiniVanJob {
+  id            String    @id @default(cuid())
+  type          String // import_list | pull_canvass | push_canvass
+  status        String    @default("pending") // pending | running | completed | failed
+  campaignId    String
+  listId        String?
+  requestedById String?
+  payload       Json      @default("{}")
+  result        Json?
+  error         String?
+  claimedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  list     List?    @relation(fields: [listId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([campaignId, status])
+  @@index([listId, status])
 }

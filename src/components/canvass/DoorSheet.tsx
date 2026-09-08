@@ -206,12 +206,17 @@ export function DoorSheet({
     const disp = displayProgressiveScore({
       talkScore: v.talkScore ?? null,
       scoreUpdatedAt: v.scoreUpdatedAt ?? null,
+      scoreSource: v.scoreSource ?? null,
       observedScore: observedPrior,
       observedScoreAt: observedPriorAt,
     });
     if (disp.source === "talk" && disp.score != null) {
       priorBits.push(
         `${v.firstName}: ${progressiveScoreLabel(disp.score)} (talk)`,
+      );
+    } else if (disp.source === "import" && disp.score != null) {
+      priorBits.push(
+        `${v.firstName}: ${progressiveScoreLabel(disp.score)} (import)`,
       );
     }
   }

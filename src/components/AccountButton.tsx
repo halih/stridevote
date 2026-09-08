@@ -72,7 +72,7 @@ export function AccountButton({
             Your profile
           </Link>
           {isAdmin ? (
-            <Link href="/campaigns" role="menuitem" onClick={() => setOpen(false)}>
+            <Link href="/canvass" role="menuitem" onClick={() => setOpen(false)}>
               <Icon name="compass" size={17} />
               <span>
                 <b>Switch to volunteer view</b>

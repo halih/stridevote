@@ -30,6 +30,8 @@ export const env = {
     process.env.NEXT_PUBLIC_MAP_TILE_URL ??
     "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
   geocoderUrl: process.env.GEOCODER_URL ?? "https://nominatim.openstreetmap.org",
+  /** Bearer token for the local MiniVAN emulator worker. Empty = worker APIs reject. */
+  minivanWorkerToken: process.env.MINIVAN_WORKER_TOKEN ?? "",
 };
 
 export function channelEnabled(channel: AuthChannel): boolean {

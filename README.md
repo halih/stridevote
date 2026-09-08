@@ -281,8 +281,11 @@ These are stubbed with clear seams so they can be turned on later:
   avoiding per-verification fees). Requires a leased number + A2P 10DLC registration.
 - **WhatsApp OTP** — [src/lib/otp/adapters/whatsapp.ts](src/lib/otp/adapters/whatsapp.ts)
   via the Meta WhatsApp Cloud API (requires Business verification).
-- **MiniVAN / Civibyte import** — checkout and deep-links exist; walking lists
-  are not imported into native knocking.
+- **MiniVAN** — gated per campaign (platform admin). Import / pull / push run
+  through [`minivan_tools/`](minivan_tools/) and a local emulator worker; see
+  that folder’s README. Civibyte remains deep-link only.
+- **Civibyte import** — checkout and deep-links exist; walking lists are not
+  imported into native knocking.
 
 ## Scripts
 

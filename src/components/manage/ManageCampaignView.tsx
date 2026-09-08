@@ -24,9 +24,12 @@ import {
   createList,
   deleteList,
   denyMembership,
+  enqueueMinivanListImport,
+  enqueueMinivanPull,
+  enqueueMinivanPush,
+  setCampaignMinivan,
   setMemberRoles,
 } from "@/lib/admin-actions";
-import { sourceLabel } from "@/lib/format";
 
 type Tab = "members" | "turfs" | "lists" | "waves" | "settings";
 
@@ -265,12 +268,17 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                 <div key={l.id} className="card list-card">
                   <div className="list-top">
                     <div>
-                      <Link href={`/admin/lists/${l.id}`} className="list-card-link">
+                      <Link
+                        href={`/admin/${view.slug}/lists/${l.id}`}
+                        className="list-card-link"
+                      >
                         <p className="list-name">{l.name}</p>
                       </Link>
                     </div>
                     <div className="list-top-actions">
-                      <span className="source-chip">{sourceLabel(l.source)}</span>
+                      {l.source === "minivan" ? (
+                        <span className="source-chip source-chip-minivan">MiniVAN</span>
+                      ) : null}
                       {view.perms.manageLists ? (
                         <button
                           type="button"
@@ -305,6 +313,27 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                       <span className="meta-stat">Available</span>
                     )}
                   </div>
+                  {view.minivanEnabled && l.source === "minivan" && view.perms.manageLists ? (
+                    <div className="member-actions" style={{ marginTop: 10 }}>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        disabled={pending}
+                        title="Imports door ResultIDs only (not survey answers)"
+                        onClick={() => run(() => enqueueMinivanPull(l.id))}
+                      >
+                        Pull from MiniVAN
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        disabled={pending}
+                        onClick={() => run(() => enqueueMinivanPush(l.id))}
+                      >
+                        Push to MiniVAN
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -335,6 +364,15 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
               initialBoundary={view.boundary}
             />
           </div>
+          {view.perms.isPlatformAdmin ? (
+            <MinivanSettingsCard
+              enabled={view.minivanEnabled}
+              adapterKey={view.minivanAdapterKey}
+              adapters={view.minivanAdapters}
+              pending={pending}
+              onSave={(input) => run(() => setCampaignMinivan(view.id, input))}
+            />
+          ) : null}
           {view.perms.deleteCampaign ? (
             <div className="danger-zone">
               <div>
@@ -420,8 +458,22 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
       <BottomSheet open={listOpen} onClose={() => setListOpen(false)}>
         <NewListForm
           pending={pending}
+          minivanEnabled={view.minivanEnabled}
           onCancel={() => setListOpen(false)}
-          onSubmit={(input) => run(() => createList(view.id, input), () => setListOpen(false))}
+          onSubmit={(input) => {
+            if (input.source === "minivan") {
+              run(
+                () =>
+                  enqueueMinivanListImport(view.id, {
+                    name: input.name,
+                    printedListNumber: input.sourceRef,
+                  }),
+                () => setListOpen(false),
+              );
+              return;
+            }
+            run(() => createList(view.id, input), () => setListOpen(false));
+          }}
         />
       </BottomSheet>
     </>
@@ -453,12 +505,83 @@ function campaignToForm(view: CampaignAdminView): Partial<CampaignFormValues> {
   };
 }
 
+function MinivanSettingsCard({
+  enabled,
+  adapterKey,
+  adapters,
+  pending,
+  onSave,
+}: {
+  enabled: boolean;
+  adapterKey: string | null;
+  adapters: Array<{ key: string; label: string }>;
+  pending: boolean;
+  onSave: (input: { enabled: boolean; adapterKey: string | null }) => void;
+}) {
+  const [on, setOn] = useState(enabled);
+  const [key, setKey] = useState(adapterKey ?? adapters[0]?.key ?? "");
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="section-head" style={{ marginBottom: 8 }}>
+        <span className="eyebrow">MiniVAN (platform admin)</span>
+      </div>
+      <p className="sheet-sub" style={{ marginTop: 0 }}>
+        When enabled, admins can import printed MiniVAN lists via the local emulator
+        worker. Pull imports door dispositions only; survey answers stay on volunteer
+        phones.
+      </p>
+      <label className="role-option" style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) => setOn(e.target.checked)}
+        />
+        <span>
+          <b>Enable MiniVAN for this campaign</b>
+          <span style={{ display: "block", opacity: 0.8 }}>
+            Requires a running minivan_tools worker and a logged-in emulator.
+          </span>
+        </span>
+      </label>
+      <div className="form-field">
+        <label className="field-label">Campaign adapter</label>
+        <select
+          className="field"
+          value={key}
+          disabled={!on || !adapters.length}
+          onChange={(e) => setKey(e.target.value)}
+        >
+          {!adapters.length ? <option value="">No adapters registered</option> : null}
+          {adapters.map((a) => (
+            <option key={a.key} value={a.key}>
+              {a.label} ({a.key})
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="form-actions">
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={pending || (on && !key)}
+          onClick={() => onSave({ enabled: on, adapterKey: on ? key || null : null })}
+        >
+          Save MiniVAN settings
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function NewListForm({
   pending,
+  minivanEnabled,
   onCancel,
   onSubmit,
 }: {
   pending: boolean;
+  minivanEnabled: boolean;
   onCancel: () => void;
   onSubmit: (input: {
     name: string;
@@ -477,7 +600,11 @@ function NewListForm({
   return (
     <>
       <h2>New list</h2>
-      <p className="sheet-sub">Turf sourced from MiniVAN, Civibyte, or StrideVote.</p>
+      <p className="sheet-sub">
+        {minivanEnabled
+          ? "Turf from MiniVAN (emulator import), Civibyte, or StrideVote."
+          : "Turf sourced from Civibyte or StrideVote."}
+      </p>
       <div className="form">
         <div className="form-field">
           <label className="field-label">List name</label>
@@ -492,28 +619,42 @@ function NewListForm({
               onChange={(e) => setSource(e.target.value as typeof source)}
             >
               <option value="stridevote">StrideVote</option>
-              <option value="minivan">Minivan</option>
+              {minivanEnabled ? <option value="minivan">Minivan</option> : null}
               <option value="civibyte">Civibyte</option>
             </select>
           </div>
-          <div className="form-field">
-            <label className="field-label">Doors</label>
-            <input
-              className="field"
-              type="number"
-              min={0}
-              value={doors}
-              onChange={(e) => setDoors(e.target.value)}
-            />
-          </div>
+          {source !== "minivan" ? (
+            <div className="form-field">
+              <label className="field-label">Doors</label>
+              <input
+                className="field"
+                type="number"
+                min={0}
+                value={doors}
+                onChange={(e) => setDoors(e.target.value)}
+              />
+            </div>
+          ) : (
+            <div className="form-field">
+              <label className="field-label">Import</label>
+              <p className="sheet-sub" style={{ margin: 0 }}>
+                Queues emulator download
+              </p>
+            </div>
+          )}
         </div>
         <div className="form-field">
           <label className="field-label">
-            {source === "minivan" ? "List number" : source === "civibyte" ? "List URL" : "Reference"}
+            {source === "minivan"
+              ? "Printed list number"
+              : source === "civibyte"
+                ? "List URL"
+                : "Reference"}
           </label>
           <input
             className="field"
             value={sourceRef}
+            placeholder={source === "minivan" ? "57429198-80406" : undefined}
             onChange={(e) => setSourceRef(e.target.value)}
           />
         </div>
@@ -523,7 +664,11 @@ function NewListForm({
           </button>
           <button
             className="btn btn-primary"
-            disabled={pending || !name.trim()}
+            disabled={
+              pending ||
+              !name.trim() ||
+              (source === "minivan" && !/^\d+-\d+$/.test(sourceRef.trim()))
+            }
             onClick={() =>
               onSubmit({
                 name: name.trim(),
@@ -533,7 +678,7 @@ function NewListForm({
               })
             }
           >
-            Create list
+            {source === "minivan" ? "Queue MiniVAN import" : "Create list"}
           </button>
         </div>
       </div>

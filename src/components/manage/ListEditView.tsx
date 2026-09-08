@@ -6,7 +6,7 @@ import type { ListEditView as ListEditData } from "@/lib/admin-data";
 import { useToast } from "@/components/Toast";
 import { Map } from "@/components/map/Map";
 import { MapHelp, type MapHelpItem } from "@/components/map/MapHelp";
-import { deleteList, setListCampaigns, updateList } from "@/lib/admin-actions";
+import { deleteList, enqueueMinivanPull, enqueueMinivanPush, setListCampaigns, updateList } from "@/lib/admin-actions";
 import { doorPinColor, DOOR_PIN_COLORS } from "@/lib/canvass/outcomes";
 import { sourceLabel } from "@/lib/format";
 
@@ -157,6 +157,34 @@ export function ListEditView({ list }: { list: ListEditData }) {
                 Save changes
               </button>
             </div>
+            {list.minivanEnabled && list.source === "minivan" ? (
+              <div className="form-actions" style={{ marginTop: 8, gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={pending}
+                  title="Imports door ResultIDs only"
+                  onClick={() => run(() => enqueueMinivanPull(list.id))}
+                >
+                  Pull from MiniVAN
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={pending}
+                  onClick={() => run(() => enqueueMinivanPush(list.id))}
+                >
+                  Push to MiniVAN
+                </button>
+              </div>
+            ) : null}
+            {list.minivanEnabled && list.source === "minivan" ? (
+              <p className="sheet-sub">
+                Pull imports door dispositions only (Canvassed, Not Home, …). Survey
+                answers stay on volunteer phones. Push sends StrideVote results to VAN
+                via the local emulator worker.
+              </p>
+            ) : null}
           </div>
         </div>
       </section>
@@ -206,6 +234,7 @@ export function ListEditView({ list }: { list: ListEditData }) {
                           {[
                             voter.age != null ? `Age ${voter.age}` : null,
                             voter.sex,
+                            voter.progressiveScore,
                           ]
                             .filter(Boolean)
                             .join(" · ")}

@@ -44,6 +44,7 @@ export interface FieldPacketDoor {
     residenceStatus?: string;
     talkScore?: number | null;
     scoreUpdatedAt?: string | null;
+    scoreSource?: string | null;
   }>;
   current: {
     clientAttemptId: string;
@@ -96,6 +97,7 @@ const packetVoterSelect = {
   residenceStatus: true,
   talkScore: true,
   scoreUpdatedAt: true,
+  scoreSource: true,
 } as const;
 
 const packetHouseholdInclude = {
@@ -142,11 +144,17 @@ export async function buildFieldPacket(opts: {
     return { ok: false, message: "List is not available in this program." };
   }
 
+  // Imported lists (MiniVAN) carry their own doors, so they can be walked here.
   if (link.list.source !== "stridevote") {
-    return {
-      ok: false,
-      message: "Open this list in MiniVAN or Civibyte — native knocking is for StrideVote lists.",
-    };
+    const importedDoors = await prisma.listHousehold.count({
+      where: { listId: opts.listId },
+    });
+    if (!importedDoors) {
+      return {
+        ok: false,
+        message: "Open this list in MiniVAN or Civibyte — it has no doors here to knock.",
+      };
+    }
   }
 
   let households = await prisma.programListHousehold.findMany({
@@ -324,6 +332,7 @@ export async function buildFieldPacket(opts: {
         residenceStatus: hv.voter.residenceStatus,
         talkScore: hv.voter.talkScore,
         scoreUpdatedAt: hv.voter.scoreUpdatedAt?.toISOString() ?? null,
+        scoreSource: hv.voter.scoreSource,
       })),
       current: cur
         ? {

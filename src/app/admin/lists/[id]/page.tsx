@@ -1,12 +1,10 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { Icon } from "@/components/Icon";
-import { ListEditView } from "@/components/manage/ListEditView";
 import { getListEditView } from "@/lib/admin-data";
 import { getSessionUser } from "@/lib/session";
 
-export default async function EditListPage({
+// Lists used to be edited outside the campaign tree, which dropped the sidebar
+// campaign context. Keep the old URL working by sending it to the scoped one.
+export default async function LegacyEditListPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -16,20 +14,7 @@ export default async function EditListPage({
   if (!user) redirect("/login");
 
   const list = await getListEditView(id, user);
-  if (!list) notFound();
-  const listsHref = list.returnCampaign
-    ? `/admin/${list.returnCampaign.slug}?section=lists`
-    : "/admin";
+  if (!list?.returnCampaign) notFound();
 
-  return (
-    <>
-      <AdminPageHeader title="Edit list" subtitle={list.name} />
-      <div className="admin-content admin-content-narrow">
-        <Link href={listsHref} className="back-link">
-          <Icon name="chevronLeft" size={15} /> Lists
-        </Link>
-        <ListEditView list={list} />
-      </div>
-    </>
-  );
+  redirect(`/admin/${list.returnCampaign.slug}/lists/${id}`);
 }

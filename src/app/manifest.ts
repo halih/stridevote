@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "StrideVote",
     short_name: "StrideVote",
     description: "Canvassing dashboard for progressive campaigns.",
-    start_url: "/",
+    start_url: "/canvass",
     display: "standalone",
     background_color: "#10151b",
     theme_color: "#185FA5",

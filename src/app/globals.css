@@ -317,6 +317,7 @@ a { color: inherit; }
 .badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
 .badge { font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 99px; color: #fff; }
 .source-chip { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 7px; border-radius: 6px; background: var(--surface-2); color: var(--ink-faint); }
+.source-chip-minivan { background: var(--warn-soft); color: var(--warn); }
 .pickup-info { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .pickup-chip { font-size: 11px; color: var(--ink-soft); background: var(--surface-2); padding: 3px 8px; border-radius: 99px; display: inline-flex; align-items: center; gap: 4px; }
 .pickup-chip-btn {
@@ -1075,6 +1076,12 @@ select.field { appearance: none; -webkit-appearance: none; }
   letter-spacing: .06em; text-transform: uppercase;
 }
 .voter-profile-card b { display: block; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; }
+.voter-profile-card .voter-contact-list {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.voter-profile-card .voter-contact-list .contact-link {
+  font-size: 12px; font-weight: 700; color: var(--ink);
+}
 .voter-propensity-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .voter-propensity-note {
   grid-column: 1 / -1; margin: -4px 0 0; color: var(--ink-faint); font-size: 11px; line-height: 1.45;
@@ -1177,6 +1184,15 @@ select.field { appearance: none; -webkit-appearance: none; }
 }
 .admin-list-map {
   margin-bottom: 12px;
+}
+.sheet-steps {
+  margin: 8px 0 0; padding-left: 20px;
+  color: var(--ink-soft); font-size: 13px; line-height: 1.5;
+}
+.sheet-steps li { margin-bottom: 4px; }
+.minivan-list-number {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-top: 6px;
 }
 .walk-door-list { margin-top: 2px; }
 .walk-door-heading-text { min-width: 0; flex: 1; }

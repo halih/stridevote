@@ -32,16 +32,31 @@ export function progressiveScoreLabel(
   return PROGRESSIVE_SCORE_LABELS[value];
 }
 
-/** Prefer recent talk score, else recent observed, else unknown. Never average. */
+/**
+ * Map VAN Likely Party codes onto the progressive thermometer.
+ * Dem lean/strong → Liberal (3); GOP lean/strong → Republican (0).
+ * Everything else (ID/ND/U/…) stays unscored.
+ */
+export function progressiveScoreFromLikelyParty(
+  code: string | null | undefined,
+): ProgressiveScore | null {
+  const c = (code ?? "").trim().toUpperCase();
+  if (c === "SD" || c === "LD") return 3;
+  if (c === "SR" || c === "LR") return 0;
+  return null;
+}
+
+/** Prefer recent talk score, else import seed, else recent observed, else unknown. Never average. */
 export function displayProgressiveScore(opts: {
   talkScore: number | null | undefined;
   scoreUpdatedAt: Date | string | null | undefined;
+  scoreSource?: string | null | undefined;
   observedScore: number | null | undefined;
   observedScoreAt: Date | string | null | undefined;
   now?: Date;
 }): {
   score: ProgressiveScore | null;
-  source: "talk" | "observed" | null;
+  source: "talk" | "import" | "observed" | null;
 } {
   const now = opts.now ?? new Date();
   const talkAt = opts.scoreUpdatedAt ? new Date(opts.scoreUpdatedAt) : null;
@@ -50,6 +65,9 @@ export function displayProgressiveScore(opts: {
     talkAt &&
     now.getTime() - talkAt.getTime() <= TALK_SCORE_MAX_AGE_MS
   ) {
+    if (opts.scoreSource === "import") {
+      return { score: opts.talkScore, source: "import" };
+    }
     return { score: opts.talkScore, source: "talk" };
   }
   const observedAt = opts.observedScoreAt
@@ -63,4 +81,13 @@ export function displayProgressiveScore(opts: {
     return { score: opts.observedScore, source: "observed" };
   }
   return { score: null, source: null };
+}
+
+/** Short line for lists and door tiles, e.g. "Liberal". Null if unknown/stale. */
+export function progressiveScoreCaption(
+  opts: Parameters<typeof displayProgressiveScore>[0],
+): string | null {
+  const disp = displayProgressiveScore(opts);
+  if (disp.score == null) return null;
+  return progressiveScoreLabel(disp.score);
 }

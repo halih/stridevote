@@ -216,7 +216,11 @@ async function applyVoterMovedAndTalkScores(
     if (person.clearTalkScore) {
       await prisma.voter.update({
         where: { id: person.voterId },
-        data: { talkScore: null, scoreUpdatedAt: input.capturedAt },
+        data: {
+          talkScore: null,
+          scoreUpdatedAt: input.capturedAt,
+          scoreSource: null,
+        },
       });
     } else if (isProgressiveScore(person.talkScore)) {
       await prisma.voter.update({
@@ -224,6 +228,7 @@ async function applyVoterMovedAndTalkScores(
         data: {
           talkScore: person.talkScore,
           scoreUpdatedAt: input.capturedAt,
+          scoreSource: "talk",
         },
       });
     }

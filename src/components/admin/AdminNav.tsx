@@ -66,6 +66,10 @@ export function AdminNav({
       router.push(`/admin/${slug}?section=waves`);
       return;
     }
+    if (pathname.includes("/lists")) {
+      router.push(`/admin/${slug}?section=lists`);
+      return;
+    }
     const section = searchParams.get("section");
     const normalized =
       section === "programs" ? "waves" : section;
@@ -84,6 +88,9 @@ export function AdminNav({
           (searchParams.get("section") === "waves" ||
             searchParams.get("section") === "programs"))
       );
+    }
+    if (id === "lists" && pathname.startsWith(`/admin/${navSlug}/lists`)) {
+      return true;
     }
     if (pathname.startsWith(`/admin/${navSlug}/voters`)) return false;
     if (pathname.startsWith(`/admin/${navSlug}/reports`)) return false;

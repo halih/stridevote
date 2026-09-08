@@ -29,6 +29,8 @@ import {
 } from "@/lib/canvass/programs";
 import { programQuestionSchema } from "@/lib/canvass/outcomes";
 import { claimActiveCheckout } from "@/lib/canvass/checkout";
+import { getMinivanAdapter, listMinivanAdapters } from "@/lib/minivan/adapters";
+import { enqueueMinivanJob } from "@/lib/minivan/jobs";
 
 export interface AdminResult {
   ok: boolean;
@@ -1038,6 +1040,13 @@ export async function createList(
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
   const d = parsed.data;
 
+  if (d.source === "minivan") {
+    return fail("Use MiniVAN import to add a printed list (not a manual pointer).");
+  }
+
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) return fail("Campaign not found.");
+
   const program = await ensureActiveProgram(campaignId);
   const slug = await uniqueSlug(slugify(d.name), async (s) =>
     Boolean(await prisma.list.findUnique({ where: { slug: s } })),
@@ -1056,8 +1065,7 @@ export async function createList(
     },
   });
 
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-  revalidateCampaign(campaign?.slug);
+  revalidateCampaign(campaign.slug);
   return { ok: true, message: `Created ${d.name}` };
 }
 
@@ -1230,4 +1238,195 @@ export async function updateProgram(
   });
   revalidateCampaign(campaign?.slug);
   return { ok: true, message: "Wave updated" };
+}
+
+// ---- MiniVAN (platform-admin gate + job enqueue) ----
+
+const minivanSettingsSchema = z.object({
+  enabled: z.boolean(),
+  adapterKey: z.string().trim().min(1).nullable().optional(),
+});
+
+/** Platform admins only: enable MiniVAN and pick a typed campaign adapter. */
+export async function setCampaignMinivan(
+  campaignId: string,
+  input: unknown,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!isPlatformAdmin(user)) {
+    return fail("Only platform admins can configure MiniVAN.");
+  }
+
+  const parsed = minivanSettingsSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid settings");
+
+  const adapterKey = parsed.data.enabled
+    ? (parsed.data.adapterKey ?? null)
+    : null;
+  if (parsed.data.enabled) {
+    if (!adapterKey || !getMinivanAdapter(adapterKey)) {
+      const keys = listMinivanAdapters()
+        .map((a) => a.key)
+        .join(", ");
+      return fail(`Choose a MiniVAN adapter (${keys || "none registered"}).`);
+    }
+  }
+
+  const campaign = await prisma.campaign.update({
+    where: { id: campaignId },
+    data: {
+      minivanEnabled: parsed.data.enabled,
+      minivanAdapterKey: adapterKey,
+    },
+  });
+  revalidateCampaign(campaign.slug);
+  return {
+    ok: true,
+    message: parsed.data.enabled
+      ? `MiniVAN enabled (${adapterKey})`
+      : "MiniVAN disabled",
+  };
+}
+
+const printedListNumberSchema = z
+  .string()
+  .trim()
+  .regex(/^\d+-\d+$/, "Printed list number must look like 57429198-80406");
+
+/** Enqueue MiniVAN list import (worker downloads via emulator). */
+export async function enqueueMinivanListImport(
+  campaignId: string,
+  input: unknown,
+): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await can(user, campaignId, "lists:manage"))) return fail("Not allowed.");
+
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) return fail("Campaign not found.");
+  if (!campaign.minivanEnabled) return fail("MiniVAN is not enabled for this campaign.");
+  if (!getMinivanAdapter(campaign.minivanAdapterKey)) {
+    return fail("Configure a MiniVAN adapter before importing lists.");
+  }
+
+  const schema = z.object({
+    name: z.string().trim().min(1, "Name is required"),
+    printedListNumber: printedListNumberSchema,
+  });
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
+
+  const job = await enqueueMinivanJob({
+    type: "import_list",
+    campaignId,
+    requestedById: user.id,
+    payload: {
+      name: parsed.data.name,
+      printedListNumber: parsed.data.printedListNumber,
+    },
+  });
+
+  revalidateCampaign(campaign.slug);
+  return {
+    ok: true,
+    message: `MiniVAN import queued for ${parsed.data.printedListNumber}`,
+    id: job.id,
+  };
+}
+
+/** Enqueue pull of TeamCanvasses dispositions into StrideVote. */
+export async function enqueueMinivanPull(listId: string): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+
+  const list = await prisma.list.findUnique({
+    where: { id: listId },
+    include: {
+      campaignLinks: {
+        include: {
+          campaign: {
+            select: {
+              id: true,
+              slug: true,
+              minivanEnabled: true,
+              minivanAdapterKey: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!list || list.source !== "minivan") return fail("Not a MiniVAN list.");
+
+  const link = list.campaignLinks.find((l) => l.campaign.minivanEnabled);
+  if (!link) return fail("MiniVAN is not enabled for this list's campaign.");
+  if (!(await can(user, link.campaignId, "canvass:checkout")) &&
+      !(await can(user, link.campaignId, "lists:manage"))) {
+    return fail("Not allowed.");
+  }
+  if (!list.sourceRef) return fail("This list has no MiniVAN printed list number.");
+
+  const job = await enqueueMinivanJob({
+    type: "pull_canvass",
+    campaignId: link.campaignId,
+    listId,
+    requestedById: user.id,
+    payload: { printedListNumber: list.sourceRef },
+  });
+
+  revalidateCampaign(link.campaign.slug);
+  revalidatePath("/canvass");
+  return {
+    ok: true,
+    message: "Pull from MiniVAN queued (door results only)",
+    id: job.id,
+  };
+}
+
+/** Admin: enqueue push of StrideVote attempts into MiniVAN via emulator inject. */
+export async function enqueueMinivanPush(listId: string): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await canManageList(user.id, listId))) return fail("Not allowed.");
+
+  const list = await prisma.list.findUnique({
+    where: { id: listId },
+    include: {
+      campaignLinks: {
+        include: {
+          campaign: {
+            select: {
+              id: true,
+              slug: true,
+              minivanEnabled: true,
+              minivanAdapterKey: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!list || list.source !== "minivan") return fail("Not a MiniVAN list.");
+  const link = list.campaignLinks.find((l) => l.campaign.minivanEnabled);
+  if (!link) return fail("MiniVAN is not enabled for this list's campaign.");
+  if (!getMinivanAdapter(link.campaign.minivanAdapterKey)) {
+    return fail("Configure a MiniVAN adapter before pushing.");
+  }
+  if (!list.sourceRef) return fail("This list has no MiniVAN printed list number.");
+
+  const job = await enqueueMinivanJob({
+    type: "push_canvass",
+    campaignId: link.campaignId,
+    listId,
+    requestedById: user.id,
+    payload: { printedListNumber: list.sourceRef },
+  });
+
+  revalidateCampaign(link.campaign.slug);
+  return {
+    ok: true,
+    message: "Push to MiniVAN queued",
+    id: job.id,
+  };
 }

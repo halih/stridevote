@@ -29,6 +29,25 @@ function percentage(value: number | null): string {
   return value == null ? "Not enough data" : `${Math.round(value * 100)}%`;
 }
 
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  const local =
+    digits.length === 11 && digits.startsWith("1")
+      ? digits.slice(1)
+      : digits;
+  if (local.length === 10) {
+    return `(${local.slice(0, 3)}) ${local.slice(3, 6)}-${local.slice(6)}`;
+  }
+  return raw;
+}
+
+function phoneHref(raw: string): string | null {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 10) return `tel:+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `tel:+${digits}`;
+  return digits.length >= 8 ? `tel:+${digits}` : null;
+}
+
 function participationNote(
   voted: number | null,
   eligible: number | null,
@@ -120,6 +139,36 @@ export default async function VoterHistoryPage({
             <span>Registered</span>
             <b>{detail.voter.registrationDate ? formatElection(detail.voter.registrationDate) : "—"}</b>
           </div>
+          {detail.voter.phones.length ? (
+            <div>
+              <span>Phone{detail.voter.phones.length > 1 ? "s" : ""}</span>
+              <b className="voter-contact-list">
+                {detail.voter.phones.map((phone) => {
+                  const href = phoneHref(phone);
+                  const label = formatPhone(phone);
+                  return href ? (
+                    <a key={phone} className="contact-link" href={href}>
+                      {label}
+                    </a>
+                  ) : (
+                    <span key={phone}>{label}</span>
+                  );
+                })}
+              </b>
+            </div>
+          ) : null}
+          {detail.voter.emails.length ? (
+            <div>
+              <span>Email{detail.voter.emails.length > 1 ? "s" : ""}</span>
+              <b className="voter-contact-list">
+                {detail.voter.emails.map((email) => (
+                  <a key={email} className="contact-link" href={`mailto:${email}`}>
+                    {email}
+                  </a>
+                ))}
+              </b>
+            </div>
+          ) : null}
         </section>
 
         <section className="voter-propensity-grid" aria-label="Voter likelihood">
@@ -200,12 +249,15 @@ export default async function VoterHistoryPage({
               <span>Progressive score</span>
               <b>{detail.displayScore.label}</b>
               <small>
-                {detail.displayScore.source === "talk"
-                  ? "From conversation"
-                  : detail.displayScore.source === "observed"
-                    ? "Observed (signs)"
-                    : "No score yet"}
-                {detail.voter.talkScore != null
+                {detail.displayScore.source === "import"
+                  ? "Data Import"
+                  : detail.displayScore.source === "talk"
+                    ? "From conversation"
+                    : detail.displayScore.source === "observed"
+                      ? "Observed (signs)"
+                      : "No score yet"}
+                {detail.displayScore.source === "talk" &&
+                detail.voter.talkScore != null
                   ? ` · Talk raw: ${detail.voter.talkScore}`
                   : ""}
                 {detail.household?.observedScore != null

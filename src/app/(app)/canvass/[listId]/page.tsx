@@ -83,8 +83,11 @@ export default async function WalkListPage({
     redirect("/canvass");
   }
 
+  // Imported lists (MiniVAN) can be walked here once their doors landed;
+  // link-only sources such as Civibyte have nothing to knock.
   if (checkout.list.source !== "stridevote") {
-    notFound();
+    const doors = await prisma.listHousehold.count({ where: { listId } });
+    if (!doors) notFound();
   }
 
   const home =

@@ -10,6 +10,7 @@ const PUBLIC_PREFIXES = [
   "/api/auth",
   "/api/otp",
   "/api/dev",
+  "/api/minivan",
   "/brand",
   "/_next",
 ];

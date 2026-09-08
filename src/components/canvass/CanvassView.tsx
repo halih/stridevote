@@ -7,8 +7,8 @@ import { Icon } from "@/components/Icon";
 import { Map } from "@/components/map/Map";
 import { useToast } from "@/components/Toast";
 import { checkoutList, releaseList, toggleWatch, previewListSplit, splitList } from "@/lib/actions";
+import { enqueueMinivanPull } from "@/lib/admin-actions";
 import { ListSheets, type SheetState } from "./ListSheets";
-import { sourceLabel } from "@/lib/format";
 import { externalListOpen } from "@/lib/canvass/external";
 import { downloadPacket, getOutboxCount, purgePacketIfSynced, deletePacket } from "@/lib/canvass/offline-store";
 import { DEFAULT_ORIGIN, listDistanceMiles, roundMiles } from "@/lib/geo";
@@ -174,10 +174,20 @@ export function CanvassView({
       toast(ext?.hint ?? "Open this list in the external app.");
       return;
     }
+    // Imported MiniVAN doors can be walked either here or in MiniVAN itself.
+    if (list.source === "minivan") {
+      setSheet({ kind: "open", list });
+      return;
+    }
+    walkHere(list);
+  }
+
+  function walkHere(list: ListVM) {
     if (!list.programId) {
       toast("No active program for this list.");
       return;
     }
+    setSheet(null);
     router.push(`/canvass/${list.id}?programId=${encodeURIComponent(list.programId)}`);
   }
 
@@ -259,6 +269,12 @@ export function CanvassView({
               onSplit={() => onSplit(l)}
               onWatch={() => run(() => toggleWatch(l.id))}
               onOpen={() => onOpen(l)}
+              onPullMinivan={
+                l.minivanPull
+                  ? () =>
+                      run(() => enqueueMinivanPull(l.id))
+                  : undefined
+              }
             />
           ))
         ) : (
@@ -275,6 +291,8 @@ export function CanvassView({
         onClose={() => setSheet(null)}
         onConfirmCheckout={(l) => onCheckout(l)}
         onConfirmSplit={onConfirmSplit}
+        onWalkHere={walkHere}
+        onCopyFailed={() => toast("Copy blocked — type the list number instead.")}
         checkoutPending={pending}
         home={location.home}
         you={location.you}
@@ -293,6 +311,7 @@ function ListCard({
   onSplit,
   onWatch,
   onOpen,
+  onPullMinivan,
 }: {
   list: ListVM;
   pending: boolean;
@@ -303,15 +322,18 @@ function ListCard({
   onSplit: () => void;
   onWatch: () => void;
   onOpen: () => void;
+  onPullMinivan?: () => void;
 }) {
   const pct =
     l.progressTotal > 0 ? Math.round((l.progressDone / l.progressTotal) * 100) : 0;
-  const external = !l.nativeCanvass
+  const external = l.source === "minivan" || !l.nativeCanvass
     ? externalListOpen(l.source, l.sourceRef)
     : null;
   const hasPickup = l.campaigns.some((c) => c.pickup);
+  // Splitting rewrites list membership, which MiniVAN-sourced lists cannot own.
   const canSplit =
     l.status === "mine" &&
+    l.source === "stridevote" &&
     l.nativeCanvass &&
     l.doorsCount >= MIN_SPLIT_DOORS;
 
@@ -344,7 +366,9 @@ function ListCard({
             {c.name}
           </span>
         ))}
-        <span className="source-chip">{sourceLabel(l.source)}</span>
+        {l.source === "minivan" ? (
+          <span className="source-chip source-chip-minivan">MiniVAN</span>
+        ) : null}
       </div>
 
       <div className="pickup-info">
@@ -376,12 +400,28 @@ function ListCard({
 
       {l.status === "mine" ? (
         <>
-          {external ? <p className="taken-note">{external.hint}</p> : null}
+          {external && !l.nativeCanvass ? (
+            <p className="taken-note">
+              {external.hint}
+              {l.source === "minivan" ? " Pull imports door results only." : ""}
+            </p>
+          ) : null}
           <div className="list-foot list-foot-compact">
             <div className="list-foot-actions">
               <button type="button" className="btn btn-outline btn-sm" onClick={onPreview}>
                 <Icon name="map" size={14} /> Preview
               </button>
+              {onPullMinivan ? (
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  disabled={pending}
+                  title="Door ResultIDs only — not survey answers"
+                  onClick={onPullMinivan}
+                >
+                  Pull MiniVAN
+                </button>
+              ) : null}
               {canSplit ? (
                 <button
                   type="button"
@@ -425,6 +465,17 @@ function ListCard({
             <button type="button" className="btn btn-outline btn-sm" onClick={onPreview}>
               <Icon name="map" size={14} /> Preview
             </button>
+            {onPullMinivan ? (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={pending}
+                title="Door ResultIDs only — not survey answers"
+                onClick={onPullMinivan}
+              >
+                Pull MiniVAN
+              </button>
+            ) : null}
           </div>
           <button className="btn btn-primary btn-sm" disabled={pending} onClick={onCheckout}>
             Check out
