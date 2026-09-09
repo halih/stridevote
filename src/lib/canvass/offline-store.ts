@@ -159,7 +159,18 @@ export function mergeOutboxIntoPacket(
           closed: true,
           support,
           observedScore:
-            local.observedScore !== undefined ? local.observedScore : null,
+            local.observedScore !== undefined
+              ? local.observedScore
+              : door.current?.observedScore ?? null,
+          notes: local.notes ?? null,
+          people: (local.people ?? door.current?.people ?? []).map((person) => ({
+            voterId: person.voterId,
+            outcome: person.outcome,
+            support: person.support ?? null,
+            talkScore: person.talkScore ?? null,
+            answers: person.answers ?? {},
+            notes: person.notes ?? null,
+          })),
           capturedAt: local.capturedAt,
         },
       };

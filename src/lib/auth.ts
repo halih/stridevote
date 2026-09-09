@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { channelEnabled } from "@/lib/env";
 import { emailChannel } from "@/lib/otp/adapters/email";
 import { hashCode, OTP_MAX_ATTEMPTS } from "@/lib/otp";
+import { normalizePhone } from "@/lib/phone";
 
 // Email magic-link provider. Delivery is delegated to our channel abstraction
 // (dev stub / Resend / SMTP) via sendVerificationRequest — no SMTP server needed.
@@ -38,7 +39,7 @@ const otpProvider = Credentials({
     code: { label: "Code" },
   },
   async authorize(creds) {
-    const destination = String(creds?.destination ?? "").trim();
+    const destination = normalizePhone(String(creds?.destination ?? ""));
     const channel = String(creds?.channel ?? "");
     const code = String(creds?.code ?? "").trim();
     if (!destination || !code || !["sms", "whatsapp"].includes(channel)) {

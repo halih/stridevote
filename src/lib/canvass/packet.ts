@@ -3,6 +3,7 @@ import { parseProgramQuestions, snapshotListIntoProgram } from "@/lib/canvass/pr
 import {
   DOOR_OUTCOME_LABELS,
   type DoorOutcome,
+  type PersonOutcome,
   isDoneDoorOutcome,
 } from "@/lib/canvass/outcomes";
 import { getCurrentAttemptsForList } from "@/lib/canvass/progress";
@@ -53,6 +54,15 @@ export interface FieldPacketDoor {
     closed: boolean;
     support: number | null;
     observedScore: number | null;
+    notes: string | null;
+    people: Array<{
+      voterId: string;
+      outcome: PersonOutcome;
+      support: number | null;
+      talkScore: number | null;
+      answers: Record<string, unknown>;
+      notes: string | null;
+    }>;
     capturedAt: string;
   } | null;
   history: Array<{
@@ -346,6 +356,16 @@ export async function buildFieldPacket(opts: {
             closed: isDoneDoorOutcome(cur.outcome),
             support: cur.support,
             observedScore: cur.observedScore,
+            notes: cur.notes,
+            people: cur.people.map((person) => ({
+              ...person,
+              answers:
+                person.answers &&
+                typeof person.answers === "object" &&
+                !Array.isArray(person.answers)
+                  ? (person.answers as Record<string, unknown>)
+                  : {},
+            })),
             capturedAt: cur.capturedAt.toISOString(),
           }
         : null,

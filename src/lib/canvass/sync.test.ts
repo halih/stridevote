@@ -106,4 +106,26 @@ describe("parseSyncBatch", () => {
     assert.equal(clipped.notes.length, DOOR_NOTES_MAX);
     assert.equal(clipped.people[0].notes.length, PERSON_NOTES_MAX);
   });
+
+  it("keeps prior talk scores marked as preservation-only", () => {
+    const parsed = parseSyncBatch({
+      attempts: [
+        attempt({
+          people: [
+            {
+              voterId: "v1",
+              outcome: "talked",
+              talkScore: 4,
+              preserveTalkScore: true,
+              answers: { issue: "housing" },
+            },
+          ],
+        }),
+      ],
+    });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    assert.equal(parsed.attempts[0].people?.[0].talkScore, 4);
+    assert.equal(parsed.attempts[0].people?.[0].preserveTalkScore, true);
+  });
 });

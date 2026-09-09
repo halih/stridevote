@@ -12,8 +12,6 @@ import {
   DOOR_PIN_COLORS,
   doorPinColor,
   type DoorOutcome,
-  type PersonOutcome,
-  type ProgramQuestion,
 } from "@/lib/canvass/outcomes";
 import {
   downloadPacket,
@@ -357,11 +355,72 @@ export function WalkView({
     void saveAttempt({
       door,
       outcome,
-      notes: null,
+      notes: door.current?.notes ?? null,
       supersedesClientId: door.current?.clientAttemptId ?? null,
-      people: [],
+      people: (door.current?.people ?? []).map((person) => ({
+        ...person,
+        preserveTalkScore: person.talkScore != null ? true : undefined,
+      })),
       ...scorePayload,
     });
+  }
+
+  async function saveObservedScore(
+    door: FieldPacketDoor,
+    score: ProgressiveScore | null,
+  ) {
+    if (!packet) return;
+    if (!navigator.onLine) {
+      toast("Connect to save an observed score without changing the door result.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/canvass/observed-score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          programId: packet.programId,
+          listId: packet.listId,
+          householdId: door.householdId,
+          campaignId: packet.campaignId,
+          observedScore: score,
+        }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        message?: string;
+        capturedAt?: string;
+      };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.message ?? "Could not save observed score");
+      }
+      setPacket((current) =>
+        current
+          ? {
+              ...current,
+              doors: current.doors.map((row) =>
+                row.householdId === door.householdId
+                  ? {
+                      ...row,
+                      field: {
+                        accessStatus: row.field?.accessStatus ?? "ok",
+                        observedScore: score,
+                        observedScoreAt:
+                          data.capturedAt ?? new Date().toISOString(),
+                      },
+                    }
+                  : row,
+              ),
+            }
+          : current,
+      );
+      setQuickObserved((current) =>
+        current?.householdId === door.householdId ? null : current,
+      );
+      toast("Observed score saved");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not save observed score");
+    }
   }
 
   function onRelease() {
@@ -742,6 +801,7 @@ export function WalkView({
                           score: v,
                           touched: true,
                         });
+                        void saveObservedScore(currentDoor, v);
                       }}
                     />
                   </div>

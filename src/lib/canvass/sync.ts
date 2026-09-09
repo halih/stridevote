@@ -23,6 +23,8 @@ const personResponseSchema = z.object({
   support: z.number().int().min(1).max(5).nullable().optional(),
   talkScore: progressiveScoreSchema.optional(),
   clearTalkScore: z.boolean().optional(),
+  /** Carry an existing score into a replacement without refreshing field history. */
+  preserveTalkScore: z.boolean().optional(),
   answers: z.record(z.unknown()).optional(),
   notes: z.string().max(PERSON_NOTES_MAX).nullable().optional(),
 });
@@ -366,7 +368,10 @@ async function syncOneAttempt(
       people: people.map((p) => ({
         voterId: p.voterId,
         outcome: p.outcome,
-        talkScore: isProgressiveScore(p.talkScore) ? p.talkScore : null,
+        talkScore:
+          !p.preserveTalkScore && isProgressiveScore(p.talkScore)
+            ? p.talkScore
+            : undefined,
         clearTalkScore: p.clearTalkScore === true,
       })),
     });

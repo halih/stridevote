@@ -29,6 +29,7 @@ type ConversationGroup = {
   talkScore: ProgressiveScore | null;
   talkScoreTouched: boolean;
   answers: Record<string, unknown>;
+  notes: string | null;
 };
 
 function newGroup(type: GroupType, voterIds: string[] = []): ConversationGroup {
@@ -40,6 +41,7 @@ function newGroup(type: GroupType, voterIds: string[] = []): ConversationGroup {
     talkScore: null,
     talkScoreTouched: false,
     answers: {},
+    notes: null,
   };
 }
 
@@ -66,7 +68,7 @@ export function DoorSheet({
   const [outcome, setOutcome] = useState<DoorOutcome | null>(
     (door.current?.outcome as DoorOutcome) ?? null,
   );
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(door.current?.notes ?? "");
   const [observedScore, setObservedScore] = useState<ProgressiveScore | null>(
     () => {
       const raw = door.current?.observedScore ?? door.field?.observedScore;
@@ -75,6 +77,21 @@ export function DoorSheet({
   );
   const [observedTouched, setObservedTouched] = useState(false);
   const [groups, setGroups] = useState<ConversationGroup[]>(() => {
+    const priorGroups = (door.current?.people ?? [])
+      .filter((person) => person.outcome === "talked" || person.outcome === "moved")
+      .map((person) => ({
+        id: crypto.randomUUID(),
+        type: person.outcome as GroupType,
+        voterIds: [person.voterId],
+        support: person.support,
+        talkScore: isProgressiveScore(person.talkScore)
+          ? person.talkScore
+          : null,
+        talkScoreTouched: false,
+        answers: person.answers,
+        notes: person.notes,
+      }));
+    if (priorGroups.length) return priorGroups;
     if (door.voters.length === 1) {
       return [newGroup("talked", [door.voters[0].voterId])];
     }
@@ -129,17 +146,29 @@ export function DoorSheet({
   }
 
   function buildPeople(): SyncAttemptInput["people"] {
+    const priorByVoter = new Map(
+      (door.current?.people ?? []).map((person) => [person.voterId, person]),
+    );
     if (isRefused) {
-      return door.voters.map((v) => ({
-        voterId: v.voterId,
-        outcome: "refused" as const,
-        support: null,
-        talkScore: null,
-        answers: {},
-        notes: null,
+      return door.voters.map((v) => {
+        const prior = priorByVoter.get(v.voterId);
+        return {
+          voterId: v.voterId,
+          outcome: "refused" as const,
+          support: prior?.support ?? null,
+          talkScore: prior?.talkScore ?? null,
+          preserveTalkScore: prior?.talkScore != null ? true : undefined,
+          answers: prior?.answers ?? {},
+          notes: prior?.notes ?? null,
+        };
+      });
+    }
+    if (!isContact) {
+      return (door.current?.people ?? []).map((person) => ({
+        ...person,
+        preserveTalkScore: person.talkScore != null ? true : undefined,
       }));
     }
-    if (!isContact) return [];
 
     const byVoter = new Map<
       string,
@@ -147,13 +176,15 @@ export function DoorSheet({
     >();
 
     for (const v of door.voters) {
+      const prior = priorByVoter.get(v.voterId);
       byVoter.set(v.voterId, {
         voterId: v.voterId,
-        outcome: "not_home",
-        support: null,
-        talkScore: null,
-        answers: {},
-        notes: null,
+        outcome: prior?.outcome ?? "not_home",
+        support: prior?.support ?? null,
+        talkScore: prior?.talkScore ?? null,
+        preserveTalkScore: prior?.talkScore != null ? true : undefined,
+        answers: prior?.answers ?? {},
+        notes: prior?.notes ?? null,
       });
     }
 
@@ -167,7 +198,7 @@ export function DoorSheet({
             support: null,
             talkScore: null,
             answers: {},
-            notes: null,
+            notes: g.notes,
           });
         } else {
           byVoter.set(voterId, {
@@ -177,8 +208,13 @@ export function DoorSheet({
             talkScore: g.talkScoreTouched ? g.talkScore : undefined,
             clearTalkScore:
               g.talkScoreTouched && g.talkScore == null ? true : undefined,
+            preserveTalkScore:
+              !g.talkScoreTouched && g.talkScore != null ? true : undefined,
+            ...(g.talkScoreTouched
+              ? {}
+              : { talkScore: g.talkScore ?? undefined }),
             answers: g.answers,
-            notes: null,
+            notes: g.notes,
           });
         }
       }

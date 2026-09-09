@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import type { PersonOutcome } from "@/lib/canvass/outcomes";
 
 /**
  * Latest non-superseded attempt per household for a program+list.
@@ -18,6 +19,15 @@ export async function getCurrentAttemptsForList(
       userId: string;
       support: number | null;
       observedScore: number | null;
+      notes: string | null;
+      people: Array<{
+        voterId: string;
+        outcome: PersonOutcome;
+        support: number | null;
+        talkScore: number | null;
+        answers: unknown;
+        notes: string | null;
+      }>;
     }
   >
 > {
@@ -31,8 +41,18 @@ export async function getCurrentAttemptsForList(
       capturedAt: true,
       userId: true,
       supersedesClientId: true,
+      notes: true,
       observedScore: true,
-      people: { select: { support: true, outcome: true } },
+      people: {
+        select: {
+          voterId: true,
+          outcome: true,
+          support: true,
+          talkScore: true,
+          answers: true,
+          notes: true,
+        },
+      },
     },
   });
 
@@ -51,6 +71,15 @@ export async function getCurrentAttemptsForList(
       userId: string;
       support: number | null;
       observedScore: number | null;
+      notes: string | null;
+      people: Array<{
+        voterId: string;
+        outcome: PersonOutcome;
+        support: number | null;
+        talkScore: number | null;
+        answers: unknown;
+        notes: string | null;
+      }>;
     }
   >();
 
@@ -65,6 +94,11 @@ export async function getCurrentAttemptsForList(
       userId: a.userId,
       support: talked?.support ?? null,
       observedScore: a.observedScore,
+      notes: a.notes,
+      people: a.people.map((person) => ({
+        ...person,
+        outcome: person.outcome as PersonOutcome,
+      })),
     });
   }
 

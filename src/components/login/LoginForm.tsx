@@ -34,6 +34,7 @@ export function LoginForm({
 
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [otpDestination, setOtpDestination] = useState("");
   const [channel, setChannel] = useState<"sms" | "whatsapp">(phoneChannels[0] ?? "sms");
   const [code, setCode] = useState("");
   const [stage, setStage] = useState<"start" | "email-sent" | "otp-sent">("start");
@@ -44,7 +45,7 @@ export function LoginForm({
 
   const pollDev = useCallback(async () => {
     if (!isDev) return;
-    const to = stage === "otp-sent" ? phone.trim() : email.trim();
+    const to = stage === "otp-sent" ? otpDestination : email.trim();
     if (!to) return;
     try {
       const r = await fetch(`/api/dev/inbox?to=${encodeURIComponent(to)}`, {
@@ -55,7 +56,7 @@ export function LoginForm({
     } catch {
       /* ignore */
     }
-  }, [isDev, stage, email, phone]);
+  }, [isDev, stage, email, otpDestination]);
 
   useEffect(() => {
     if (!isDev || stage === "start") return;
@@ -98,6 +99,8 @@ export function LoginForm({
       setError(j.error ? `Couldn't send code: ${j.error}` : "Couldn't send the code.");
       return;
     }
+    const data = (await res.json()) as { destination?: string };
+    setOtpDestination(data.destination ?? phone.trim());
     setStage("otp-sent");
   }
 
@@ -106,7 +109,7 @@ export function LoginForm({
     setBusy(true);
     setError("");
     const res = await signIn("otp", {
-      destination: phone.trim(),
+      destination: otpDestination,
       channel,
       code: code.trim(),
       redirect: false,
@@ -216,7 +219,10 @@ export function LoginForm({
                 autoComplete="tel"
                 placeholder="(206) 555-0134"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  setOtpDestination("");
+                }}
                 autoFocus
                 required
               />

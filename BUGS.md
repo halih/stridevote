@@ -2,6 +2,8 @@
 
 Code-review findings for the whole codebase. Check an item when it is fixed (or decided not to fix). Known field-test work already listed in `TODO.md` is not repeated here unless this review found a sharper failure mode.
 
+Verified fixed and removed (Sep 2026): outbox chunking past 100 knocks, per-knock note clipping so one long note cannot 400 the batch, exclusive checkout via a partial unique index + `claimActiveCheckout`, creating/updating an active wave no longer closes siblings first, assigned lists can “Complete & release” when every door is done. Updating a door no longer wipes conversation people/notes (packet hydrates prior answers; lit/inaccessible keep person data; observed scores persist without replacing the knock). Formatted phone OTP login uses the API’s E.164 destination (and Auth.js normalizes again) so verification and the dev inbox match.
+
 Jargon used below:
 
 - **Wave** — a named canvass pass on a campaign (`CanvassProgram`). Lists are published into a wave; knocks are stored against that wave.
@@ -14,29 +16,13 @@ Jargon used below:
 
 ## Field-test / walk blockers
 
-- [x] **Offline sync dies after 100 knocks**
+- [x] **Updating a door wipes the conversation (worse than TODO.md)**
 
-  The phone sends the entire outbox in one POST. The server schema rejects batches over 100, so after 101 doors nothing syncs and release stays blocked. Chunk into batches of 100 and ack each batch.
+  `TODO.md` already tracks restoring prior answers. The packet’s `current` object still has no people or notes. The sheet starts notes empty and rebuilds conversation groups from scratch. “Lit drop” / “Inaccessible” on a done door replace the knock with `people: []` and `notes: null`. Hydrate the sheet from the last result, and do not let quick actions drop person data. Persist observed sign scores without replacing the knock.
 
-- [x] **One oversized note poisons the whole queue**
+- [x] **Formatted phone numbers cannot finish OTP login**
 
-  Door notes have no client length limit. The server rejects notes over 4,000 characters *for the whole batch*, before per-knock acks. A single 4,001-character note blocks every other result on that list, and there is no outbox editor. Cap the textarea and isolate bad items instead of failing the batch.
-
-- [ ] **Updating a door wipes the conversation (worse than TODO.md)**
-
-  `TODO.md` already tracks restoring prior answers. The current form also starts notes empty, and “Lit drop” / “Inaccessible” on a done door replace the current knock with `people: []` and `notes: null`. Hydrate the sheet from the last result, and do not let quick actions drop person data. Persist observed sign scores without replacing the knock.
-
-- [ ] **Formatted phone numbers cannot finish OTP login**
-
-  `/api/otp` normalizes `(206) 555-0134` before storing the challenge. The login form then verifies with the original typed string, so the hash never matches. Keep the normalized destination returned by the API (or normalize again in Auth.js).
-
-- [x] **Two people can check out the same list at once**
-
-  Checkout is “look for an active hold, then insert.” The database has no unique constraint on one active checkout per list+wave. Two taps at the same time both succeed. Add a partial unique index on `(listId, programId) WHERE status = 'active'` and handle the conflict.
-
-- [x] **Creating an active wave can leave the campaign with none**
-
-  Saving a new/updated *active* wave first closed every other active wave, then created/updated — outside a transaction. A duplicate name then failed, and canvassers had no active wave. Stop closing sibling waves (campaigns may have more than one active); a failed name write no longer wipes the current wave.
+  `/api/otp` normalizes `(206) 555-0134` to E.164 before hashing. The login form then verifies with the original typed string, so the hash never matches. The form also ignores the `destination` returned by the API. Dev inbox lookup uses the same unnormalized string, so the on-screen test code never appears either. Keep the normalized destination from the API (or normalize again in Auth.js).
 
 ---
 
@@ -44,7 +30,7 @@ Jargon used below:
 
 - [ ] **Canvass sync does not check who may write**
 
-  `/api/canvass/sync` only requires a signed-in user. It confirms the list is published in that wave, then accepts the knock. No campaign membership, `canvass:checkout`, visibility, or assignment check. Missing checkout only sets `staleCheckout: true`. Anyone with cached IDs (or a removed volunteer) can write results and field-layer scores. Require current permission, or a prior checkout the same user actually held.
+  `/api/canvass/sync` only requires a signed-in user. It confirms the list is published in that wave, then accepts the knock. No campaign membership, `canvass:checkout`, visibility, assignment, or `deletedAt` / `archivedAt` check. Missing checkout only sets `staleCheckout: true`. Anyone with cached IDs (or a removed volunteer) can write results and field-layer scores, including onto an archived list. Require current permission, or a prior checkout the same user actually held, and refuse archived lists/campaigns.
 
 - [ ] **Person responses are not tied to the door being logged**
 
@@ -76,11 +62,11 @@ Jargon used below:
 
 - [ ] **`ensureCampaignProgram` is an unauthenticated server action**
 
-  It is exported from `"use server"` with no session check and can activate or create a “Default” wave for any campaign id. It is unused in the UI. Remove the export or require `lists:manage`.
+  It is still exported from `"use server"` with no session check and can activate or create a “Default” wave for any campaign id. It is unused in the UI. Remove the export or require `lists:manage`.
 
-- [ ] **Shared lists can be deleted or unlinked by one campaign’s admin**
+- [ ] **One campaign’s admin can archive or unlink a shared list**
 
-  `canManageList` is true if the user manages *any* linked campaign. Delete then drops the global list (snapshots, checkouts, knocks). Relinking deletes every campaign row and only checks permission on the campaigns being kept. Require permission on every affected campaign, or make lists campaign-owned.
+  `canManageList` is true if the user manages *any* linked campaign. Archive (`deletedAt`) then hides the list for every campaign. Relinking still deletes every `ListCampaign` row and only checks permission on the campaigns being kept. Require permission on every affected campaign, or make lists campaign-owned.
 
 - [ ] **Voter detail can show other campaigns’ field events**
 
@@ -93,6 +79,10 @@ Jargon used below:
 - [ ] **IndexedDB packets and outbox are not scoped to the signed-in user**
 
   Keys are `programId:listId` only. On a shared browser, user B can see user A’s cached voters if they can open the same list — and can sync A’s outbox as B’s work. Namespace by user id and wipe or quarantine on account change. (Product retention for packets is still in `TODO.md`.)
+
+- [ ] **MiniVAN import can match against the entire voter table**
+
+  If the campaign has no `CampaignVoter` rows yet, `applyMinivanImport` loads up to 500,000 statewide voters, matches MiniVAN people against them, and writes phones/emails/`likelyParty` onto those master records. Scope matching to the campaign (or fail until voters are synced).
 
 ---
 
@@ -128,7 +118,7 @@ Jargon used below:
 
 - [ ] **Walk deletes the packet before release succeeds**
 
-  `purgePacketIfSynced` runs, then `releaseList`. If release fails, the list is still theirs and the offline copy is gone. Release first; purge only on `ok`.
+  On the walk screen, `purgePacketIfSynced` still runs *before* `releaseList`. If release fails, the list is still theirs and the offline copy is gone. (The list-board release path already purges only after `ok`.) Release first; purge only on success.
 
 - [ ] **Re-requesting join demotes active members to pending**
 
@@ -145,6 +135,10 @@ Jargon used below:
 - [ ] **“Moved” cannot be undone from a later knock**
 
   Field writeback only sets `residenceStatus` to `moved`. A replacement contact never restores `ok`. Add a correction event and recompute current residence.
+
+- [ ] **Permanent campaign delete still wipes knocks**
+
+  Archive keeps lists and field events, but `deleteCampaign` still `DELETE`s the campaign. `CanvassAttempt.campaignId` is `ON DELETE CASCADE`, so every knock goes with it even though `FieldEvent.campaignId` is `SET NULL`. Either block hard delete while attempts exist, or match the field-event keep-alive.
 
 - [ ] **VRDB import never unlinks voters who left the district**
 
@@ -174,9 +168,9 @@ Jargon used below:
 
   Headlines use every current door in the wave; pace / daily outcome charts start at `max(createdAt, now − 89 days)` when range is “wave.” Enumerate from wave start, or label the cap.
 
-- [ ] **List edit only loads the first page of doors**
+- [ ] **List edit only loads the first 400 doors**
 
-  Admin list detail `take`s a door page from the database, then paginates that slice in the client. The map and “walk order” numbering are only the first chunk. Page on the server or load all ids for the map.
+  Admin list detail `take`s 400 doors from the database, then paginates that slice in the client. The map and walk-order numbering miss the rest. Page on the server or load all ids for the map.
 
 - [ ] **Required survey questions are not required**
 
@@ -193,10 +187,6 @@ Jargon used below:
 - [ ] **`programId` on voter filters is unused**
 
   The query string and saved filters store `programId`, but canvass audience is always campaign-wide. Drop the field or actually scope canvassed/exclude to that wave.
-
-- [ ] **Assigned lists hide Release**
-
-  Assigned-to-me lists have no Release button. Completing still needs a path (complete vs stay assigned). Confirm the product rule and expose it.
 
 - [ ] **Lint currently fails on walk / sheets / reports**
 
@@ -216,11 +206,11 @@ Jargon used below:
 
 - [ ] **PWA / email icons 404**
 
-  The web manifest points at 512 and 1024 PNGs; email HTML points at a 120px PNG. Those files are not under `public/brand`. Add them or point at existing SVGs.
+  The web manifest still points at 512 and 1024 PNGs; email HTML points at a 120px PNG. Those files are not under `public/brand` (SVGs exist). Add the PNGs or drop the PNG entries.
 
 - [ ] **No CI; `npm run build` does not run tests or lint**
 
-  The defects above (auth, sync, checkout races) have no automated coverage. Existing tests are 61 passing unit tests of pure helpers.
+  The defects above (auth, sync, checkout races) have no automated coverage. Existing tests are unit tests of pure helpers.
 
 ---
 
