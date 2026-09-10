@@ -29,7 +29,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://stridevote:stridevote@db:5432/stridevote?schema=public
-      AUTH_SECRET: ${AUTH_SECRET:-dev-only-secret-change-me}
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET — generate with npx auth secret}
       AUTH_URL: http://localhost:3000
       AUTH_CHANNELS: ${AUTH_CHANNELS:-email}
     ports:

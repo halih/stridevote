@@ -40,6 +40,8 @@ export async function POST(request: Request) {
       listId: input.listId,
       programId: input.programId,
       campaignId: input.campaignId,
+      list: { deletedAt: null },
+      campaign: { archivedAt: null },
     },
     select: { id: true },
   });

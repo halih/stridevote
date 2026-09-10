@@ -92,3 +92,7 @@ Jargon used below:
 - [ ] **Production map tiles**
 
   Default tiles are public OpenStreetMap. That is not a volume-production plan; set `NEXT_PUBLIC_MAP_TILE_URL` (or another provider) before lots of volunteers hit the map.
+
+- [ ] **Bind profile phone only after OTP once SMS is live**
+
+  Profile currently saves a unique phone onto the user so organizers can store numbers without paying for OTP. Email and phone are unique per user. When phone login is enabled, require a successful OTP before `User.phone` becomes a sign-in key, so a typo or someone else’s number cannot take over the account.

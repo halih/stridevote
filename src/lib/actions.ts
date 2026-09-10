@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
 import { signOut } from "@/lib/auth";
 import { permissionsForRoles } from "@/lib/roles";
-import { ensureActiveProgram } from "@/lib/canvass/programs";
+import { canAccessListProgram } from "@/lib/canvass/access";
 import { countClosedDoors } from "@/lib/canvass/progress";
 import { claimActiveCheckout } from "@/lib/canvass/checkout";
 import {
@@ -69,42 +69,6 @@ export async function requestJoinCampaign(campaignId: string): Promise<ActionRes
   });
   revalidatePath("/campaigns");
   return { ok: true, message: `Request sent to ${campaign.name}` };
-}
-
-async function canAccessListProgram(
-  userId: string,
-  listId: string,
-  programId: string,
-): Promise<{ campaignId: string } | null> {
-  const memberships = await prisma.campaignMembership.findMany({
-    where: {
-      userId,
-      status: "active",
-      campaign: { archivedAt: null },
-    },
-    select: { campaignId: true, roles: true },
-  });
-  const campaignIds = memberships
-    .filter((membership) =>
-      permissionsForRoles(membership.roles).has("canvass:checkout"),
-    )
-    .map((membership) => membership.campaignId);
-  if (!campaignIds.length) return null;
-
-  const link = await prisma.listCampaign.findFirst({
-    where: {
-      listId,
-      programId,
-      list: { deletedAt: null },
-      campaignId: { in: campaignIds },
-      OR: [
-        { visibility: "volunteers" },
-        { visibility: "assigned", assignedUserId: userId },
-      ],
-    },
-    select: { campaignId: true },
-  });
-  return link;
 }
 
 export async function checkoutList(
@@ -268,11 +232,6 @@ export async function toggleWatch(listId: string): Promise<ActionResult> {
   await prisma.listWatch.create({ data: { userId: user.id, listId } });
   revalidatePath("/canvass");
   return { ok: true, message: `Watching ${list.name}` };
-}
-
-/** Ensure programs exist when campaigns are created elsewhere. */
-export async function ensureCampaignProgram(campaignId: string): Promise<void> {
-  await ensureActiveProgram(campaignId);
 }
 
 async function requireOwnedCheckout(

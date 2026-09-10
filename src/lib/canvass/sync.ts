@@ -14,6 +14,7 @@ import { refreshCheckoutProgress } from "@/lib/canvass/progress";
 import { resolveSplitRedirect } from "@/lib/canvass/list-split-redirect";
 import { applyFieldWriteback } from "@/lib/canvass/field-layer";
 import { isProgressiveScore } from "@/lib/canvass/progressive-score";
+import { authorizeCanvassWrite } from "@/lib/canvass/access";
 
 const progressiveScoreSchema = z.number().int().min(0).max(5).nullable();
 
@@ -105,6 +106,7 @@ export interface SyncAck {
   ok: boolean;
   error?: string;
   staleCheckout?: boolean;
+  checkoutId?: string;
 }
 
 export async function syncAttemptsForUser(
@@ -118,8 +120,8 @@ export async function syncAttemptsForUser(
     try {
       const ack = await syncOneAttempt(userId, attempt);
       acks.push(ack);
-      if (ack.ok && attempt.checkoutId) {
-        checkoutIdsToRefresh.add(attempt.checkoutId);
+      if (ack.ok && ack.checkoutId) {
+        checkoutIdsToRefresh.add(ack.checkoutId);
       }
     } catch (err) {
       acks.push({
@@ -177,21 +179,21 @@ async function syncOneAttempt(
     input.householdId,
   );
 
-  const link = await prisma.listCampaign.findFirst({
-    where: {
-      listId: resolvedListId,
-      programId: input.programId,
-      campaignId: input.campaignId,
-    },
-    select: { id: true },
+  const write = await authorizeCanvassWrite(userId, {
+    listId: resolvedListId,
+    originalListId: input.listId,
+    programId: input.programId,
+    campaignId: input.campaignId,
   });
-  if (!link) {
+  if (!write.ok) {
     return {
       clientAttemptId: input.clientAttemptId,
       ok: false,
-      error: "List is not published in this program",
+      error: write.error,
     };
   }
+  const checkoutId = write.checkoutId;
+  const staleCheckout = write.staleCheckout;
 
   const onSnapshot = await prisma.programListHousehold.findUnique({
     where: {
@@ -255,38 +257,6 @@ async function syncOneAttempt(
     }
   }
 
-  let checkoutId = input.checkoutId ?? null;
-  let staleCheckout = false;
-
-  const activeMine = await prisma.listCheckout.findFirst({
-    where: {
-      listId: resolvedListId,
-      programId: input.programId,
-      userId,
-      status: "active",
-    },
-    select: { id: true },
-  });
-
-  if (activeMine) {
-    checkoutId = activeMine.id;
-  } else {
-    // Accept late work from a released/reassigned checkout; flag for admin.
-    staleCheckout = true;
-    if (checkoutId) {
-      const claimed = await prisma.listCheckout.findFirst({
-        where: {
-          id: checkoutId,
-          listId: { in: [resolvedListId, input.listId] },
-          programId: input.programId,
-          userId,
-        },
-        select: { id: true },
-      });
-      if (!claimed) checkoutId = null;
-    }
-  }
-
   const people = input.people ?? [];
   if (people.length) {
     const allowed = await prisma.programListVoter.findMany({
@@ -308,12 +278,27 @@ async function syncOneAttempt(
       });
       allowedIds = new Set(live.map((a) => a.voterId));
     }
+    const atDoor = await prisma.householdVoter.findMany({
+      where: {
+        householdId: input.householdId,
+        voterId: { in: people.map((p) => p.voterId) },
+      },
+      select: { voterId: true },
+    });
+    const atDoorIds = new Set(atDoor.map((row) => row.voterId));
     for (const person of people) {
       if (!allowedIds.has(person.voterId)) {
         return {
           clientAttemptId: input.clientAttemptId,
           ok: false,
           error: "Voter is not on this list",
+        };
+      }
+      if (!atDoorIds.has(person.voterId)) {
+        return {
+          clientAttemptId: input.clientAttemptId,
+          ok: false,
+          error: "Voter does not live at this door",
         };
       }
     }
@@ -383,5 +368,6 @@ async function syncOneAttempt(
     clientAttemptId: input.clientAttemptId,
     ok: true,
     staleCheckout,
+    checkoutId,
   };
 }

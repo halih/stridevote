@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@/generated/prisma";
 import { getSessionUser } from "@/lib/session";
 import { normalizePhone } from "@/lib/phone";
 import { geocodeAddress, reverseGeocode } from "@/lib/geocode";
@@ -112,7 +113,9 @@ export async function updateProfile(input: unknown): Promise<ProfileResult> {
           where: { phone: normalized, NOT: { id: user.id } },
           select: { id: true },
         });
-        if (clash) return { ok: false, message: "That phone number is already in use." };
+        if (clash) {
+          return { ok: false, message: "That phone number is already in use." };
+        }
       }
       phone = normalized;
     }
@@ -140,7 +143,26 @@ export async function updateProfile(input: unknown): Promise<ProfileResult> {
     data.postalCode = loc.postalCode ?? null;
   }
 
-  await prisma.user.update({ where: { id: user.id }, data });
+  try {
+    await prisma.user.update({ where: { id: user.id }, data });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const target = Array.isArray(err.meta?.target)
+        ? (err.meta.target as string[]).join(" ")
+        : String(err.meta?.target ?? "");
+      if (target.includes("phone")) {
+        return { ok: false, message: "That phone number is already in use." };
+      }
+      if (target.includes("email")) {
+        return { ok: false, message: "That email is already in use." };
+      }
+      return { ok: false, message: "That contact is already in use." };
+    }
+    throw err;
+  }
 
   revalidatePath("/profile");
   revalidatePath("/campaigns");

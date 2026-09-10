@@ -149,8 +149,12 @@ export function ProfileForm({ initial }: { initial: ProfileInitial }) {
           type="tel"
           value={phone}
           placeholder="(206) 555-0134"
+          autoComplete="tel"
           onChange={(e) => setPhone(e.target.value)}
         />
+        <p className="field-hint" style={{ marginTop: 6 }}>
+          Optional. Must be unique — another account cannot already use this number.
+        </p>
       </div>
 
       <hr className="form-divider" />

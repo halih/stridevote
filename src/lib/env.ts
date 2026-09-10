@@ -20,6 +20,28 @@ function parseEmails(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
+/** Placeholder shipped in docs — never accept this outside local `next dev`. */
+export const EXAMPLE_AUTH_SECRET = "dev-only-secret-change-me";
+
+export function productionAuthSecretRejected(
+  secret: string | undefined,
+  nodeEnv: string | undefined,
+): boolean {
+  if (nodeEnv !== "production") return false;
+  const s = (secret ?? "").trim();
+  return !s || s === EXAMPLE_AUTH_SECRET || s === "dev";
+}
+
+const skipDuringNextBuild = process.env.NEXT_PHASE === "phase-production-build";
+if (
+  !skipDuringNextBuild &&
+  productionAuthSecretRejected(process.env.AUTH_SECRET, process.env.NODE_ENV)
+) {
+  throw new Error(
+    "AUTH_SECRET must be a unique secret in production — do not use the example value from .env.example.",
+  );
+}
+
 export const env = {
   isDev: process.env.NODE_ENV !== "production",
   appName: "StrideVote",

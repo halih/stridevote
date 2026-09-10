@@ -2,7 +2,7 @@
 
 Code-review findings for the whole codebase. Check an item when it is fixed (or decided not to fix). Known field-test work already listed in `TODO.md` is not repeated here unless this review found a sharper failure mode.
 
-Verified fixed and removed (Sep 2026): outbox chunking past 100 knocks, per-knock note clipping so one long note cannot 400 the batch, exclusive checkout via a partial unique index + `claimActiveCheckout`, creating/updating an active wave no longer closes siblings first, assigned lists can “Complete & release” when every door is done. Updating a door no longer wipes conversation people/notes (packet hydrates prior answers; lit/inaccessible keep person data; observed scores persist without replacing the knock). Formatted phone OTP login uses the API’s E.164 destination (and Auth.js normalizes again) so verification and the dev inbox match.
+Verified fixed and removed (Sep 2026): outbox chunking past 100 knocks, per-knock note clipping so one long note cannot 400 the batch, exclusive checkout via a partial unique index + `claimActiveCheckout`, creating/updating an active wave no longer closes siblings first, assigned lists can “Complete & release” when every door is done. Updating a door no longer wipes conversation people/notes (packet hydrates prior answers; lit/inaccessible keep person data; observed scores persist without replacing the knock). Formatted phone OTP login uses the API’s E.164 destination (and Auth.js normalizes again) so verification and the dev inbox match. Canvass sync requires a checkout this user held and refuses archived/deleted lists; person responses must live at the knock’s household. `.env.example` no longer ships a known `AUTH_SECRET` or a platform-admin email; production rejects the example secret. Unused unauthenticated `ensureCampaignProgram` export removed. Profile phone save stays unique-only until OTP bind (see `TODO.md`).
 
 Jargon used below:
 
@@ -28,11 +28,11 @@ Jargon used below:
 
 ## Auth / security
 
-- [ ] **Canvass sync does not check who may write**
+- [x] **Canvass sync does not check who may write**
 
   `/api/canvass/sync` only requires a signed-in user. It confirms the list is published in that wave, then accepts the knock. No campaign membership, `canvass:checkout`, visibility, assignment, or `deletedAt` / `archivedAt` check. Missing checkout only sets `staleCheckout: true`. Anyone with cached IDs (or a removed volunteer) can write results and field-layer scores, including onto an archived list. Require current permission, or a prior checkout the same user actually held, and refuse archived lists/campaigns.
 
-- [ ] **Person responses are not tied to the door being logged**
+- [x] **Person responses are not tied to the door being logged**
 
   Sync accepts a voter if they appear *anywhere on the list*, not at `householdId`. A knock on door A can mark a voter at door B moved/scored. Check `HouseholdVoter` for that household as well as list membership.
 
@@ -48,19 +48,19 @@ Jargon used below:
 
   Two correct submits can both see `consumedAt = null`. Concurrent wrong guesses can all see `attempts < 5`. Atomically increment / consume (`UPDATE … WHERE consumedAt IS NULL`), and only succeed if one row changed.
 
-- [ ] **An unverified profile phone becomes a login key**
+- [x] **An unverified profile phone becomes a login key** *(deferred — unique save for now)*
 
-  Saving a phone on the profile writes it onto the user immediately. OTP login upserts by that phone. A typo (or someone else’s number) lets that phone take over the account. Bind the number only after a successful OTP.
+  Saving a phone still writes it onto the user so we can store numbers without paid OTP. Email and phone stay unique per user. OTP bind is tracked in `TODO.md`; do that before enabling phone login.
 
 - [ ] **SMS / WhatsApp adapters always log the plaintext code; email can log magic links**
 
   Stub SMS/WhatsApp `send()` prints the code. Email with no live provider (or after a *dev* delivery failure) logs the full magic link — and `isDev` is any non-production `NODE_ENV`. Fail startup in production unless every enabled channel has a real provider; never log credentials outside an explicit local stub.
 
-- [ ] **`.env.example` ships a known `AUTH_SECRET` and a real platform-admin email**
+- [x] **`.env.example` ships a known `AUTH_SECRET` and a real platform-admin email**
 
   Copying the example into a reachable deploy grants that inbox platform admin and uses a public JWT secret. Leave admin emails blank; reject the example secret outside local dev.
 
-- [ ] **`ensureCampaignProgram` is an unauthenticated server action**
+- [x] **`ensureCampaignProgram` is an unauthenticated server action**
 
   It is still exported from `"use server"` with no session check and can activate or create a “Default” wave for any campaign id. It is unused in the UI. Remove the export or require `lists:manage`.
 
