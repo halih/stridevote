@@ -142,6 +142,14 @@ def run(printed_number, timeout_s=90, force=False):
     # devices. That's exactly the point when the goal is verifying server-side state
     # rather than continuing to canvass locally.
 
+    # With location permission held, MiniVAN blocks on an "Uh oh / We could not
+    # determine your location" screen whenever the provider never returns a fix —
+    # which is always on this emulator image (MINIVAN_DB_SCHEMA.md §8.6). That screen
+    # has no buttons, so the loop below would spin to the timeout with no way out.
+    # Denying location makes the app skip proximity sorting and stay usable.
+    adb_shell(f"pm revoke {PKG} android.permission.ACCESS_FINE_LOCATION", check=False)
+    adb_shell(f"pm revoke {PKG} android.permission.ACCESS_COARSE_LOCATION", check=False)
+
     adb_shell(f"am force-stop {PKG}")
     adb_shell(f"am start -n {PKG}/.ui.activities.LaunchActivity")
 
@@ -165,10 +173,11 @@ def run(printed_number, timeout_s=90, force=False):
             menuitemd = next(find(nodes, text="Download a new list"), None)
             menutabd = next(find(nodes, text="Menu"), None)
             tipd = next(find(nodes, text="Continue"), None)
+            skipd = next(find(nodes, rid_suffix="skip_button"), None)
             print(f"[{it}] filled={filled} submitted={submitted} f1={bool(f1d)} f2={bool(f2d)} "
                   f"btn={btnd['bounds'] if btnd else None} row={bool(rowd)} confirm={bool(confirmd)} "
                   f"menuitem={bool(menuitemd)} menutab={bool(menutabd)} tip={bool(tipd)} "
-                  f"top={top_activity()}", file=sys.stderr)
+                  f"skip={bool(skipd)} top={top_activity()}", file=sys.stderr)
 
         f1 = next(find(nodes, rid_suffix="enter_list_number_field_1"), None)
         f2 = next(find(nodes, rid_suffix="enter_list_number_field_2"), None)
@@ -214,6 +223,20 @@ def run(printed_number, timeout_s=90, force=False):
             else:
                 stuck_iters = 0
             continue  # still downloading / navigating back to My List
+
+        # Onboarding gate shown when location is denied — dismissing it is what keeps
+        # the app out of the location-fix dead end. "Get Started" re-prompts for the
+        # permission, so always take "Skip".
+        skip = next(find(nodes, rid_suffix="skip_button"), None)
+        if skip:
+            tap(*center(skip["bounds"])); continue
+
+        if any("could not determine your location" in n["text"] for n in nodes):
+            sys.exit("ERROR: MiniVAN is stuck on its location-error screen, which has no "
+                     "way out. The app regained location permission (set_location.sh grants "
+                     "it) but the emulator never produces a fix. Revoke it and retry:\n"
+                     f"  adb shell pm revoke {PKG} android.permission.ACCESS_FINE_LOCATION\n"
+                     f"  adb shell pm revoke {PKG} android.permission.ACCESS_COARSE_LOCATION")
 
         row = next(find(nodes, rid_suffix="enter_list_number_title"), None)
         if row:

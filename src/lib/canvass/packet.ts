@@ -16,6 +16,7 @@ import {
   geocodeMapboxForwardBatch,
   mapboxToken,
 } from "@/lib/geocode-mapbox";
+import { votedInRelatedPrimary } from "@/lib/elections";
 
 export interface FieldPacketDoor {
   householdId: string;
@@ -46,6 +47,7 @@ export interface FieldPacketDoor {
     talkScore?: number | null;
     scoreUpdatedAt?: string | null;
     scoreSource?: string | null;
+    votedInPrimary: boolean;
   }>;
   current: {
     clientAttemptId: string;
@@ -83,6 +85,8 @@ export interface FieldPacket {
   doorsCount: number;
   programId: string;
   programName: string;
+  electionType: string;
+  electionDate: string | null;
   campaignId: string;
   campaignName: string;
   campaignColor: string;
@@ -108,6 +112,10 @@ const packetVoterSelect = {
   talkScore: true,
   scoreUpdatedAt: true,
   scoreSource: true,
+  history: {
+    where: { electionType: "primary" },
+    select: { electionDate: true },
+  },
 } as const;
 
 const packetHouseholdInclude = {
@@ -301,7 +309,6 @@ export async function buildFieldPacket(opts: {
   }
 
   const sessionByHousehold = await sessionMapboxOverlay(households);
-
   const doorsRaw: FieldPacketDoor[] = households.map((row) => {
     const h = row.household;
     const coords = resolveDoorCoords({
@@ -345,6 +352,11 @@ export async function buildFieldPacket(opts: {
         talkScore: hv.voter.talkScore,
         scoreUpdatedAt: hv.voter.scoreUpdatedAt?.toISOString() ?? null,
         scoreSource: hv.voter.scoreSource,
+        votedInPrimary: votedInRelatedPrimary(
+          link.program.electionType,
+          link.program.electionDate,
+          hv.voter.history.map((record) => record.electionDate),
+        ),
       })),
       current: cur
         ? {
@@ -400,6 +412,8 @@ export async function buildFieldPacket(opts: {
       doorsCount: Math.max(doors.length, link.list.doorsCount),
       programId: link.program.id,
       programName: link.program.name,
+      electionType: link.program.electionType,
+      electionDate: link.program.electionDate?.toISOString().slice(0, 10) ?? null,
       campaignId: link.campaign.id,
       campaignName: link.campaign.name,
       campaignColor: link.campaign.color,

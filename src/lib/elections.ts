@@ -39,3 +39,22 @@ export function electionTypeLabel(type: ElectionType | string): string {
       return "Special";
   }
 }
+
+export function votedInRelatedPrimary(
+  waveType: string,
+  waveDate: Date | string | null,
+  primaryDates: readonly (Date | string)[],
+): boolean {
+  if (waveType !== "general" || !waveDate) return false;
+  const waveYear =
+    typeof waveDate === "string"
+      ? Number(waveDate.slice(0, 4))
+      : waveDate.getUTCFullYear();
+  if (!Number.isInteger(waveYear)) return false;
+
+  return primaryDates.some((date) => {
+    const year =
+      typeof date === "string" ? Number(date.slice(0, 4)) : date.getUTCFullYear();
+    return year === waveYear;
+  });
+}

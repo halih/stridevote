@@ -10,6 +10,7 @@ const PATHS: Record<string, string> = {
   map: "M9 20l-6 2V6l6-2 6 2 6-2v16l-6 2-6-2z M9 4v16 M15 6v16",
   list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
   check: "M20 6L9 17l-5-5",
+  vote: "M12 3.2a8.8 8.8 0 100 17.6 8.8 8.8 0 000-17.6z M7.6 12.2l3 3 5.8-6.6",
   bell: "M6 8a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6z M10 20a2 2 0 004 0",
   lock: "M4 10h16v10H4z M8 10V7a4 4 0 018 0v3",
   home: "M4 11l8-7 8 7 M6 10v10h12V10",
@@ -41,11 +42,13 @@ export type IconName = keyof typeof PATHS;
 export function Icon({
   name,
   size = 20,
+  strokeWidth = 2,
   style,
   className,
 }: {
   name: IconName;
   size?: number;
+  strokeWidth?: number;
   style?: CSSProperties;
   className?: string;
 }) {
@@ -57,7 +60,7 @@ export function Icon({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={2}
+      strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
       style={style}

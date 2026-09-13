@@ -131,6 +131,14 @@ a { color: inherit; }
 .camp-name { font-size: 16px; font-weight: 700; margin: 0 0 2px; }
 .camp-office { font-size: 13px; color: var(--ink-soft); margin: 0; }
 .pill { font-size: 11px; font-weight: 700; letter-spacing: .02em; padding: 4px 9px; border-radius: 99px; white-space: nowrap; }
+.pill-sm {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0;
+  padding: 1px 6px 1px 4px;
+}
+/* Fonts reserve more room above the cap height than below the baseline, so a
+   centred glyph reads high next to the label. */
+.pill-sm svg { transform: translateY(.5px); }
 .pill-active { background: var(--good-soft); color: var(--good); }
 .pill-pending { background: var(--warn-soft); color: var(--warn); }
 .pill-neutral { background: var(--surface-2); color: var(--ink-soft); }
@@ -306,11 +314,13 @@ a { color: inherit; }
 .stats-scope-pill.active .list-filter-count { color: var(--ink-soft); }
 .list-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .list-card { padding: 14px 16px; }
-/* The whole tile opens the list, so the name carries a stretched overlay link
-   and the delete button has to stack above it. */
+/* The whole tile opens the list, so the name carries a stretched overlay link.
+   Every interactive control on the tile has to stack above that overlay or the
+   click lands on the link and just navigates to the list instead. */
 .list-grid .list-card { position: relative; }
 .list-grid .list-card:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
-.list-grid .list-top-actions { position: relative; z-index: 1; }
+.list-grid .list-top-actions,
+.list-grid .list-card .member-actions { position: relative; z-index: 1; }
 .list-card-link { color: inherit; text-decoration: none; }
 .list-card-link::after { content: ""; position: absolute; inset: 0; border-radius: var(--r-lg); }
 .list-card-link:focus-visible { outline: none; }
@@ -374,6 +384,11 @@ a { color: inherit; }
 }
 .list-door-voters li { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
 .list-door-voters small { color: var(--ink-faint); white-space: nowrap; }
+.sheet .door-sheet-voters {
+  margin: 0 0 14px;
+  padding: 0;
+  border-top: none;
+}
 .door-pager {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; margin-top: 12px;
@@ -1242,9 +1257,11 @@ select.field { appearance: none; -webkit-appearance: none; }
 .walk-script { margin: 6px 0 12px; color: var(--ink-soft); font-size: 13px; line-height: 1.4; }
 .walk-list-item { text-align: left; width: 100%; cursor: pointer; border: 1px solid var(--line); background: var(--surface); }
 .walk-door-card { padding: 14px 16px; }
+/* Flush with the actions below, not indented to the address, so long names +
+   pills have the full card width. */
 .walk-door-card .list-door-voters {
   margin-left: 0;
-  padding-left: 35px;
+  padding-left: 0;
 }
 .walk-door-actions-block {
   margin-top: 12px;

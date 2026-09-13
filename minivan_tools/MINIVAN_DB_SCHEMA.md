@@ -369,9 +369,19 @@ app won't sync it.
 - **Location is broken** on this image: `adb emu geo fix` returns OK but never
   reaches the providers (`last location=null`), and the Extended-Controls GUI
   point didn't take either. MiniVAN's map/"Locating…" view therefore hangs.
+- **Symptom when permission IS granted:** the app parks on an "Uh oh / We could
+  not determine your location" screen that has **no buttons at all** — no retry,
+  no dismiss. UI automation cannot escape it, so `download_list.py` silently
+  spins until its 90s timeout and the job fails with "timed out waiting for list
+  ... to become active".
 - **Fix: deny the app's location permission.** The app then skips proximity
-  sorting and is fully usable (list, canvass, sync all work). Toolkit resets
-  revoke `ACCESS_FINE/COARSE_LOCATION` for this reason.
+  sorting and is fully usable (list, canvass, sync all work). `download_list.py`
+  revokes `ACCESS_FINE/COARSE_LOCATION` itself before driving the UI.
+- With location denied the app shows a one-time "Enable Location Services"
+  onboarding screen; dismiss it with **Skip** (`id/skip_button`), never "Get
+  Started" (which re-prompts for the permission). `download_list.py` taps Skip.
+- `set_location.sh` no longer grants MiniVAN location permission by default,
+  because doing so is exactly what reproduces the dead-end screen above.
 - Strict DB protocol: **force-stop the app before any pull/push**, and only
   launch it to let it read/sync. Editing while it runs risks the app overwriting
   your changes. The pull/push scripts force-stop automatically.

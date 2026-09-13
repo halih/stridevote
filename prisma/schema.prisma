@@ -192,17 +192,19 @@ model CampaignMembership {
 // Named canvass pass under a campaign (e.g. "2026 Primary" vs "2026 General").
 // Lists are published into a program; attempts and checkouts are scoped to it.
 model CanvassProgram {
-  id         String    @id @default(cuid())
-  campaignId String
-  name       String
-  status     String    @default("draft") // "draft" | "active" | "closed"
-  startsAt   DateTime?
-  endsAt     DateTime?
-  script     String?
+  id           String    @id @default(cuid())
+  campaignId   String
+  name         String
+  status       String    @default("draft") // "draft" | "active" | "closed"
+  electionType String    @default("general") // "primary" | "general"
+  electionDate DateTime? @db.Date
+  startsAt     DateTime?
+  endsAt       DateTime?
+  script       String?
   // ProgramQuestion[] — yes_no | single | multi | support | text
-  questions  Json      @default("[]")
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  questions    Json      @default("[]")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   campaign    Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   listLinks   ListCampaign[]

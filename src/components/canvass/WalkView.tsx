@@ -26,6 +26,7 @@ import {
 } from "@/lib/canvass/offline-store";
 import { orderFieldPacketFrom } from "@/lib/canvass/packet-order";
 import { DoorSheet } from "@/components/canvass/DoorSheet";
+import { VotedInPrimaryPill } from "@/components/canvass/VotedInPrimaryPill";
 import { ProgressiveScoreControl } from "@/components/canvass/ProgressiveScoreControl";
 import type { ProgressiveScore } from "@/lib/canvass/progressive-score";
 import {
@@ -733,8 +734,11 @@ export function WalkView({
                         });
                         return (
                           <li key={v.voterId}>
-                            <span>
-                              {v.firstName} {v.lastName}
+                            <span className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                              <span>
+                                {v.firstName} {v.lastName}
+                              </span>
+                              {v.votedInPrimary ? <VotedInPrimaryPill compact /> : null}
                             </span>
                             <small>
                               {[

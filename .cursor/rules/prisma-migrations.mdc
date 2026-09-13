@@ -1,0 +1,14 @@
+---
+description: Apply Prisma migrations locally whenever they are created or changed
+alwaysApply: true
+---
+
+# Prisma migrations
+
+When you add or change a file under `prisma/migrations/`, apply it to the local database in the same turn with:
+
+```bash
+npx prisma migrate deploy
+```
+
+Do not wait for the user to ask. Prefer `migrate deploy` (non-interactive) over `migrate dev`. After applying, regenerate the client if the schema changed (`npm run prisma:generate`).

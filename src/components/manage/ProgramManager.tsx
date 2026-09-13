@@ -19,6 +19,8 @@ export function ProgramManager({
     id: string;
     name: string;
     status: string;
+    electionType: string;
+    electionDate: string | null;
     script: string | null;
     questions: ProgramQuestion[];
     listCount: number;
@@ -32,6 +34,8 @@ export function ProgramManager({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [status, setStatus] = useState<"draft" | "active" | "closed">("draft");
+  const [electionType, setElectionType] = useState<"primary" | "general">("general");
+  const [electionDate, setElectionDate] = useState("");
   const [script, setScript] = useState("");
   const [questions, setQuestions] = useState<ProgramQuestion[]>([]);
 
@@ -39,6 +43,8 @@ export function ProgramManager({
     setEditingId(null);
     setName("");
     setStatus("draft");
+    setElectionType("general");
+    setElectionDate("");
     setScript("");
     setQuestions([]);
   }
@@ -57,6 +63,8 @@ export function ProgramManager({
     setEditingId(program.id);
     setName(program.name);
     setStatus(program.status as "draft" | "active" | "closed");
+    setElectionType(program.electionType as "primary" | "general");
+    setElectionDate(program.electionDate ?? "");
     setScript(program.script ?? "");
     setQuestions(program.questions ?? []);
     setOpen(true);
@@ -78,6 +86,8 @@ export function ProgramManager({
       const payload = {
         name,
         status,
+        electionType,
+        electionDate: electionDate || null,
         script: script.trim() || null,
         questions,
       };
@@ -113,7 +123,9 @@ export function ProgramManager({
                 <div>
                   <b>{p.name}</b>
                   <p className="program-meta">
-                    {p.status} · {p.listCount} lists · {p.attemptCount} attempts
+                    {p.status} · {p.electionType === "primary" ? "Primary" : "General"}
+                    {p.electionDate ? ` ${p.electionDate}` : ""} · {p.listCount} lists ·{" "}
+                    {p.attemptCount} attempts
                   </p>
                 </div>
                 <div className="row" style={{ gap: 6 }}>
@@ -168,6 +180,32 @@ export function ProgramManager({
               <option value="active">Active</option>
               <option value="closed">Closed</option>
             </select>
+          </div>
+          <div className="form-field">
+            <label className="field-label" htmlFor="program-election-type">
+              Election type
+            </label>
+            <select
+              id="program-election-type"
+              className="field"
+              value={electionType}
+              onChange={(e) => setElectionType(e.target.value as typeof electionType)}
+            >
+              <option value="primary">Primary</option>
+              <option value="general">General</option>
+            </select>
+          </div>
+          <div className="form-field">
+            <label className="field-label" htmlFor="program-election-date">
+              Election date
+            </label>
+            <input
+              id="program-election-date"
+              className="field"
+              type="date"
+              value={electionDate}
+              onChange={(e) => setElectionDate(e.target.value)}
+            />
           </div>
           <div className="form-field">
             <label className="field-label" htmlFor="program-script">
@@ -277,7 +315,7 @@ export function ProgramManager({
           type="button"
           className="btn btn-primary btn-block"
           style={{ marginTop: 14 }}
-          disabled={pending || !name.trim()}
+          disabled={pending || !name.trim() || !electionDate}
           onClick={submit}
         >
           {editingId ? "Save wave" : "Create wave"}

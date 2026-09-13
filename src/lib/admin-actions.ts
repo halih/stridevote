@@ -1216,6 +1216,11 @@ export async function setListCampaigns(
 const programSchema = z.object({
   name: z.string().trim().min(1).max(80),
   status: z.enum(["draft", "active", "closed"]),
+  electionType: z.enum(["primary", "general"]),
+  electionDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
   script: z.string().max(4000).nullable().optional(),
   questions: z.array(z.unknown()).max(40).optional(),
   startsAt: z.string().datetime().nullable().optional(),
@@ -1244,6 +1249,10 @@ export async function createProgram(
         campaignId,
         name: parsed.data.name,
         status: parsed.data.status,
+        electionType: parsed.data.electionType,
+        electionDate: parsed.data.electionDate
+          ? new Date(`${parsed.data.electionDate}T00:00:00.000Z`)
+          : null,
         script: parsed.data.script ?? null,
         questions,
         startsAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : null,
@@ -1283,6 +1292,10 @@ export async function updateProgram(
       data: {
         name: parsed.data.name,
         status: parsed.data.status,
+        electionType: parsed.data.electionType,
+        electionDate: parsed.data.electionDate
+          ? new Date(`${parsed.data.electionDate}T00:00:00.000Z`)
+          : null,
         script: parsed.data.script ?? null,
         questions,
         startsAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : null,
@@ -1419,7 +1432,7 @@ export async function enqueueMinivanListImport(
   revalidateCampaign(campaign.slug);
   return {
     ok: true,
-    message: `MiniVAN import queued for ${parsed.data.printedListNumber}`,
+    message: `MiniVAN import queued. This can take a couple of minutes — refresh to see updates.`,
     id: job.id,
   };
 }
@@ -1468,7 +1481,8 @@ export async function enqueueMinivanPull(listId: string): Promise<AdminResult> {
   revalidatePath("/canvass");
   return {
     ok: true,
-    message: "Pull from MiniVAN queued (door results only)",
+    message:
+      "Pull queued. This can take a couple of minutes — refresh to see updates.",
     id: job.id,
   };
 }
@@ -1515,7 +1529,8 @@ export async function enqueueMinivanPush(listId: string): Promise<AdminResult> {
   revalidateCampaign(link.campaign.slug);
   return {
     ok: true,
-    message: "Push to MiniVAN queued",
+    message:
+      "Push queued. This can take a couple of minutes — refresh to see updates.",
     id: job.id,
   };
 }

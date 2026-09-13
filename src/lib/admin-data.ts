@@ -129,6 +129,8 @@ export interface CampaignAdminView {
     id: string;
     name: string;
     status: string;
+    electionType: string;
+    electionDate: string | null;
     script: string | null;
     questions: import("@/lib/canvass/outcomes").ProgramQuestion[];
     listCount: number;
@@ -289,6 +291,8 @@ export async function getCampaignAdminView(
       id: p.id,
       name: p.name,
       status: p.status,
+      electionType: p.electionType,
+      electionDate: p.electionDate?.toISOString().slice(0, 10) ?? null,
       script: p.script,
       questions: parseProgramQuestions(p.questions),
       listCount: p._count.listLinks,

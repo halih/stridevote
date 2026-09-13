@@ -19,7 +19,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setMessage(msg);
     setShow(true);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setShow(false), 2400);
+    // Give longer status messages enough time to be read while keeping short
+    // confirmations quick.
+    const duration = Math.min(7000, Math.max(2400, msg.length * 45));
+    timer.current = setTimeout(() => setShow(false), duration);
   }, []);
 
   return (

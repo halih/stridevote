@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { BottomSheet } from "@/components/BottomSheet";
 import { ProgressiveScoreControl } from "@/components/canvass/ProgressiveScoreControl";
+import { VotedInPrimaryPill } from "@/components/canvass/VotedInPrimaryPill";
 import type { FieldPacketDoor } from "@/lib/canvass/packet";
 import {
   DOOR_NOTES_MAX,
@@ -13,9 +14,8 @@ import {
 } from "@/lib/canvass/outcomes";
 import type { SyncAttemptInput } from "@/lib/canvass/sync";
 import {
-  displayProgressiveScore,
   isProgressiveScore,
-  progressiveScoreLabel,
+  progressiveScoreCaption,
   type ProgressiveScore,
 } from "@/lib/canvass/progressive-score";
 
@@ -232,30 +232,28 @@ export function DoorSheet({
   } else if (accessStatus === "unsafe") {
     priorBits.push("Confirmed unsafe");
   }
-  if (observedPrior != null) {
-    priorBits.push(`Observed: ${progressiveScoreLabel(observedPrior)}`);
-  }
-  for (const v of door.voters) {
-    if (v.residenceStatus === "moved") {
-      priorBits.push(`${v.firstName} marked moved`);
-    }
-    const disp = displayProgressiveScore({
+  const voterRows = door.voters.map((v) => {
+    const score = progressiveScoreCaption({
       talkScore: v.talkScore ?? null,
       scoreUpdatedAt: v.scoreUpdatedAt ?? null,
       scoreSource: v.scoreSource ?? null,
       observedScore: observedPrior,
       observedScoreAt: observedPriorAt,
     });
-    if (disp.source === "talk" && disp.score != null) {
-      priorBits.push(
-        `${v.firstName}: ${progressiveScoreLabel(disp.score)} (talk)`,
-      );
-    } else if (disp.source === "import" && disp.score != null) {
-      priorBits.push(
-        `${v.firstName}: ${progressiveScoreLabel(disp.score)} (import)`,
-      );
-    }
-  }
+    return {
+      voterId: v.voterId,
+      name: `${v.firstName} ${v.lastName}`,
+      votedInPrimary: v.votedInPrimary,
+      meta: [
+        v.age != null ? String(v.age) : null,
+        v.sex,
+        score,
+        v.residenceStatus === "moved" ? "Moved" : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    };
+  });
 
   return (
     <BottomSheet open onClose={onClose}>
@@ -264,6 +262,20 @@ export function DoorSheet({
         {door.voters.length} voter{door.voters.length === 1 ? "" : "s"}
         {door.current ? ` · Current: ${door.current.outcomeLabel}` : ""}
       </p>
+
+      {voterRows.length ? (
+        <ul className="list-door-voters door-sheet-voters">
+          {voterRows.map((v) => (
+            <li key={v.voterId}>
+              <span className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                <span>{v.name}</span>
+                {v.votedInPrimary ? <VotedInPrimaryPill compact /> : null}
+              </span>
+              {v.meta ? <small>{v.meta}</small> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {priorBits.length ? (
         <div className="walk-history" style={{ marginBottom: 10 }}>
