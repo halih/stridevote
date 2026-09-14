@@ -24,7 +24,7 @@ export function useVolunteerLocation(home: VolunteerHome): VolunteerLocation {
   useEffect(() => {
     if (!navigator.geolocation) return;
     let cancelled = false;
-    navigator.geolocation.getCurrentPosition(
+    const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         if (cancelled) return;
         setYou({ lat: pos.coords.latitude, lng: pos.coords.longitude });
@@ -32,10 +32,11 @@ export function useVolunteerLocation(home: VolunteerHome): VolunteerLocation {
       () => {
         // Keep profile home only.
       },
-      { enableHighAccuracy: false, timeout: 12000, maximumAge: 60_000 },
+      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 10_000 },
     );
     return () => {
       cancelled = true;
+      navigator.geolocation.clearWatch(watchId);
     };
   }, []);
 

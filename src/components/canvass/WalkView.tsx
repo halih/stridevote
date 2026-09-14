@@ -39,6 +39,7 @@ import { useVolunteerLocation } from "@/lib/use-volunteer-location";
 
 type WalkFilter = "all" | "remaining" | "done";
 type WalkViewMode = "map" | "list";
+const AUTO_ADVANCE_STORAGE_KEY = "stridevote.canvass.autoAdvance";
 
 function doorStatus(door: FieldPacketDoor): "remaining" | "done" {
   return door.current ? "done" : "remaining";
@@ -77,6 +78,7 @@ export function WalkView({
   const [sheetDoor, setSheetDoor] = useState<FieldPacketDoor | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [autoAdvance, setAutoAdvance] = useState(false);
   const [quickObserved, setQuickObserved] = useState<{
     householdId: string;
     score: ProgressiveScore | null;
@@ -149,6 +151,18 @@ export function WalkView({
   useEffect(() => {
     void load(false);
   }, [load]);
+
+  useEffect(() => {
+    const stored = (() => {
+      try {
+        return window.localStorage.getItem(AUTO_ADVANCE_STORAGE_KEY) === "true";
+      } catch {
+        return false;
+      }
+    })();
+    // Defer hydration of this client-only preference until after the effect.
+    queueMicrotask(() => setAutoAdvance(stored));
+  }, []);
 
   useEffect(() => {
     if (!packet || !location.you || gpsOrderedVersion.current === packet.version) {
@@ -315,7 +329,12 @@ export function WalkView({
     const nextDoor =
       remaining.find((d) => d.sortOrder > input.door.sortOrder) ?? null;
     // Set before setPacket so the filteredDoors effect sees it on the same update.
-    pendingDoorId.current = nextDoor?.householdId ?? null;
+    pendingDoorId.current = autoAdvance
+      ? nextDoor?.householdId ?? null
+      : input.door.householdId;
+    // A completed door is absent from the Remaining filter. Keep it visible
+    // when auto-advance is off instead of appearing to move anyway.
+    if (!autoAdvance && filter === "remaining") setFilter("all");
 
     // The saved attempt is now the source of truth for this door, so drop the
     // quick pick — otherwise it keeps overriding what the sheet just saved.
@@ -327,6 +346,14 @@ export function WalkView({
     setSheetDoor(null);
     if (justFinished) setCompleteOpen(true);
 
+    const nextLabel =
+      autoAdvance && nextDoor ? ` — next: ${nextDoor.address}` : "";
+    toast(
+      justFinished
+        ? "Saved — list complete"
+        : `Saved${navigator.onLine ? "" : " offline"}${nextLabel}`,
+    );
+
     if (navigator.onLine) {
       try {
         const result = await syncOutbox(listId);
@@ -335,14 +362,10 @@ export function WalkView({
           // Celebration sheet covers the feedback.
         } else if (result.failed) {
           toast("Saved locally; some results still pending sync");
-        } else {
-          toast("Saved");
         }
       } catch {
-        if (!justFinished) toast("Saved offline — will sync when connected");
+        if (!justFinished) toast("Saved locally — will sync when connected");
       }
-    } else if (!justFinished) {
-      toast("Saved offline");
     }
   }
 
@@ -549,6 +572,26 @@ export function WalkView({
                   }}
                 >
                   Download again
+                </button>
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={autoAdvance}
+                  onClick={() => {
+                    const next = !autoAdvance;
+                    setAutoAdvance(next);
+                    try {
+                      window.localStorage.setItem(
+                        AUTO_ADVANCE_STORAGE_KEY,
+                        String(next),
+                      );
+                    } catch {
+                      // The setting still applies for this session.
+                    }
+                    toast(`Auto-advance ${next ? "on" : "off"}`);
+                  }}
+                >
+                  Auto-advance: {autoAdvance ? "On" : "Off"}
                 </button>
                 <button
                   type="button"

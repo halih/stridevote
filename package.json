@@ -8,6 +8,7 @@
     "stop": "node scripts/free-port.mjs",
     "build": "next build",
     "start": "next start",
+    "start:prod": "node scripts/start-standalone.mjs",
     "lint": "eslint",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
