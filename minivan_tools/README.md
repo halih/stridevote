@@ -7,9 +7,10 @@ Next.js enqueues `MiniVanJob` rows; `worker.py` claims them with `MINIVAN_WORKER
 
 1. Android SDK + AVD named `minivan` (Google APIs image with `adb root`, not Play Store).
 2. MiniVAN installed and **logged in** on the emulator (Auth0 session is on-device).
-3. One-time DeviceUID cache: canvass any contact once, then:
+3. DeviceUID: derived automatically on first push and cached in `.device_uid_cache`
+   (gitignored, so a fresh clone has none until then). Needs `adb root`. If that
+   fails, capture it by hand — see `apply_and_sync.py`'s docstring:
    ```bash
-   # after pulling responses DB, save Canvasses.DeviceUID
    echo 'Android-14-Device-…' > .device_uid_cache
    ```
 4. Deny location permission for MiniVAN so the map does not hang (see `MINIVAN_DB_SCHEMA.md` §8.6).

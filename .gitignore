@@ -41,3 +41,7 @@ next-env.d.ts
 /minivan_tools/.device_uid_cache
 /minivan_tools/*.db
 /tmp/
+
+# Python
+__pycache__/
+*.pyc
