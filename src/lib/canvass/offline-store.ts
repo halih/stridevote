@@ -25,15 +25,39 @@ interface CanvassDB extends DBSchema {
     key: string; // clientAttemptId
     value: { clientAttemptId: string; ackedAt: string };
   };
+  observedScores: {
+    key: string; // `${programId}:${listId}:${householdId}`
+    value: PendingObservedScore;
+    indexes: { "by-list": string };
+  };
 }
 
 const DB_NAME = "stridevote-canvass";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+
+export interface PendingObservedScore {
+  queueKey: string;
+  clientEventId: string;
+  programId: string;
+  listId: string;
+  householdId: string;
+  campaignId: string;
+  observedScore: number | null;
+  capturedAt: string;
+}
 
 let dbPromise: Promise<IDBPDatabase<CanvassDB>> | null = null;
 
 function packetKey(programId: string, listId: string): string {
   return `${programId}:${listId}`;
+}
+
+function observedScoreQueueKey(
+  programId: string,
+  listId: string,
+  householdId: string,
+): string {
+  return `${programId}:${listId}:${householdId}`;
 }
 
 function getDb() {
@@ -52,6 +76,12 @@ function getDb() {
         }
         if (!db.objectStoreNames.contains("acks")) {
           db.createObjectStore("acks", { keyPath: "clientAttemptId" });
+        }
+        if (!db.objectStoreNames.contains("observedScores")) {
+          const scores = db.createObjectStore("observedScores", {
+            keyPath: "queueKey",
+          });
+          scores.createIndex("by-list", "listId");
         }
       },
     });
@@ -93,18 +123,56 @@ export async function enqueueAttempt(attempt: SyncAttemptInput): Promise<void> {
     ...clipSyncAttempt(attempt),
     queuedAt: new Date().toISOString(),
   });
+  // Completing the door with a score (or clearing it) supersedes any unsynced
+  // standalone pick for that household so reload/sync cannot resurrect it.
+  if (attempt.observedScore !== undefined || attempt.clearObservedScore) {
+    await db.delete(
+      "observedScores",
+      observedScoreQueueKey(attempt.programId, attempt.listId, attempt.householdId),
+    );
+  }
 }
 
 export async function getOutboxForList(listId: string): Promise<SyncAttemptInput[]> {
   const db = await getDb();
   const rows = await db.getAllFromIndex("outbox", "by-list", listId);
-  return rows.map(({ queuedAt: _q, ...rest }) => rest);
+  return rows.map(({ queuedAt, ...rest }) => {
+    void queuedAt;
+    return rest;
+  });
 }
 
 export async function getOutboxCount(listId?: string): Promise<number> {
   const db = await getDb();
-  if (!listId) return db.count("outbox");
-  return db.countFromIndex("outbox", "by-list", listId);
+  if (!listId) {
+    return (await db.count("outbox")) + (await db.count("observedScores"));
+  }
+  return (
+    (await db.countFromIndex("outbox", "by-list", listId)) +
+    (await db.countFromIndex("observedScores", "by-list", listId))
+  );
+}
+
+export async function enqueueObservedScore(
+  input: Omit<PendingObservedScore, "queueKey" | "clientEventId" | "capturedAt">,
+): Promise<PendingObservedScore> {
+  const db = await getDb();
+  const item: PendingObservedScore = {
+    ...input,
+    queueKey: observedScoreQueueKey(input.programId, input.listId, input.householdId),
+    clientEventId: crypto.randomUUID(),
+    capturedAt: new Date().toISOString(),
+  };
+  // One row per door: a later choice supersedes an unsynced earlier choice.
+  await db.put("observedScores", item);
+  return item;
+}
+
+export async function getObservedScoresForList(
+  listId: string,
+): Promise<PendingObservedScore[]> {
+  const db = await getDb();
+  return db.getAllFromIndex("observedScores", "by-list", listId);
 }
 
 export async function removeOutboxItems(clientAttemptIds: string[]): Promise<void> {
@@ -151,6 +219,16 @@ export function mergeOutboxIntoPacket(
           ?.support ?? null;
       return {
         ...door,
+        field:
+          local.observedScore !== undefined || local.clearObservedScore
+            ? {
+                accessStatus: door.field?.accessStatus ?? "ok",
+                observedScore: local.clearObservedScore
+                  ? null
+                  : (local.observedScore ?? null),
+                observedScoreAt: local.capturedAt,
+              }
+            : door.field,
         current: {
           clientAttemptId: local.clientAttemptId,
           outcome: local.outcome,
@@ -178,6 +256,38 @@ export function mergeOutboxIntoPacket(
   };
 }
 
+/** Overlay standalone observed-score changes without marking a door complete. */
+export function mergeObservedScoresIntoPacket(
+  packet: FieldPacket,
+  scores: PendingObservedScore[],
+): FieldPacket {
+  if (!scores.length) return packet;
+  const latest = new Map<string, PendingObservedScore>();
+  for (const score of scores) {
+    const prior = latest.get(score.householdId);
+    if (!prior || score.capturedAt > prior.capturedAt) {
+      latest.set(score.householdId, score);
+    }
+  }
+  return {
+    ...packet,
+    doors: packet.doors.map((door) => {
+      const score = latest.get(door.householdId);
+      if (!score) return door;
+      const existingAt = door.field?.observedScoreAt;
+      if (existingAt && existingAt >= score.capturedAt) return door;
+      return {
+        ...door,
+        field: {
+          accessStatus: door.field?.accessStatus ?? "ok",
+          observedScore: score.observedScore,
+          observedScoreAt: score.capturedAt,
+        },
+      };
+    }),
+  };
+}
+
 export async function downloadPacket(
   listId: string,
   programId: string,
@@ -193,13 +303,19 @@ export async function downloadPacket(
   if (!res.ok || !data.ok || !data.packet) {
     throw new Error(data.message ?? "Could not download list");
   }
-  const outbox = await getOutboxForList(listId);
-  const merged = mergeOutboxIntoPacket(data.packet, outbox);
+  const [outbox, scores] = await Promise.all([
+    getOutboxForList(listId),
+    getObservedScoresForList(listId),
+  ]);
+  const merged = mergeObservedScoresIntoPacket(
+    mergeOutboxIntoPacket(data.packet, outbox),
+    scores,
+  );
   await savePacket(merged);
   return merged;
 }
 
-export async function syncOutbox(listId?: string): Promise<{
+async function syncOutboxUnlocked(listId?: string): Promise<{
   synced: number;
   failed: number;
   errors: string[];
@@ -208,9 +324,10 @@ export async function syncOutbox(listId?: string): Promise<{
   const rows = listId
     ? await db.getAllFromIndex("outbox", "by-list", listId)
     : await db.getAll("outbox");
-  if (!rows.length) return { synced: 0, failed: 0, errors: [] };
-
-  const attempts = rows.map(({ queuedAt: _q, ...rest }) => clipSyncAttempt(rest));
+  const attempts = rows.map(({ queuedAt, ...rest }) => {
+    void queuedAt;
+    return clipSyncAttempt(rest);
+  });
   let synced = 0;
   let failed = 0;
   const errors: string[] = [];
@@ -239,7 +356,81 @@ export async function syncOutbox(listId?: string): Promise<{
     }
   }
 
+  const laterAttemptScoreAt = new Map<string, string>();
+  for (const attempt of attempts) {
+    if (attempt.observedScore === undefined && !attempt.clearObservedScore) continue;
+    const key = observedScoreQueueKey(
+      attempt.programId,
+      attempt.listId,
+      attempt.householdId,
+    );
+    const prior = laterAttemptScoreAt.get(key);
+    if (!prior || attempt.capturedAt > prior) {
+      laterAttemptScoreAt.set(key, attempt.capturedAt);
+    }
+  }
+
+  const scoreRows = listId
+    ? await db.getAllFromIndex("observedScores", "by-list", listId)
+    : await db.getAll("observedScores");
+  for (const score of scoreRows) {
+    const attemptAt = laterAttemptScoreAt.get(score.queueKey);
+    if (attemptAt && attemptAt >= score.capturedAt) {
+      await db.delete("observedScores", score.queueKey);
+      continue;
+    }
+    const res = await fetch("/api/canvass/observed-score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientEventId: score.clientEventId,
+        programId: score.programId,
+        listId: score.listId,
+        householdId: score.householdId,
+        campaignId: score.campaignId,
+        observedScore: score.observedScore,
+        capturedAt: score.capturedAt,
+      }),
+    });
+    const data = (await res.json().catch(() => null)) as {
+      ok?: boolean;
+      message?: string;
+    } | null;
+    if (!res.ok || !data?.ok) {
+      failed += 1;
+      errors.push(data?.message ?? "Observed score sync failed");
+      continue;
+    }
+    // Do not delete a newer choice that replaced this row while it was syncing.
+    const current = await db.get("observedScores", score.queueKey);
+    if (current?.clientEventId === score.clientEventId) {
+      await db.delete("observedScores", score.queueKey);
+    }
+    synced += 1;
+  }
+
   return { synced, failed, errors };
+}
+
+const syncLocks = new Map<string, Promise<unknown>>();
+
+/** Serialize syncs per list so rapid score changes cannot arrive out of order. */
+export async function syncOutbox(listId?: string): Promise<{
+  synced: number;
+  failed: number;
+  errors: string[];
+}> {
+  const key = listId ?? "__all__";
+  const prior = syncLocks.get(key) ?? Promise.resolve();
+  const current = prior
+    .catch(() => undefined)
+    .then(() => syncOutboxUnlocked(listId));
+  syncLocks.set(key, current);
+  try {
+    return await current;
+  } finally {
+    if (syncLocks.get(key) === current) syncLocks.delete(key);
+  }
 }
 
 /** Purge packet only when outbox for that list is empty. */

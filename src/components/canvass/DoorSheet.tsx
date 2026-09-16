@@ -71,7 +71,7 @@ export function DoorSheet({
   const [notes, setNotes] = useState(door.current?.notes ?? "");
   const [observedScore, setObservedScore] = useState<ProgressiveScore | null>(
     () => {
-      const raw = door.current?.observedScore ?? door.field?.observedScore;
+      const raw = door.field?.observedScore ?? door.current?.observedScore;
       return isProgressiveScore(raw) ? raw : null;
     },
   );

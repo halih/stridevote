@@ -6,11 +6,13 @@ import { applyFieldWriteback } from "@/lib/canvass/field-layer";
 import { isProgressiveScore } from "@/lib/canvass/progressive-score";
 
 const bodySchema = z.object({
+  clientEventId: z.string().uuid().optional(),
   programId: z.string().min(1),
   listId: z.string().min(1),
   householdId: z.string().min(1),
   campaignId: z.string().min(1),
   observedScore: z.number().int().min(0).max(5).nullable(),
+  capturedAt: z.string().datetime().optional(),
 });
 
 export async function POST(request: Request) {
@@ -73,11 +75,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const capturedAt = new Date();
+  const capturedAt = input.capturedAt ? new Date(input.capturedAt) : new Date();
   const observedScore = isProgressiveScore(input.observedScore)
     ? input.observedScore
     : null;
   await applyFieldWriteback({
+    clientEventId: input.clientEventId,
     attemptId: null,
     householdId: input.householdId,
     campaignId: input.campaignId,

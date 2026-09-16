@@ -386,6 +386,7 @@ model CanvassPersonResponse {
 // Append-only field intelligence across campaigns (access, moved, scores).
 model FieldEvent {
   id               String   @id @default(cuid())
+  clientEventId    String?  @unique
   householdId      String?
   voterId          String?
   kind             String // inaccessible | unsafe | moved | access_cleared | score_observed | score_talk | score_cleared

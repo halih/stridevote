@@ -1180,11 +1180,19 @@ select.field { appearance: none; -webkit-appearance: none; }
 /* ---- walk / canvass field ---- */
 .walk-header { margin-bottom: 12px; position: relative; z-index: 1300; }
 .walk-header-main {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  display: flex; align-items: stretch; justify-content: space-between; gap: 10px;
 }
+/* Grows so the progress bar fills the column beside the menu, not under it. */
+.walk-title { flex: 1; min-width: 0; }
 .walk-title h1 { margin: 0; font-size: 18px; }
 .walk-title p { margin: 2px 0 0; color: var(--ink-soft); font-size: 12px; }
-.walk-menu { position: relative; flex: none; z-index: 1300; }
+.walk-title-row { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; min-width: 0; }
+.walk-wave { font-size: 11.5px; font-weight: 600; color: var(--ink-soft); }
+/* Progress doubles as the status line here, so it sits tighter than in cards. */
+.walk-header .progress-row { margin-top: 7px; }
+.walk-menu { position: relative; flex: none; z-index: 1300; display: flex; }
+/* Fills the header's full height so it balances the two-line title block. */
+.walk-menu > .icon-btn { width: 44px; height: auto; min-height: 36px; align-self: stretch; }
 .walk-menu-panel {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 1300;
   min-width: 180px; padding: 6px; border-radius: var(--r-md);
@@ -1203,6 +1211,7 @@ select.field { appearance: none; -webkit-appearance: none; }
   margin-bottom: 12px;
 }
 .walk-filter { max-width: 320px; flex: 1; }
+.walk-view-toggle { flex: none; }
 .walk-map-stage { display: grid; gap: 12px; }
 .walk-map-frame {
   position: relative;

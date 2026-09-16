@@ -23,6 +23,8 @@ export function ListCompleteSheet({
   listName,
   doorsDone,
   pending,
+  releaseBlocked,
+  releaseHint,
   onRelease,
   onKeepWalking,
 }: {
@@ -30,6 +32,8 @@ export function ListCompleteSheet({
   listName: string;
   doorsDone: number;
   pending: boolean;
+  releaseBlocked: boolean;
+  releaseHint: string | null;
   onRelease: () => void;
   onKeepWalking: () => void;
 }) {
@@ -69,13 +73,14 @@ export function ListCompleteSheet({
           {listName} · {doorsDone} door{doorsDone === 1 ? "" : "s"} canvassed
         </p>
         <p className="section-sub" style={{ marginTop: -8, marginBottom: 16 }}>
-          Nice work — release this list so it moves to Completed.
+          {releaseHint ??
+            "Nice work — release this list so it moves to Completed."}
         </p>
 
         <button
           type="button"
           className="btn btn-primary btn-block"
-          disabled={pending}
+          disabled={releaseBlocked}
           onClick={onRelease}
         >
           Release list

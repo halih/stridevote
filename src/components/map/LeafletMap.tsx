@@ -9,9 +9,11 @@ import {
   TileLayer,
   Tooltip,
   useMap,
+  useMapEvent,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { nearestIndexWithin } from "./nearest";
 import type { MapMarker, MapProps } from "./types";
 
 const TILE_URL =
@@ -109,9 +111,12 @@ export function LeafletMap({
         <DoorMarker
           key={m.id ?? `${m.lat},${m.lng},${i}`}
           marker={m}
-          onClick={onMarkerClick}
+          tappable={Boolean(onMarkerClick)}
         />
       ))}
+      {onMarkerClick ? (
+        <NearestDoorTap markers={markers} onPick={onMarkerClick} />
+      ) : null}
       {home ? (
         <Marker position={[home.lat, home.lng]} icon={homeIcon(home.inside)} interactive={false} />
       ) : null}
@@ -125,17 +130,21 @@ export function LeafletMap({
 
 function DoorMarker({
   marker: m,
-  onClick,
+  tappable,
 }: {
   marker: MapMarker;
-  onClick?: (marker: MapMarker) => void;
+  tappable: boolean;
 }) {
+  // Read-only overview maps (split preview, list editor) pack many doors into a
+  // small frame, so they keep the compact dot. Walkable maps draw a bigger one.
+  const radius = m.current ? (tappable ? 11 : 8) : tappable ? 8 : 5;
+
   return (
     <>
       {m.current ? (
         <CircleMarker
           center={[m.lat, m.lng]}
-          radius={11}
+          radius={radius + 5}
           pathOptions={{
             color: m.color,
             weight: 0,
@@ -147,30 +156,53 @@ function DoorMarker({
       ) : null}
       <CircleMarker
         center={[m.lat, m.lng]}
-        radius={m.current ? 8 : 5}
+        radius={radius}
         pathOptions={{
           color: m.current ? "#0f1216" : "#fff",
           weight: m.current ? 2.5 : 2,
           fillColor: m.color,
           fillOpacity: 1,
         }}
-        eventHandlers={
-          onClick
-            ? {
-                click: (event) => {
-                  L.DomEvent.stopPropagation(event);
-                  onClick(m);
-                },
-              }
-            : undefined
-        }
+        // On tappable maps the dot must not be an event target at all. Leaflet
+        // binds `click` to open a bound tooltip, and a layer that listens to
+        // click stops the map from receiving it (Map._findEventTargets only
+        // falls back to the map when no layer claimed the event) — which would
+        // swallow the tap that NearestDoorTap needs.
+        interactive={!tappable}
       >
-        {m.title ? (
-          <Tooltip direction="top" offset={[0, m.current ? -10 : -4]}>
+        {m.title && !tappable ? (
+          <Tooltip direction="top" offset={[0, -(radius + 2)]}>
             {m.title}
           </Tooltip>
         ) : null}
       </CircleMarker>
     </>
   );
+}
+
+/** Max distance from a tap to a door pin that still counts as tapping it. */
+const TAP_SLOP_PX = 22;
+
+/**
+ * Door dots stay small enough to read a dense block, so tapping the dot itself
+ * is fiddly on a phone. Resolve taps against the whole map instead and pick the
+ * nearest pin — unlike per-pin hit areas, neighbours can't shadow each other.
+ */
+function NearestDoorTap({
+  markers,
+  onPick,
+}: {
+  markers: MapMarker[];
+  onPick: (marker: MapMarker) => void;
+}) {
+  useMapEvent("click", (event) => {
+    const map = event.target as L.Map;
+    const index = nearestIndexWithin(
+      map.latLngToContainerPoint(event.latlng),
+      markers.map((m) => map.latLngToContainerPoint([m.lat, m.lng])),
+      TAP_SLOP_PX,
+    );
+    if (index != null) onPick(markers[index]);
+  });
+  return null;
 }

@@ -26,6 +26,8 @@ export function clearsHouseholdAccess(outcome: string): boolean {
 export const FIELD_WRITEBACK_EXCLUDED_SLUGS = new Set(["count-binface"]);
 
 type WritebackInput = {
+  /** Idempotency key for a standalone offline field event. */
+  clientEventId?: string;
   attemptId: string | null;
   householdId: string;
   campaignId: string;
@@ -60,6 +62,7 @@ export async function applyFieldWriteback(
   }
 
   const events: Array<{
+    clientEventId?: string;
     householdId?: string | null;
     voterId?: string | null;
     kind: FieldEventKind;
@@ -80,12 +83,14 @@ export async function applyFieldWriteback(
 
   if (input.clearObservedScore) {
     events.push({
+      clientEventId: input.clientEventId,
       householdId: input.householdId,
       kind: "score_cleared",
       value: null,
     });
   } else if (isProgressiveScore(input.observedScore)) {
     events.push({
+      clientEventId: input.clientEventId,
       householdId: input.householdId,
       kind: "score_observed",
       value: input.observedScore,
@@ -122,6 +127,7 @@ export async function applyFieldWriteback(
   if (events.length) {
     await prisma.fieldEvent.createMany({
       data: events.map((e) => ({
+        clientEventId: e.clientEventId ?? null,
         householdId: e.householdId ?? null,
         voterId: e.voterId ?? null,
         kind: e.kind,
@@ -133,6 +139,7 @@ export async function applyFieldWriteback(
         userId: input.userId,
         capturedAt: input.capturedAt,
       })),
+      skipDuplicates: true,
     });
   }
 

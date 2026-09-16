@@ -16,9 +16,12 @@ import {
 import {
   downloadPacket,
   enqueueAttempt,
+  enqueueObservedScore,
   getOutboxCount,
+  getObservedScoresForList,
   getPacket,
   isPacketExpired,
+  mergeObservedScoresIntoPacket,
   mergeOutboxIntoPacket,
   getOutboxForList,
   purgePacketIfSynced,
@@ -106,8 +109,14 @@ export function WalkView({
         if (!forceDownload) {
           cached = await getPacket(programId, listId);
           if (cached) {
-            const outbox = await getOutboxForList(listId);
-            cached = mergeOutboxIntoPacket(cached, outbox);
+            const [outbox, scores] = await Promise.all([
+              getOutboxForList(listId),
+              getObservedScoresForList(listId),
+            ]);
+            cached = mergeObservedScoresIntoPacket(
+              mergeOutboxIntoPacket(cached, outbox),
+              scores,
+            );
           }
         }
 
@@ -226,7 +235,7 @@ export function WalkView({
 
   const currentDoor = filteredDoors[index] ?? filteredDoors[0] ?? null;
   const savedObservedRaw =
-    currentDoor?.current?.observedScore ?? currentDoor?.field?.observedScore;
+    currentDoor?.field?.observedScore ?? currentDoor?.current?.observedScore;
   const savedObservedScore = isProgressiveScore(savedObservedRaw)
     ? savedObservedRaw
     : null;
@@ -394,30 +403,18 @@ export function WalkView({
     score: ProgressiveScore | null,
   ) {
     if (!packet) return;
-    if (!navigator.onLine) {
-      toast("Connect to save an observed score without changing the door result.");
+    if (isPacketExpired(packet) && !navigator.onLine) {
+      toast("Offline copy expired — connect before logging more field data.");
       return;
     }
     try {
-      const res = await fetch("/api/canvass/observed-score", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          programId: packet.programId,
-          listId: packet.listId,
-          householdId: door.householdId,
-          campaignId: packet.campaignId,
-          observedScore: score,
-        }),
+      const queued = await enqueueObservedScore({
+        programId: packet.programId,
+        listId: packet.listId,
+        householdId: door.householdId,
+        campaignId: packet.campaignId,
+        observedScore: score,
       });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        message?: string;
-        capturedAt?: string;
-      };
-      if (!res.ok || !data.ok) {
-        throw new Error(data.message ?? "Could not save observed score");
-      }
       setPacket((current) =>
         current
           ? {
@@ -429,8 +426,7 @@ export function WalkView({
                       field: {
                         accessStatus: row.field?.accessStatus ?? "ok",
                         observedScore: score,
-                        observedScoreAt:
-                          data.capturedAt ?? new Date().toISOString(),
+                        observedScoreAt: queued.capturedAt,
                       },
                     }
                   : row,
@@ -441,27 +437,59 @@ export function WalkView({
       setQuickObserved((current) =>
         current?.householdId === door.householdId ? null : current,
       );
-      toast("Observed score saved");
+      await refreshPending();
+      toast(
+        navigator.onLine
+          ? "Observed score saved"
+          : "Observed score saved offline",
+      );
+      if (navigator.onLine) {
+        const result = await syncOutbox(listId);
+        await refreshPending();
+        if (result.failed) {
+          toast("Observed score saved locally; sync still pending");
+        }
+      }
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not save observed score");
+      toast(
+        err instanceof Error
+          ? err.message
+          : "Could not save observed score locally",
+      );
     }
   }
 
   function onRelease() {
     setMenuOpen(false);
-    setCompleteOpen(false);
+    if (!navigator.onLine) {
+      toast("Reconnect and sync before releasing this list.");
+      return;
+    }
     startTransition(async () => {
-      const pendingLocal = await getOutboxCount(listId);
+      let pendingLocal: number;
+      try {
+        pendingLocal = await getOutboxCount(listId);
+      } catch {
+        toast("Could not verify saved results. Keep the list and try again.");
+        return;
+      }
       if (pendingLocal > 0) {
         toast("Sync your results before releasing this list.");
         return;
       }
       if (packet) {
-        await purgePacketIfSynced(packet.programId, packet.listId);
+        const purged = await purgePacketIfSynced(packet.programId, packet.listId);
+        if (!purged) {
+          toast("Sync your results before releasing this list.");
+          return;
+        }
       }
       const res = await releaseList(listId, programId);
       toast(res.message);
-      if (res.ok) router.push("/canvass");
+      if (res.ok) {
+        setCompleteOpen(false);
+        router.push("/canvass");
+      }
     });
   }
 
@@ -497,6 +525,18 @@ export function WalkView({
   const total = packet?.doors.length ?? 0;
   const allDoorsComplete = total > 0 && closed === total;
   const pct = total ? Math.round((closed / total) * 100) : 0;
+  // Rides along on the progress label so connectivity needs no line of its own.
+  const statusNote = !online
+    ? "Offline"
+    : pendingCount > 0
+      ? `${pendingCount} pending`
+      : null;
+  const releaseBlocked = pending || !online || pendingCount > 0;
+  const releaseHint = !online
+    ? "Your results are saved on this phone. Reconnect and sync before releasing."
+    : pendingCount > 0
+      ? `${pendingCount} saved update${pendingCount === 1 ? "" : "s"} still need to sync before releasing.`
+      : null;
   const mappedDoors = filteredDoors.filter((d) => d.lat != null && d.lng != null);
   const mapHelpItems = useMemo((): MapHelpItem[] => {
     const items: MapHelpItem[] = [
@@ -507,7 +547,7 @@ export function WalkView({
             ? "No geocoded doors yet — use the list to walk"
             : "No doors in this filter on the map",
       },
-      { text: "Tap a pin to open that door" },
+      { text: "Tap a pin — or just near it — to select that door" },
       { color: DOOR_PIN_COLORS.talked, text: "Talked" },
       { color: DOOR_PIN_COLORS.lit, text: "Lit drop" },
       { color: DOOR_PIN_COLORS.other, text: "Other result" },
@@ -523,13 +563,26 @@ export function WalkView({
       <header className="walk-header">
         <div className="walk-header-main">
           <div className="walk-title">
-            <h1>{listName}</h1>
-            <p>
-              {packet
-                ? `${closed}/${total} done · ${packet.programName}`
-                : "Loading…"}
-              {!online ? " · Offline" : pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
-            </p>
+            <div className="walk-title-row">
+              <h1>{listName}</h1>
+              {packet ? (
+                <span className="walk-wave">{packet.programName}</span>
+              ) : null}
+            </div>
+            {!packet && (loading || statusNote) ? (
+              <p>{loading ? "Loading…" : statusNote}</p>
+            ) : null}
+            {packet && !loading ? (
+              <div className="progress-row">
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="progress-label">
+                  {closed}/{total} doors
+                  {statusNote ? ` · ${statusNote}` : ""}
+                </span>
+              </div>
+            ) : null}
           </div>
           <div className="walk-menu" ref={menuRef}>
             <button
@@ -540,7 +593,7 @@ export function WalkView({
               aria-label="Walk options"
               onClick={() => setMenuOpen((open) => !open)}
             >
-              <Icon name="menu" size={18} />
+              <Icon name="menu" size={20} />
             </button>
             {menuOpen ? (
               <div className="walk-menu-panel" role="menu">
@@ -596,7 +649,8 @@ export function WalkView({
                 <button
                   type="button"
                   role="menuitem"
-                  disabled={pending}
+                  disabled={releaseBlocked}
+                  title={releaseHint ?? undefined}
                   onClick={onRelease}
                 >
                   Release list
@@ -605,28 +659,21 @@ export function WalkView({
             ) : null}
           </div>
         </div>
-        {packet && !loading ? (
-          <div className="progress-row">
-            <div className="progress-track">
-              <div className="progress-fill" style={{ width: `${pct}%` }} />
-            </div>
-            <span className="progress-label">
-              {closed}/{total} doors
-            </span>
-          </div>
-        ) : null}
       </header>
 
       {allDoorsComplete && !completeOpen ? (
         <div className="card list-release-reminder" role="status">
           <div>
             <b>All doors are complete</b>
-            <p>Release this list so it moves to Completed.</p>
+            <p>
+              {releaseHint ??
+                "Release this list so it moves to Completed."}
+            </p>
           </div>
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={pending}
+            disabled={releaseBlocked}
             onClick={onRelease}
           >
             Release list
@@ -639,20 +686,9 @@ export function WalkView({
 
       {packet && !loading ? (
         <>
+          {/* View icons lead on the left so they clear the menu button above. */}
           <div className="walk-toolbar">
-            <div className="segmented walk-filter">
-              {(["all", "remaining", "done"] as WalkFilter[]).map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  className={filter === f ? "active" : ""}
-                  onClick={() => setFilter(f)}
-                >
-                  {f === "all" ? "All" : f[0]!.toUpperCase() + f.slice(1)}
-                </button>
-              ))}
-            </div>
-            <div className="row" style={{ gap: 6 }}>
+            <div className="row walk-view-toggle" style={{ gap: 6 }}>
               <button
                 type="button"
                 className={`icon-btn ${view === "map" ? "active" : ""}`}
@@ -669,6 +705,18 @@ export function WalkView({
               >
                 <Icon name="list" size={16} />
               </button>
+            </div>
+            <div className="segmented walk-filter">
+              {(["all", "remaining", "done"] as WalkFilter[]).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  className={filter === f ? "active" : ""}
+                  onClick={() => setFilter(f)}
+                >
+                  {f === "all" ? "All" : f[0]!.toUpperCase() + f.slice(1)}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -922,6 +970,8 @@ export function WalkView({
         listName={listName}
         doorsDone={closed}
         pending={pending}
+        releaseBlocked={releaseBlocked}
+        releaseHint={releaseHint}
         onRelease={onRelease}
         onKeepWalking={() => setCompleteOpen(false)}
       />
