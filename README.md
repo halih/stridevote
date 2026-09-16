@@ -305,3 +305,21 @@ These are stubbed with clear seams so they can be turned on later:
 | `npm run households:rebuild`   | Normalize addresses into `Household` rows |
 | `npm run households:geocode-census` | Resumable Census batch geocoding |
 | `npm test`                     | Unit tests (filters, addresses, geo) |
+
+## Continuous integration
+
+`.github/workflows/test.yml` runs `npm test` on every push to `main` and on
+every pull request. A failing test marks the commit red and GitHub emails the
+Actions failure.
+
+Two dependency quirks to know before touching `package.json`:
+
+- **Regenerate `package-lock.json` on Linux.** npm records the transitive deps
+  of optional platform packages (`@img/sharp-wasm32` → `@emnapi/*`) only for the
+  platform it ran on, so a lock written on macOS makes CI's `npm ci` fail with
+  "Missing: @emnapi/… from lock file". Refresh it with the same Node major CI
+  uses: `docker run --rm -v "$PWD":/app -w /app node:24 npm install --package-lock-only`.
+- **`overrides.nodemailer`** pins nodemailer past the `^7.0.7 || ^8.0.5` peer
+  range that `next-auth`/`@auth/core` still declare. Safe here because our email
+  provider in `src/lib/auth.ts` delivers through `sendVerificationRequest` and
+  next-auth never loads nodemailer itself.
