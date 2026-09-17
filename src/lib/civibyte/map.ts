@@ -19,6 +19,11 @@ export interface CivibyteListMeta {
   lastPullAt?: string;
   lastPullApplied?: number;
   lastPullSkipped?: number;
+  lastPushAt?: string;
+  lastPushApplied?: number;
+  lastPushRejected?: number;
+  lastPushSkipped?: number;
+  pushedAttempts?: Record<string, string>;
 }
 
 const RESULT_TO_OUTCOME: Record<string, DoorOutcome | null> = {
@@ -31,10 +36,35 @@ const RESULT_TO_OUTCOME: Record<string, DoorOutcome | null> = {
   OTHER: null,
 };
 
+const OUTCOME_TO_RESULT: Partial<Record<DoorOutcome, string>> = {
+  contact: "CONTACT",
+  no_answer: "NO_ANSWER",
+  refused: "REFUSED",
+  lit: "LIT_DROPPED",
+  unsafe: "UNSAFE",
+  inaccessible: "INACCESSIBLE",
+};
+
 export function civibyteDoorOutcome(
   result: string | null | undefined,
 ): DoorOutcome | null {
   return result ? (RESULT_TO_OUTCOME[result] ?? null) : null;
+}
+
+export function civibyteDoorResult(
+  outcome: DoorOutcome,
+): string | null {
+  return OUTCOME_TO_RESULT[outcome] ?? null;
+}
+
+/** Prefer the imported session-door UUID; fall back to stable addressPk after a rebuild. */
+export function matchCivibyteSessionDoor<T extends { id: string; addressPk: string }>(
+  importedDoorId: string,
+  addressPk: string,
+  byId: Map<string, T>,
+  byAddressPk: Map<string, T>,
+): T | undefined {
+  return byId.get(importedDoorId) ?? byAddressPk.get(addressPk);
 }
 
 export function civibyteClientAttemptId(

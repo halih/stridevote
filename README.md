@@ -287,7 +287,8 @@ These are stubbed with clear seams so they can be turned on later:
 - **Civibyte** — gated per campaign (platform admin). Guest-link pull lives in
   [`civibyte_tools/`](civibyte_tools/) (see that folder’s README and schema).
   Guest sessions can be imported as native lists and refreshed for new door
-  results. Push-back is not yet implemented.
+  results. Push sends newer StrideVote door results and matching survey answers
+  through Civibyte’s idempotent guest batch API.
 
 ## Scripts
 

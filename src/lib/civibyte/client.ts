@@ -23,6 +23,33 @@ const canvassAnswerSchema = z
   })
   .passthrough();
 
+const surveyOptionSchema = z
+  .object({
+    id: z.number(),
+    label: z.string(),
+    displayOrder: z.number(),
+  })
+  .passthrough();
+
+const surveyQuestionSchema = z
+  .object({
+    questionId: z.number(),
+    text: z.string(),
+    internalLabel: z.string().nullish(),
+    responseType: z.string(),
+    displayOrder: z.number(),
+    options: z.array(surveyOptionSchema).default([]),
+  })
+  .passthrough();
+
+const surveySchema = z
+  .object({
+    id: z.number(),
+    name: z.string(),
+    questions: z.array(surveyQuestionSchema).default([]),
+  })
+  .passthrough();
+
 export const civibyteDoorCanvassSchema = z
   .object({
     doorResult: z.string(),
@@ -83,12 +110,38 @@ export const civibyteSessionSchema = z
     buildings: z.array(z.unknown()),
     votersById: z.record(z.string(), voterSchema),
     script: z.unknown().nullish(),
-    survey: z.unknown().nullish(),
+    survey: surveySchema.nullish(),
   })
   .passthrough();
 
 export type CivibyteSession = z.infer<typeof civibyteSessionSchema>;
 export type CivibyteDoorCanvass = z.infer<typeof civibyteDoorCanvassSchema>;
+export type CivibyteSurvey = z.infer<typeof surveySchema>;
+
+export interface CivibyteCanvassAnswer {
+  questionId: number;
+  answerOptionIds: number[];
+  textValue: string | null;
+  numericValue: number | null;
+}
+
+export interface CivibyteCanvassLog {
+  clientSubmissionId: string;
+  canvassingSessionId: string;
+  sessionDoorId: string;
+  addressPk: string;
+  doorResult: string;
+  doorNotes?: string;
+  someoneElseContacted: boolean;
+  voters: Array<{
+    voterPk: string;
+    answers: CivibyteCanvassAnswer[];
+  }>;
+}
+
+const batchAckSchema = z.array(
+  z.object({ clientSubmissionId: z.string() }).passthrough(),
+);
 
 export interface CivibyteGuestAuth {
   guestToken: string;
@@ -209,6 +262,27 @@ export async function getCivibyteDoorCanvass(
     { headers: { Authorization: `Bearer ${auth.guestToken}` } },
   );
   return civibyteDoorCanvassSchema.parse(result);
+}
+
+/** Idempotently submit locally recorded knocks through the guest offline-sync API. */
+export async function logCivibyteCanvassBatch(
+  auth: CivibyteGuestAuth,
+  logs: CivibyteCanvassLog[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<string[]> {
+  const result = await requestJson(
+    fetchImpl,
+    "/api/guest/canvassing/log-canvass/batch",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${auth.guestToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(logs),
+    },
+  );
+  return batchAckSchema.parse(result).map((ack) => ack.clientSubmissionId);
 }
 
 /** Exchange a guest link and volunteer identity for a read-only session snapshot. */

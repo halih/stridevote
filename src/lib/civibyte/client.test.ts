@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { civibyteTokenFromLink, pullCivibyteSession } from "./client";
+import {
+  civibyteTokenFromLink,
+  logCivibyteCanvassBatch,
+  pullCivibyteSession,
+} from "./client";
 
 test("extracts tokens from Civibyte guest links", () => {
   assert.equal(civibyteTokenFromLink("https://civibyte.com/c/jctp69sP"), "jctp69sP");
@@ -97,5 +101,41 @@ test("requires a name when the phone is new to Civibyte", async () => {
       fetchImpl,
     }),
     /volunteer name is required/i,
+  );
+});
+
+test("posts a canvass batch and returns acknowledged submission ids", async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    return Response.json([{ clientSubmissionId: "submission-1" }]);
+  }) as typeof fetch;
+
+  const acknowledged = await logCivibyteCanvassBatch(
+    { guestToken: "guest-token", canvassingSessionId: "session-1" },
+    [
+      {
+        clientSubmissionId: "submission-1",
+        canvassingSessionId: "session-1",
+        sessionDoorId: "door-1",
+        addressPk: "address-1",
+        doorResult: "NO_ANSWER",
+        someoneElseContacted: false,
+        voters: [{ voterPk: "voter-1", answers: [] }],
+      },
+    ],
+    fetchImpl,
+  );
+
+  assert.deepEqual(acknowledged, ["submission-1"]);
+  assert.match(requests[0]?.url ?? "", /\/log-canvass\/batch$/);
+  assert.equal(requests[0]?.init?.method, "POST");
+  assert.equal(
+    new Headers(requests[0]?.init?.headers).get("Authorization"),
+    "Bearer guest-token",
+  );
+  assert.equal(
+    JSON.parse(String(requests[0]?.init?.body))[0].doorResult,
+    "NO_ANSWER",
   );
 });

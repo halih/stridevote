@@ -41,4 +41,4 @@ came back. Typed client: [`src/lib/civibyte/client.ts`](../src/lib/civibyte/clie
 | Guest pull (read snapshot) | `pull_session.ts` + `src/lib/civibyte/client.ts` |
 | Import into `List` / match voters | `src/lib/civibyte/import-list.ts` |
 | Pull session dispositions into attempts | `src/lib/civibyte/pull-canvass.ts` |
-| Push StrideVote knocks back to Civibyte | not started |
+| Push StrideVote knocks back to Civibyte | `src/lib/civibyte/push-canvass.ts` |

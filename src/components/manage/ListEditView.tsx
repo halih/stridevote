@@ -11,6 +11,7 @@ import {
   enqueueMinivanPull,
   enqueueMinivanPush,
   pullCivibyteList,
+  pushCivibyteList,
   setListCampaigns,
   updateList,
 } from "@/lib/admin-actions";
@@ -205,9 +206,19 @@ export function ListEditView({ list }: { list: ListEditData }) {
                   >
                     Pull
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    disabled={pending}
+                    title="Push new StrideVote results to CiviByte"
+                    onClick={() => run(() => pushCivibyteList(list.id))}
+                  >
+                    Push
+                  </button>
                 </div>
                 <p className="sheet-sub">
                   Pull imports new door dispositions and available survey answers.
+                  Push sends newer StrideVote results through the CiviByte guest API.
                 </p>
               </>
             ) : null}

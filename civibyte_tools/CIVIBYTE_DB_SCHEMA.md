@@ -45,8 +45,8 @@ claim/release/skip/complete).
   A StrideVote import should treat claim state as ephemeral and not persist it as
   a canvass result.
 - **Pull vs push:** pull is the session GET (doors + voters + prior-visit fields).
-  Push has not been implemented in StrideVote; the write contract is documented
-  from the guest client so a later push can reuse it.
+  StrideVote push uses the idempotent batch endpoint and records acknowledged
+  attempt IDs in `List.data.civibyte.pushedAttempts`.
 
 ---
 
@@ -363,8 +363,8 @@ Do not call these with a guest token.
 3. `OTHER` door result and any unobserved `responseType` values.
 4. Whether `buildingPk` is populated for apartments and how units nest.
 5. Rate limits (`x-rate-limit-remaining: 299` observed) and token TTL.
-6. Push: whether StrideVote should log as this guest volunteer or via a
-   campaign-authenticated API.
+6. A campaign-authenticated write API would provide cleaner attribution than
+   the current guest-token push.
 
 ---
 

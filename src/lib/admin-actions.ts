@@ -33,6 +33,7 @@ import { getMinivanAdapter, listMinivanAdapters } from "@/lib/minivan/adapters";
 import { enqueueMinivanJob } from "@/lib/minivan/jobs";
 import { importCivibyteList } from "@/lib/civibyte/import-list";
 import { pullCivibyteCanvass } from "@/lib/civibyte/pull-canvass";
+import { pushCivibyteCanvass } from "@/lib/civibyte/push-canvass";
 
 export interface AdminResult {
   ok: boolean;
@@ -1430,6 +1431,50 @@ export async function pullCivibyteList(listId: string): Promise<AdminResult> {
     };
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Civibyte pull failed.");
+  }
+}
+
+/** Admin: push the latest StrideVote result per door through CiviByte guest sync. */
+export async function pushCivibyteList(listId: string): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+  if (!(await canManageList(user.id, listId))) return fail("Not allowed.");
+
+  const list = await prisma.list.findFirst({
+    where: { id: listId, source: "civibyte", deletedAt: null },
+    include: {
+      campaignLinks: {
+        include: {
+          campaign: { select: { civibyteEnabled: true } },
+          program: { select: { status: true } },
+        },
+      },
+    },
+  });
+  if (!list) return fail("Not a CiviByte list.");
+  const link =
+    list.campaignLinks.find(
+      (candidate) =>
+        candidate.program.status === "active" &&
+        candidate.campaign.civibyteEnabled,
+    ) ??
+    list.campaignLinks.find((candidate) => candidate.campaign.civibyteEnabled);
+  if (!link) return fail("CiviByte is not enabled for this list's campaign.");
+
+  try {
+    const result = await pushCivibyteCanvass({
+      listId,
+      campaignId: link.campaignId,
+    });
+    const rejected = result.rejected
+      ? `; ${result.rejected} rejected by CiviByte`
+      : "";
+    return {
+      ok: result.rejected === 0,
+      message: `Pushed ${result.applied} CiviByte result${result.applied === 1 ? "" : "s"}${rejected}; ${result.skipped} unchanged, remote-newer, or unsupported.`,
+    };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "CiviByte push failed.");
   }
 }
 

@@ -28,6 +28,7 @@ import {
   enqueueMinivanPull,
   enqueueMinivanPush,
   pullCivibyteList,
+  pushCivibyteList,
   setMemberRoles,
 } from "@/lib/admin-actions";
 
@@ -429,6 +430,15 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                         onClick={() => run(() => pullCivibyteList(l.id))}
                       >
                         Pull
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        disabled={pending}
+                        title="Push new StrideVote results to CiviByte"
+                        onClick={() => run(() => pushCivibyteList(l.id))}
+                      >
+                        Push
                       </button>
                     </div>
                   ) : null}
