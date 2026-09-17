@@ -1,6 +1,7 @@
-import NextAuth from "next-auth";
+import NextAuth, { AuthError } from "next-auth";
 import type { NextAuthConfig } from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
+import type { Adapter } from "next-auth/adapters";
 import Credentials from "next-auth/providers/credentials";
 import type { Provider } from "next-auth/providers";
 import { prisma } from "@/lib/db";
@@ -78,6 +79,28 @@ const otpProvider = Credentials({
   },
 });
 
+// Magic links are single-use, and re-opening one is routine: mail clients
+// prefetch URLs and people re-tap the email. The stock adapter consumes the
+// token with a `delete` that throws P2025 on the second pass, which Prisma
+// reports through its own error log before the adapter swallows it. Look first,
+// then consume with `deleteMany` so a spent link is a quiet miss. `deleteMany`
+// still reports one affected row to exactly one caller, so racing requests
+// can't both claim the same token.
+function prismaAdapter(): Adapter {
+  const adapter = PrismaAdapter(prisma);
+  adapter.useVerificationToken = async ({ identifier, token }) => {
+    const existing = await prisma.verificationToken.findUnique({
+      where: { identifier_token: { identifier, token } },
+    });
+    if (!existing) return null;
+    const { count } = await prisma.verificationToken.deleteMany({
+      where: { identifier, token },
+    });
+    return count === 1 ? existing : null;
+  };
+  return adapter;
+}
+
 function activeProviders(): Provider[] {
   const list: Provider[] = [];
   if (channelEnabled("email")) list.push(emailProvider);
@@ -87,11 +110,28 @@ function activeProviders(): Provider[] {
 }
 
 export const authConfig: NextAuthConfig = {
-  adapter: PrismaAdapter(prisma),
+  adapter: prismaAdapter(),
   // Honor AUTH_URL / X-Forwarded-Host so magic links match the public tunnel.
   trustHost: true,
   session: { strategy: "jwt" },
-  pages: { signIn: "/login", verifyRequest: "/login?sent=1" },
+  // Magic links are single-use, so a re-clicked or expired link raises
+  // Verification. Without an error page that lands on Auth.js's own HTML page;
+  // send it back to our login form instead.
+  pages: { signIn: "/login", verifyRequest: "/login?sent=1", error: "/login" },
+  logger: {
+    error(error) {
+      // Auth.js raises Verification for a used or expired link. That is the
+      // user's problem, not the server's, and the login page already explains
+      // it — a stack trace here only looks like an outage.
+      if (error instanceof AuthError && error.type === "Verification") {
+        console.log(
+          "[auth] sign-in link already used or expired — sent back to /login",
+        );
+        return;
+      }
+      console.error(error);
+    },
+  },
   providers: activeProviders(),
   callbacks: {
     async jwt({ token, user }) {

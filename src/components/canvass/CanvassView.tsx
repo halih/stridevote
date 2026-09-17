@@ -488,7 +488,7 @@ function ListCard({
             <button type="button" className="btn btn-outline btn-sm" onClick={onPreview}>
               <Icon name="map" size={14} /> Preview
             </button>
-            <span className="taken-note">In progress with {l.takenBy}</span>
+            <span className="taken-note">In progress</span>
           </div>
           <button
             className={`btn ${l.watching ? "btn-pending" : "btn-outline"} btn-sm`}

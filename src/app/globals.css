@@ -594,6 +594,12 @@ a { color: inherit; }
 .login-alt::before, .login-alt::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .channel-btns { display: flex; flex-direction: column; gap: 8px; }
 .login-note { font-size: 12px; color: var(--ink-soft); margin-top: 14px; line-height: 1.45; }
+.login-alert {
+  margin: 0 0 16px; padding: 10px 12px; border-radius: var(--r-md); line-height: 1.4;
+  border: 1px solid color-mix(in srgb, var(--critical) 35%, var(--line));
+  background: color-mix(in srgb, var(--critical-soft) 55%, var(--surface));
+  color: var(--critical); font-size: 12.5px; font-weight: 600;
+}
 .dev-box {
   margin-top: 16px; border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--line));
   border-radius: var(--r-md); padding: 12px 14px; background: var(--accent-soft);

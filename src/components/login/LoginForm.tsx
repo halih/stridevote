@@ -23,10 +23,13 @@ export function LoginForm({
   channels,
   isDev,
   stubEmail,
+  notice,
 }: {
   channels: AuthChannel[];
   isDev: boolean;
   stubEmail: boolean;
+  /** Server-side sign-in failure, e.g. a magic link that was already used. */
+  notice?: string | null;
 }) {
   const emailEnabled = channels.includes("email");
   const phoneChannels = channels.filter((c): c is "sms" | "whatsapp" => c !== "email");
@@ -42,6 +45,9 @@ export function LoginForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [dev, setDev] = useState<DevMessage | null>(null);
+  // Cleared once the user asks for a fresh link/code, so the stale reason
+  // from the failed attempt doesn't hang around.
+  const [authNotice, setAuthNotice] = useState(notice ?? null);
 
   const pollDev = useCallback(async () => {
     if (!isDev) return;
@@ -72,6 +78,7 @@ export function LoginForm({
     e.preventDefault();
     setBusy(true);
     setError("");
+    setAuthNotice(null);
     setDev(null);
     setShowLinkOnScreen(stubEmail || isUndeliverableAddress(email));
     const res = await signIn("email", {
@@ -88,6 +95,7 @@ export function LoginForm({
     e.preventDefault();
     setBusy(true);
     setError("");
+    setAuthNotice(null);
     const res = await fetch("/api/otp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -126,6 +134,12 @@ export function LoginForm({
       <div className="login-brand">
         <Image src="/brand/lockup-stridevote.svg" alt="StrideVote" width={168} height={35} priority />
       </div>
+
+      {authNotice ? (
+        <p className="login-alert" role="alert">
+          {authNotice}
+        </p>
+      ) : null}
 
       {stage === "email-sent" ? (
         <>
