@@ -27,4 +27,17 @@ describe("list availability email", () => {
     assert.match(content.html, /&quot;Primary&quot;/);
     assert.match(content.html, /a=1&amp;b=2/);
   });
+
+  it("explains when a released half came from a watched list", () => {
+    const content = listAvailableEmailContent(
+      "North End South",
+      "November GOTV",
+      "https://stride.vote/canvass",
+      "split",
+    );
+
+    assert.match(content.subject, /North End South is available/);
+    assert.match(content.text, /a list you watch.*was split/);
+    assert.match(content.html, /list you were watching.*was split/);
+  });
 });

@@ -35,6 +35,62 @@ export type SplitListResult = ActionResult & {
   releasedName?: string;
 };
 
+async function notifyListWatchers(opts: {
+  watchedListId: string;
+  programId: string;
+  availableListName: string;
+  consumeWatches: boolean;
+  reason?: "released" | "split";
+}): Promise<void> {
+  try {
+    const watchers = await prisma.listWatch.findMany({
+      where: { listId: opts.watchedListId, programId: opts.programId },
+      select: {
+        id: true,
+        user: { select: { email: true } },
+        program: { select: { name: true } },
+      },
+    });
+    if (!watchers.length) return;
+
+    if (opts.consumeWatches) {
+      await prisma.listWatch.deleteMany({
+        where: { id: { in: watchers.map((watch) => watch.id) } },
+      });
+    }
+
+    const deliveries = await Promise.allSettled(
+      watchers.flatMap((watch) =>
+        watch.user.email
+          ? [
+              sendListAvailableEmail(
+                watch.user.email,
+                opts.availableListName,
+                watch.program.name,
+                opts.reason,
+              ),
+            ]
+          : [],
+      ),
+    );
+    for (const delivery of deliveries) {
+      if (delivery.status === "rejected") {
+        console.error(
+          `List availability email failed for ${opts.watchedListId}/${opts.programId}:`,
+          delivery.reason,
+        );
+      }
+    }
+  } catch (error) {
+    // Availability must not be rolled back or reported as failed just because
+    // its best-effort notification could not be queued or delivered.
+    console.error(
+      `List watcher notification failed for ${opts.watchedListId}/${opts.programId}:`,
+      error,
+    );
+  }
+}
+
 export async function doSignOut(): Promise<void> {
   await signOut({ redirectTo: "/login" });
 }
@@ -183,40 +239,13 @@ export async function releaseList(
   });
 
   if (nextStatus === "released") {
-    const watchers = await prisma.listWatch.findMany({
-      where: { listId, programId: active.programId },
-      select: {
-        id: true,
-        user: { select: { email: true } },
-        program: { select: { name: true } },
-      },
+    await notifyListWatchers({
+      watchedListId: listId,
+      programId: active.programId,
+      availableListName: list.name,
+      consumeWatches: true,
+      reason: "released",
     });
-    if (watchers.length) {
-      await prisma.listWatch.deleteMany({
-        where: { id: { in: watchers.map((watch) => watch.id) } },
-      });
-      const deliveries = await Promise.allSettled(
-        watchers.flatMap((watch) =>
-          watch.user.email
-            ? [
-                sendListAvailableEmail(
-                  watch.user.email,
-                  list.name,
-                  watch.program.name,
-                ),
-              ]
-            : [],
-        ),
-      );
-      for (const delivery of deliveries) {
-        if (delivery.status === "rejected") {
-          console.error(
-            `List availability email failed for ${list.id}/${active.programId}:`,
-            delivery.reason,
-          );
-        }
-      }
-    }
   }
 
   revalidatePath("/canvass");
@@ -422,6 +451,14 @@ export async function splitList(
       checkoutId: gate.checkoutId,
     });
     if (!result.ok) return { ok: false, message: result.message };
+
+    await notifyListWatchers({
+      watchedListId: listId,
+      programId: gate.programId,
+      availableListName: result.releasedName,
+      consumeWatches: false,
+      reason: "split",
+    });
 
     revalidatePath("/canvass");
     revalidatePath(`/canvass/${listId}`);

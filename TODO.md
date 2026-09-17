@@ -47,7 +47,7 @@ Jargon used below:
 
 - [x] **Watch lists are not tied to a wave**
 
-  Watches are scoped to a list and wave. Releasing an unfinished list emails that wave’s watchers and consumes the one-shot watches.
+  Watches are scoped to a list and wave. Releasing an unfinished list emails that wave’s watchers and consumes the one-shot watches. Splitting a watched list also emails watchers about the available half while retaining the watch on the original kept half.
 
 - [ ] **Voter data on the phone (IndexedDB)**
 
