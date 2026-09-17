@@ -12,6 +12,8 @@ export interface DevMessage {
   to: string;
   code?: string;
   magicLink?: string;
+  subject?: string;
+  text?: string;
 }
 
 const FILE = join(process.cwd(), ".next", "stridevote-dev-inbox.json");

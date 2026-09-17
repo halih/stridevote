@@ -650,7 +650,7 @@ async function checkOutToAssignee(
     progressTotal: doorsCount,
   });
   if (!claimed.ok) return fail(claimed.message);
-  await prisma.listWatch.deleteMany({ where: { listId, userId } });
+  await prisma.listWatch.deleteMany({ where: { listId, programId, userId } });
   return null;
 }
 

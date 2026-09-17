@@ -216,4 +216,4 @@ Jargon used below:
 
 ## Already tracked in TODO.md (not duplicated)
 
-Coordinate mismatch on drawn turfs, Census-vs-official precinct picker, Mapbox volume on packet download, freeze-after-publish (listed above only where sync still accepts live membership), in-memory “current knock,” collision policy, watches not scoped to a wave, packet PII/TTL policy, ungeocoded precinct doors, MiniVAN/Civibyte pointer lists, batch precinct error reporting, overlapping drawn turfs, real polygon clip, precinct map cap of 400, production map tiles.
+Coordinate mismatch on drawn turfs, Census-vs-official precinct picker, Mapbox volume on packet download, freeze-after-publish (listed above only where sync still accepts live membership), in-memory “current knock,” collision policy, packet PII/TTL policy, ungeocoded precinct doors, MiniVAN/Civibyte pointer lists, batch precinct error reporting, overlapping drawn turfs, real polygon clip, precinct map cap of 400, production map tiles.

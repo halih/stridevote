@@ -214,6 +214,7 @@ model CanvassProgram {
   attempts    CanvassAttempt[]
   listSplits  ListSplit[]
   fieldEvents FieldEvent[]
+  watches     ListWatch[]
 
   @@unique([campaignId, name])
   @@index([campaignId, status])
@@ -417,12 +418,15 @@ model ListWatch {
   id        String   @id @default(cuid())
   userId    String
   listId    String
+  programId String
   createdAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  list List @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  list    List           @relation(fields: [listId], references: [id], onDelete: Cascade)
+  program CanvassProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, listId])
+  @@unique([userId, listId, programId])
+  @@index([listId, programId])
 }
 
 // ---- Public voter-file records (restricted to political use) ----

@@ -8,6 +8,7 @@ import { permissionsForRoles } from "@/lib/roles";
 import { canAccessListProgram } from "@/lib/canvass/access";
 import { countClosedDoors } from "@/lib/canvass/progress";
 import { claimActiveCheckout } from "@/lib/canvass/checkout";
+import { sendListAvailableEmail } from "@/lib/canvass/list-watch-email";
 import {
   applyListSplit,
   buildSplitPreview,
@@ -138,7 +139,9 @@ export async function checkoutList(
     });
     if (!claimed.ok) return claimed;
   }
-  await prisma.listWatch.deleteMany({ where: { userId: user.id, listId } });
+  await prisma.listWatch.deleteMany({
+    where: { userId: user.id, listId, programId: resolvedProgramId },
+  });
   revalidatePath("/canvass");
   return { ok: true, message: `Checked out ${list.name}` };
 }
@@ -178,6 +181,44 @@ export async function releaseList(
       progressTotal: list.doorsCount,
     },
   });
+
+  if (nextStatus === "released") {
+    const watchers = await prisma.listWatch.findMany({
+      where: { listId, programId: active.programId },
+      select: {
+        id: true,
+        user: { select: { email: true } },
+        program: { select: { name: true } },
+      },
+    });
+    if (watchers.length) {
+      await prisma.listWatch.deleteMany({
+        where: { id: { in: watchers.map((watch) => watch.id) } },
+      });
+      const deliveries = await Promise.allSettled(
+        watchers.flatMap((watch) =>
+          watch.user.email
+            ? [
+                sendListAvailableEmail(
+                  watch.user.email,
+                  list.name,
+                  watch.program.name,
+                ),
+              ]
+            : [],
+        ),
+      );
+      for (const delivery of deliveries) {
+        if (delivery.status === "rejected") {
+          console.error(
+            `List availability email failed for ${list.id}/${active.programId}:`,
+            delivery.reason,
+          );
+        }
+      }
+    }
+  }
+
   revalidatePath("/canvass");
   return {
     ok: true,
@@ -187,11 +228,20 @@ export async function releaseList(
   };
 }
 
-export async function toggleWatch(listId: string): Promise<ActionResult> {
+export async function toggleWatch(
+  listId: string,
+  programId: string,
+): Promise<ActionResult> {
   const user = await getSessionUser();
   if (!user) return { ok: false, message: "Please sign in." };
+  if (!user.email) {
+    return {
+      ok: false,
+      message: "Add an email address to your profile to get notified.",
+    };
+  }
 
-  // Any visible program link is enough to watch.
+  // The watch must target the exact visible wave represented by the card.
   const memberships = await prisma.campaignMembership.findMany({
     where: {
       userId: user.id,
@@ -206,7 +256,9 @@ export async function toggleWatch(listId: string): Promise<ActionResult> {
   const link = await prisma.listCampaign.findFirst({
     where: {
       listId,
+      programId,
       list: { deletedAt: null },
+      program: { status: "active" },
       campaignId: { in: campaignIds },
       OR: [
         { visibility: "volunteers" },
@@ -222,14 +274,18 @@ export async function toggleWatch(listId: string): Promise<ActionResult> {
   if (!list) return { ok: false, message: "List not found." };
 
   const existing = await prisma.listWatch.findUnique({
-    where: { userId_listId: { userId: user.id, listId } },
+    where: {
+      userId_listId_programId: { userId: user.id, listId, programId },
+    },
   });
   if (existing) {
     await prisma.listWatch.delete({ where: { id: existing.id } });
     revalidatePath("/canvass");
     return { ok: true, message: `Stopped watching ${list.name}` };
   }
-  await prisma.listWatch.create({ data: { userId: user.id, listId } });
+  await prisma.listWatch.create({
+    data: { userId: user.id, listId, programId },
+  });
   revalidatePath("/canvass");
   return { ok: true, message: `Watching ${list.name}` };
 }

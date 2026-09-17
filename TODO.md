@@ -45,9 +45,9 @@ Jargon used below:
 
   If a volunteer syncs after the list was released, or two phones log the same door, we currently accept the extra knock and mark it `staleCheckout` for admin. That may be right, or we may want to reject / last-write-wins. Pick a rule and make the volunteer UI say what happened, not only an admin footnote.
 
-- [ ] **Watch lists are not tied to a wave**
+- [x] **Watch lists are not tied to a wave**
 
-  “Watch this list” is per list, not per wave. After Primary vs General, a watch can point at the wrong pass — or nobody uses watches at all. Either scope them to a wave, or remove the feature.
+  Watches are scoped to a list and wave. Releasing an unfinished list emails that wave’s watchers and consumes the one-shot watches.
 
 - [ ] **Voter data on the phone (IndexedDB)**
 

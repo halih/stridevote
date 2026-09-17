@@ -473,7 +473,9 @@ export async function getCanvassBoard(user: User): Promise<ListVM[]> {
         takenBy: otherCheckout?.user.name ?? (otherCheckout ? "another canvasser" : null),
         progressDone: closedDoors,
         progressTotal: l.doorsCount,
-        watching: l.watches.length > 0,
+        watching: primaryLink
+          ? l.watches.some((watch) => watch.programId === primaryLink.programId)
+          : false,
         boundary: boundaryOf(l.boundary),
         centroidLat: l.centroidLat,
         centroidLng: l.centroidLng,

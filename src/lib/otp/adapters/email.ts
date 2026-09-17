@@ -1,14 +1,9 @@
 import { channelEnabled, env } from "@/lib/env";
-import { pushDevMessage } from "../dev-inbox";
-import { isUndeliverableAddress } from "../test-address";
+import {
+  deliverEmail,
+  hasLiveEmailProvider,
+} from "@/lib/email-delivery";
 import type { OtpChannel } from "../channel";
-
-// Read at call time, not module load: Next.js dev keeps compiled modules across
-// .env reloads, so a cached module would otherwise pin the old provider config.
-const resendKey = () => process.env.RESEND_API_KEY?.trim() || undefined;
-const smtpUrl = () => process.env.SMTP_URL?.trim() || undefined;
-const from = () =>
-  process.env.EMAIL_FROM?.trim() || "StrideVote <login@stride.vote>";
 
 // Mail clients need an absolute image URL, and the app is reachable under
 // different hosts (localhost, ngrok, prod), so take the origin from the link
@@ -37,52 +32,25 @@ function renderHtml(magicLink: string): string {
   </div></body></html>`;
 }
 
-async function sendViaResend(to: string, magicLink: string): Promise<void> {
-  const { Resend } = await import("resend");
-  const resend = new Resend(resendKey());
-  // The Resend SDK resolves with { error } instead of throwing, so an
-  // unverified domain or bad key would otherwise look like a success.
-  const { error } = await resend.emails.send({
-    from: from(),
-    to,
-    subject: "Your StrideVote sign-in link",
-    html: renderHtml(magicLink),
-  });
-  if (error) throw new Error(`Resend rejected the message: ${error.message}`);
-}
-
-async function sendViaSmtp(to: string, magicLink: string): Promise<void> {
-  const nodemailer = (await import("nodemailer")).default;
-  const transport = nodemailer.createTransport(smtpUrl() as string);
-  const info = await transport.sendMail({
-    from: from(),
-    to,
-    subject: "Your StrideVote sign-in link",
-    html: renderHtml(magicLink),
-  });
-  console.log(
-    `\u2709\uFE0F  [StrideVote][email-link] sent to ${to} (${info.messageId})`,
-  );
-}
-
 export const emailChannel: OtpChannel = {
   kind: "email-link",
   enabled: channelEnabled("email"),
   get live() {
-    return Boolean(resendKey() || smtpUrl());
+    return hasLiveEmailProvider();
   },
   async send(to, { magicLink }) {
     if (!magicLink) throw new Error("email-link channel requires a magicLink");
-    const undeliverable = env.isDev && isUndeliverableAddress(to);
+    const message = {
+      to,
+      subject: "Your StrideVote sign-in link",
+      html: renderHtml(magicLink),
+      text: `Sign in to StrideVote: ${magicLink}`,
+      devKind: "email-link",
+      magicLink,
+    };
     try {
-      if (undeliverable) {
-        console.log(
-          `\u2139\uFE0F  [StrideVote][email-link] ${to} is a reserved test domain — showing the link on screen.`,
-        );
-      } else {
-        if (resendKey()) return void (await sendViaResend(to, magicLink));
-        if (smtpUrl()) return void (await sendViaSmtp(to, magicLink));
-      }
+      await deliverEmail(message);
+      return;
     } catch (err) {
       console.error(
         `\u2716 [StrideVote][email-link] delivery to ${to} failed:`,
@@ -92,9 +60,6 @@ export const emailChannel: OtpChannel = {
       // doesn't lock you out of local sign-in.
       if (!env.isDev) throw err;
     }
-    console.log(
-      `\n\u2709\uFE0F  [StrideVote][email-link] -> ${to}\n   ${magicLink}\n`,
-    );
-    pushDevMessage({ at: Date.now(), kind: "email-link", to, magicLink });
+    await deliverEmail(message, { forceDevStub: true });
   },
 };

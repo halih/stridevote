@@ -109,6 +109,15 @@ export function CanvassView({
     });
   }
 
+  function onWatch(list: ListVM) {
+    const programId = list.programId;
+    if (!programId) {
+      toast("No active canvass wave for this list.");
+      return;
+    }
+    run(() => toggleWatch(list.id, programId));
+  }
+
   function onRelease(list: ListVM) {
     startTransition(async () => {
       try {
@@ -279,7 +288,7 @@ export function CanvassView({
               onCheckout={() => setSheet({ kind: "checkout", list: l })}
               onRelease={() => onRelease(l)}
               onSplit={() => onSplit(l)}
-              onWatch={() => run(() => toggleWatch(l.id))}
+              onWatch={() => onWatch(l)}
               onOpen={() => onOpen(l)}
               onPullMinivan={
                 l.minivanPull
