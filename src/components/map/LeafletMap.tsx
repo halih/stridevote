@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   CircleMarker,
   MapContainer,
@@ -44,9 +44,27 @@ function youIcon() {
   });
 }
 
-function FitBounds({ points }: { points: [number, number][] }) {
+/**
+ * Centred on the dot rather than offset into a corner badge: a corner lands in
+ * a different place per browser, and the middle of the dot needs no offset.
+ */
+function doorCountIcon(count: number) {
+  return L.divIcon({
+    className: "door-count-icon",
+    html: `<span>${count}</span>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+  });
+}
+
+function FitBounds({
+  points,
+  pointsKey,
+}: {
+  points: [number, number][];
+  pointsKey: string;
+}) {
   const map = useMap();
-  const pointsKey = points.map(([lat, lng]) => `${lat},${lng}`).join("|");
   useEffect(() => {
     map.invalidateSize();
     if (points.length === 1) {
@@ -63,6 +81,45 @@ function FitBounds({ points }: { points: [number, number][] }) {
   return null;
 }
 
+/** How far inside the frame the selected door must sit to count as visible. */
+const IN_VIEW_INSET = -0.12;
+
+/**
+ * Stepping through doors selects addresses the current frame may not cover, so
+ * bring the selection back into view. A door that is already on screen is left
+ * where it is — otherwise the map would lurch on every step along a block.
+ */
+function KeepSelectionInView({
+  point,
+  geometryKey,
+}: {
+  point: [number, number] | null;
+  geometryKey: string;
+}) {
+  const map = useMap();
+  const pointKey = point ? `${point[0]},${point[1]}` : null;
+  const lastPoint = useRef<string | null | undefined>(undefined);
+  const lastGeometry = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const previousPoint = lastPoint.current;
+    const previousGeometry = lastGeometry.current;
+    lastPoint.current = pointKey;
+    lastGeometry.current = geometryKey;
+    if (!pointKey || !point) return;
+    // FitBounds frames the door set on the first paint and whenever the set
+    // changes. Those fits already show the selection, so don't fight them.
+    if (previousPoint === undefined || previousGeometry !== geometryKey) return;
+
+    const target = L.latLng(point);
+    if (map.getBounds().pad(IN_VIEW_INSET).contains(target)) return;
+    map.panTo(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- point derived from pointKey
+  }, [pointKey, geometryKey, map]);
+
+  return null;
+}
+
 export function LeafletMap({
   polygons = [],
   markers = [],
@@ -76,12 +133,14 @@ export function LeafletMap({
     ...markers.map((m) => [m.lat, m.lng] as [number, number]),
   ];
   const center: [number, number] = fitPoints[0] ?? [47.72, -122.34];
+  const fitKey = fitPoints.map(([lat, lng]) => `${lat},${lng}`).join("|");
 
   // Draw selected last so it sits on top.
   const ordered = [
     ...markers.filter((m) => !m.current),
     ...markers.filter((m) => m.current),
   ];
+  const selected = markers.find((m) => m.current) ?? null;
 
   return (
     <MapContainer
@@ -123,7 +182,11 @@ export function LeafletMap({
       {you ? (
         <Marker position={[you.lat, you.lng]} icon={youIcon()} interactive={false} />
       ) : null}
-      <FitBounds points={fitPoints} />
+      <FitBounds points={fitPoints} pointsKey={fitKey} />
+      <KeepSelectionInView
+        point={selected ? [selected.lat, selected.lng] : null}
+        geometryKey={fitKey}
+      />
     </MapContainer>
   );
 }
@@ -137,7 +200,11 @@ function DoorMarker({
 }) {
   // Read-only overview maps (split preview, list editor) pack many doors into a
   // small frame, so they keep the compact dot. Walkable maps draw a bigger one.
-  const radius = m.current ? (tappable ? 11 : 8) : tappable ? 8 : 5;
+  const baseRadius = m.current ? (tappable ? 11 : 8) : tappable ? 8 : 5;
+  const count = m.count ?? 1;
+  // A multi-door dot carries its count, so it has to be wide enough to hold it.
+  const radius =
+    count > 1 ? Math.max(baseRadius, 8 + String(count).length * 2) : baseRadius;
 
   return (
     <>
@@ -176,6 +243,14 @@ function DoorMarker({
           </Tooltip>
         ) : null}
       </CircleMarker>
+      {count > 1 ? (
+        <Marker
+          position={[m.lat, m.lng]}
+          icon={doorCountIcon(count)}
+          interactive={false}
+          keyboard={false}
+        />
+      ) : null}
     </>
   );
 }

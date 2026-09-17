@@ -12,6 +12,8 @@ export interface MapMarker {
   color: string;
   current?: boolean;
   title?: string;
+  /** Number of doors represented by this pin (for apartment buildings). */
+  count?: number;
   /** Stable id (e.g. householdId) for click selection. */
   id?: string;
 }

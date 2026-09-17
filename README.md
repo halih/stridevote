@@ -283,9 +283,11 @@ These are stubbed with clear seams so they can be turned on later:
   via the Meta WhatsApp Cloud API (requires Business verification).
 - **MiniVAN** — gated per campaign (platform admin). Import / pull / push run
   through [`minivan_tools/`](minivan_tools/) and a local emulator worker; see
-  that folder’s README. Civibyte remains deep-link only.
-- **Civibyte import** — checkout and deep-links exist; walking lists are not
-  imported into native knocking.
+  that folder’s README.
+- **Civibyte** — gated per campaign (platform admin). Guest-link pull lives in
+  [`civibyte_tools/`](civibyte_tools/) (see that folder’s README and schema).
+  Guest sessions can be imported as native lists and refreshed for new door
+  results. Push-back is not yet implemented.
 
 ## Scripts
 

@@ -40,6 +40,10 @@ next-env.d.ts
 # MiniVAN emulator local secrets / caches
 /minivan_tools/.device_uid_cache
 /minivan_tools/*.db
+
+# Civibyte guest dumps (session JSON contains voter PII)
+/civibyte_tools/*.json
+
 /tmp/
 
 # Python

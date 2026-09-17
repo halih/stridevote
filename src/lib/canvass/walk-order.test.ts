@@ -234,6 +234,25 @@ describe("street-first walk order", () => {
     );
   });
 
+  it("keeps one apartment building together when unit geocodes disagree", () => {
+    const doors = [
+      door("500 PINE ST", BASE_LAT, BASE_LNG, "1"),
+      // Same building, but its imported pin is more than a mile away.
+      door("500 PINE ST", BASE_LAT + 0.02, BASE_LNG, "2"),
+      door("600 PINE ST", BASE_LAT + DOOR_STEP_LAT, BASE_LNG),
+    ];
+
+    const ordered = orderForStreetWalk(doors, {
+      pointOf: (d) => (d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : null),
+      addressOf: (d) => ({ addressLine: d.addressLine, city: d.city, unit: d.unit }),
+      start: { lat: BASE_LAT, lng: BASE_LNG },
+    });
+    const apartmentPositions = ordered
+      .map((d, index) => (d.addressLine === "500 PINE ST" ? index : -1))
+      .filter((index) => index >= 0);
+    assert.equal(apartmentPositions[1] - apartmentPositions[0], 1);
+  });
+
   it("keeps the same street name in different cities apart", () => {
     const doors = [
       door("100 MAIN ST", BASE_LAT, BASE_LNG),

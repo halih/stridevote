@@ -48,6 +48,12 @@ function doorStatus(door: FieldPacketDoor): "remaining" | "done" {
   return door.current ? "done" : "remaining";
 }
 
+/** Units of an apartment building share a street line, so they share a pin. */
+function buildingKey(door: FieldPacketDoor): string {
+  const line = door.addressLine.trim().toUpperCase().replace(/\s+/g, " ");
+  return `${door.city.trim().toUpperCase()}|${line}`;
+}
+
 function packetLooksIncomplete(packet: FieldPacket): boolean {
   if (!packet.doors.length && packet.doorsCount > 0) return true;
   if (packet.doorsCount > 0 && packet.doors.length < packet.doorsCount) return true;
@@ -537,7 +543,62 @@ export function WalkView({
     : pendingCount > 0
       ? `${pendingCount} saved update${pendingCount === 1 ? "" : "s"} still need to sync before releasing.`
       : null;
-  const mappedDoors = filteredDoors.filter((d) => d.lat != null && d.lng != null);
+  const mappedDoors = useMemo(
+    () => filteredDoors.filter((d) => d.lat != null && d.lng != null),
+    [filteredDoors],
+  );
+  const mappedDoorMarkers = useMemo(() => {
+    const buildings = new globalThis.Map<string, FieldPacketDoor[]>();
+    for (const door of mappedDoors) {
+      const key = buildingKey(door);
+      const group = buildings.get(key);
+      if (group) group.push(door);
+      else buildings.set(key, [door]);
+    }
+
+    return [...buildings.values()].map((doors) => {
+      const selected =
+        doors.find((door) => door.householdId === currentDoor?.householdId) ??
+        doors.find((door) => doorStatus(door) === "remaining") ??
+        doors[0];
+      const lats = doors.map((door) => door.lat!).sort((a, b) => a - b);
+      const lngs = doors.map((door) => door.lng!).sort((a, b) => a - b);
+      const middle = Math.floor(doors.length / 2);
+      const lat =
+        doors.length % 2
+          ? lats[middle]
+          : (lats[middle - 1] + lats[middle]) / 2;
+      const lng =
+        doors.length % 2
+          ? lngs[middle]
+          : (lngs[middle - 1] + lngs[middle]) / 2;
+      return {
+        id: selected.householdId,
+        lat,
+        lng,
+        color: doorPinColor(selected.current?.outcome),
+        current: doors.some(
+          (door) => door.householdId === currentDoor?.householdId,
+        ),
+        title:
+          doors.length > 1
+            ? `${selected.addressLine} · ${doors.length} doors`
+            : selected.address,
+        count: doors.length,
+      };
+    });
+  }, [mappedDoors, currentDoor?.householdId]);
+  const apartmentBuildingCount = mappedDoorMarkers.filter(
+    (marker) => marker.count > 1,
+  ).length;
+  // One pin can stand for a whole building, so the card lists that building's
+  // units to switch between without hunting for them in the door list.
+  const currentBuildingDoors = useMemo(() => {
+    if (!currentDoor) return [];
+    const key = buildingKey(currentDoor);
+    const doors = filteredDoors.filter((door) => buildingKey(door) === key);
+    return doors.length > 1 ? doors : [];
+  }, [filteredDoors, currentDoor]);
   const mapHelpItems = useMemo((): MapHelpItem[] => {
     const items: MapHelpItem[] = [
       {
@@ -548,6 +609,13 @@ export function WalkView({
             : "No doors in this filter on the map",
       },
       { text: "Tap a pin — or just near it — to select that door" },
+      ...(apartmentBuildingCount
+        ? [
+            {
+              text: "A numbered pin is one building — pick its unit under the map",
+            },
+          ]
+        : []),
       { color: DOOR_PIN_COLORS.talked, text: "Talked" },
       { color: DOOR_PIN_COLORS.lit, text: "Lit drop" },
       { color: DOOR_PIN_COLORS.other, text: "Other result" },
@@ -556,7 +624,13 @@ export function WalkView({
     if (location.you) items.push({ color: "#185FA5", text: "Current location" });
     if (location.home) items.push({ text: "Dark pin = home" });
     return items;
-  }, [mappedDoors.length, filter, location.you, location.home]);
+  }, [
+    mappedDoors.length,
+    apartmentBuildingCount,
+    filter,
+    location.you,
+    location.home,
+  ]);
 
   return (
     <div className="walk">
@@ -725,16 +799,7 @@ export function WalkView({
               <div className="walk-map-frame">
                 <Map
                   aspectRatio={1}
-                  markers={mappedDoors.map((d) => {
-                    return {
-                      id: d.householdId,
-                      lat: d.lat!,
-                      lng: d.lng!,
-                      color: doorPinColor(d.current?.outcome),
-                      current: currentDoor?.householdId === d.householdId,
-                      title: d.address,
-                    };
-                  })}
+                  markers={mappedDoorMarkers}
                   home={location.home ? { ...location.home, inside: true } : undefined}
                   you={location.you ?? undefined}
                   onMarkerClick={(marker) => {
@@ -800,6 +865,35 @@ export function WalkView({
                       </div>
                     </div>
                   </div>
+                  {currentBuildingDoors.length ? (
+                    <div className="walk-door-units">
+                      <span className="walk-door-units-label">
+                        {currentBuildingDoors.length} doors at{" "}
+                        {currentDoor.addressLine}
+                      </span>
+                      <div className="walk-door-unit-chips">
+                        {currentBuildingDoors.map((unitDoor) => (
+                          <button
+                            key={unitDoor.householdId}
+                            type="button"
+                            aria-pressed={
+                              unitDoor.householdId === currentDoor.householdId
+                            }
+                            className={`walk-door-unit${
+                              doorStatus(unitDoor) === "done" ? " done" : ""
+                            }${
+                              unitDoor.householdId === currentDoor.householdId
+                                ? " active"
+                                : ""
+                            }`}
+                            onClick={() => focusDoor(unitDoor)}
+                          >
+                            {unitDoor.unit ? `#${unitDoor.unit}` : "Main"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   {currentDoor.history.length ? (
                     <div className="walk-history">
                       {currentDoor.history.map((h) => (

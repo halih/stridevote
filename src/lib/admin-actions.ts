@@ -31,6 +31,8 @@ import { programQuestionSchema } from "@/lib/canvass/outcomes";
 import { claimActiveCheckout } from "@/lib/canvass/checkout";
 import { getMinivanAdapter, listMinivanAdapters } from "@/lib/minivan/adapters";
 import { enqueueMinivanJob } from "@/lib/minivan/jobs";
+import { importCivibyteList } from "@/lib/civibyte/import-list";
+import { pullCivibyteCanvass } from "@/lib/civibyte/pull-canvass";
 
 export interface AdminResult {
   ok: boolean;
@@ -1089,26 +1091,21 @@ export async function createList(
     return fail("CiviByte is not enabled for this campaign.");
   }
 
-  const program = await ensureActiveProgram(campaignId);
-  const slug = await uniqueSlug(slugify(d.name), async (s) =>
-    Boolean(await prisma.list.findUnique({ where: { slug: s } })),
-  );
-
-  await prisma.list.create({
-    data: {
-      slug,
+  if (!d.sourceRef) return fail("Enter a Civibyte guest link.");
+  try {
+    const result = await importCivibyteList({
+      campaignId,
       name: d.name,
-      source: d.source,
-      sourceRef: d.sourceRef || null,
-      doorsCount: d.doorsCount,
-      campaignLinks: {
-        create: [{ campaignId, programId: program.id }],
-      },
-    },
-  });
-
-  revalidateCampaign(campaign.slug);
-  return { ok: true, message: `Created ${d.name}` };
+      link: d.sourceRef,
+    });
+    return {
+      ok: true,
+      message: `Imported ${result.doors} doors and ${result.voters} voters from Civibyte.`,
+      id: result.listId,
+    };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Civibyte import failed.");
+  }
 }
 
 export async function updateList(listId: string, input: unknown): Promise<AdminResult> {
@@ -1389,6 +1386,51 @@ export async function setCampaignCivibyte(
     ok: true,
     message: parsed.data.enabled ? "CiviByte enabled" : "CiviByte disabled",
   };
+}
+
+/** Pull current Civibyte door dispositions into StrideVote attempts. */
+export async function pullCivibyteList(listId: string): Promise<AdminResult> {
+  const user = await getSessionUser();
+  if (!user) return fail("Please sign in.");
+
+  const list = await prisma.list.findFirst({
+    where: { id: listId, source: "civibyte", deletedAt: null },
+    include: {
+      campaignLinks: {
+        include: {
+          campaign: { select: { civibyteEnabled: true } },
+          program: { select: { status: true } },
+        },
+      },
+    },
+  });
+  if (!list) return fail("Not a Civibyte list.");
+  const link =
+    list.campaignLinks.find(
+      (candidate) =>
+        candidate.program.status === "active" &&
+        candidate.campaign.civibyteEnabled,
+    ) ??
+    list.campaignLinks.find((candidate) => candidate.campaign.civibyteEnabled);
+  if (!link) return fail("Civibyte is not enabled for this list's campaign.");
+  if (!(await can(user, link.campaignId, "canvass:checkout")) &&
+      !(await can(user, link.campaignId, "lists:manage"))) {
+    return fail("Not allowed.");
+  }
+
+  try {
+    const result = await pullCivibyteCanvass({
+      listId,
+      campaignId: link.campaignId,
+      requestedById: user.id,
+    });
+    return {
+      ok: true,
+      message: `Pulled ${result.applied} new Civibyte result${result.applied === 1 ? "" : "s"}; ${result.skipped} already present or unsupported.`,
+    };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Civibyte pull failed.");
+  }
 }
 
 const printedListNumberSchema = z

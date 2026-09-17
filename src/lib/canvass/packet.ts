@@ -8,6 +8,7 @@ import {
 } from "@/lib/canvass/outcomes";
 import { getCurrentAttemptsForList } from "@/lib/canvass/progress";
 import {
+  needsSessionGeocode,
   resolveDoorCoords,
   type DoorCoordSource,
 } from "@/lib/canvass/door-coords";
@@ -30,6 +31,7 @@ export interface FieldPacketDoor {
   coordSource: DoorCoordSource;
   stableLat: number | null;
   stableLng: number | null;
+  stableCoordSource: DoorCoordSource;
   /** Durable field layer for this household (cross-campaign). */
   field?: {
     accessStatus: string;
@@ -336,6 +338,7 @@ export async function buildFieldPacket(opts: {
       coordSource: coords.coordSource,
       stableLat: coords.stableLat,
       stableLng: coords.stableLng,
+      stableCoordSource: coords.stableCoordSource,
       field: {
         accessStatus: h.accessStatus,
         observedScore: h.observedScore,
@@ -435,14 +438,15 @@ async function sessionMapboxOverlay(
       postalCode: string;
       lat: number | null;
       lng: number | null;
+      geocodeSource: string | null;
     };
   }>,
 ): Promise<Map<string, { lat: number; lng: number }>> {
   const overlay = new Map<string, { lat: number; lng: number }>();
   if (!mapboxToken()) return overlay;
-  const needing = households.filter(
-    (row) => row.household.lat == null || row.household.lng == null,
-  );
+  // Doors with no pin, plus imported ones whose pin we don't trust. Units of a
+  // building share an addressLine, so they collapse to a single query below.
+  const needing = households.filter((row) => needsSessionGeocode(row.household));
   if (!needing.length) return overlay;
   const unique = new Map<
     string,

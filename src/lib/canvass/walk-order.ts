@@ -31,6 +31,7 @@ interface Door<T> {
   item: T;
   index: number;
   point: Point | null;
+  addressKey: string;
   streetKey: string;
   houseNumber: number | null;
   unitKey: string;
@@ -83,15 +84,37 @@ export function orderForStreetWalk<T>(
   const doors: Door<T>[] = items.map((item, index) => {
     const address = options.addressOf(item);
     const { street, houseNumber } = parseStreetAddress(address.addressLine);
+    const cityKey = (address.city ?? "").trim().toUpperCase();
+    const addressKey = address.addressLine.trim().toUpperCase().replace(/\s+/g, " ");
     return {
       item,
       index,
       point: options.pointOf(item),
-      streetKey: `${(address.city ?? "").trim().toUpperCase()}|${street}`,
+      addressKey: `${cityKey}|${addressKey}`,
+      streetKey: `${cityKey}|${street}`,
       houseNumber,
       unitKey: unitSortKey(address.unit),
     };
   });
+
+  // Geocoders sometimes place units in the same apartment building at
+  // noticeably different coordinates. Give every unit one representative
+  // building point so a bad unit pin cannot split the building into separate
+  // route blocks.
+  const buildingPoints = new Map<string, Point>();
+  const pointsByAddress = new Map<string, Point[]>();
+  for (const door of doors) {
+    if (!door.point) continue;
+    const points = pointsByAddress.get(door.addressKey);
+    if (points) points.push(door.point);
+    else pointsByAddress.set(door.addressKey, [door.point]);
+  }
+  for (const [key, points] of pointsByAddress) {
+    buildingPoints.set(key, medianPoint(points));
+  }
+  for (const door of doors) {
+    door.point = buildingPoints.get(door.addressKey) ?? door.point;
+  }
 
   const streets = new Map<string, Door<T>[]>();
   for (const door of doors) {
@@ -113,6 +136,17 @@ export function orderForStreetWalk<T>(
 
   const walked = chainBlocks(blocks, options.start ?? southWestMost(blocks));
   return [...walked, ...ungeocoded].map((door) => door.item);
+}
+
+function medianPoint(points: Point[]): Point {
+  const lats = points.map((point) => point.lat).sort((a, b) => a - b);
+  const lngs = points.map((point) => point.lng).sort((a, b) => a - b);
+  const middle = Math.floor(points.length / 2);
+  if (points.length % 2) return { lat: lats[middle], lng: lngs[middle] };
+  return {
+    lat: (lats[middle - 1] + lats[middle]) / 2,
+    lng: (lngs[middle - 1] + lngs[middle]) / 2,
+  };
 }
 
 /**

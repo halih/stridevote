@@ -24,9 +24,44 @@ export function geocodeSourceRank(source: string | null | undefined): number {
 /** True when incoming may write over the household's current persistent pin. */
 export function canReplaceGeocode(
   current: string | null | undefined,
-  incoming: GeocodeSource,
+  incoming: string | null | undefined,
 ): boolean {
   return geocodeSourceRank(incoming) > geocodeSourceRank(current);
+}
+
+/**
+ * Persistent lat/lng to write on household create/update.
+ * Rank-0 imports (Civibyte, MiniVAN) fill a blank pin but never displace
+ * census / county / mapbox.
+ */
+export function importedGeocodeWrite(opts: {
+  current?: {
+    lat?: number | null;
+    lng?: number | null;
+    geocodeSource?: string | null;
+  } | null;
+  lat: number;
+  lng: number;
+  source: string;
+}): {
+  lat: number;
+  lng: number;
+  geocodeSource: string;
+  geocodeStatus: "matched";
+} | null {
+  const current = opts.current ?? {};
+  if (
+    isHouseholdGeocoded(current) &&
+    !canReplaceGeocode(current.geocodeSource, opts.source)
+  ) {
+    return null;
+  }
+  return {
+    lat: opts.lat,
+    lng: opts.lng,
+    geocodeSource: opts.source,
+    geocodeStatus: "matched",
+  };
 }
 
 export function isHouseholdGeocoded(h: {

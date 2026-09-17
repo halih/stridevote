@@ -195,6 +195,16 @@ a { color: inherit; }
   border: 2px solid var(--surface); box-shadow: 0 1px 4px rgba(0, 0, 0, .28);
   display: flex; align-items: center; justify-content: center;
 }
+/* Door count for a multi-unit building. Leaflet forces `display: block` on
+   every marker icon, so the span — which Leaflet has no rule for — fills the
+   icon box and centres the digits on the dot. */
+.door-count-icon { background: transparent; border: 0; pointer-events: none; }
+.door-count-icon span {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%;
+  color: #fff; font-size: 11px; font-weight: 800; line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .5);
+}
 .map-caption {
   position: absolute; left: 10px; bottom: 10px; right: 10px; font-size: 11px; font-weight: 600; color: var(--ink-soft);
   background: color-mix(in srgb, var(--surface) 88%, transparent); padding: 5px 10px; border-radius: 10px; z-index: 500;
@@ -334,8 +344,9 @@ a { color: inherit; }
 .list-loc { font-size: 12.5px; color: var(--ink-soft); margin: 0; }
 .badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
 .badge { font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 99px; color: #fff; }
-.source-chip { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 7px; border-radius: 6px; background: var(--surface-2); color: var(--ink-faint); }
+.source-chip { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 7px; border-radius: 6px; background: var(--surface-2); color: var(--ink-soft); }
 .source-chip-minivan { background: var(--warn-soft); color: var(--warn); }
+.source-chip-civibyte { background: var(--good-soft); color: var(--good); }
 .pickup-info { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .pickup-chip { font-size: 11px; color: var(--ink-soft); background: var(--surface-2); padding: 3px 8px; border-radius: 99px; display: inline-flex; align-items: center; gap: 4px; }
 .pickup-chip-btn {
@@ -357,12 +368,16 @@ a { color: inherit; }
 .list-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; }
 .list-foot-compact { flex-wrap: nowrap; }
 .list-foot-actions { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; min-width: 0; }
-.list-foot-compact .btn { white-space: nowrap; }
+.list-foot > .btn,
+.list-foot-compact .btn { white-space: nowrap; flex-shrink: 0; }
 @media (max-width: 420px) {
   .list-foot-compact { gap: 6px; }
   .list-foot-compact .btn-sm { padding: 7px 9px; font-size: 12px; }
 }
-.taken-note { font-size: 12px; color: var(--ink-faint); }
+.taken-note {
+  font-size: 12px; color: var(--ink-faint);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .section-count { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
 .list-door-grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -658,6 +673,10 @@ a { color: inherit; }
 .form-actions { display: flex; gap: 8px; margin-top: 4px; }
 .form-actions .btn { flex: 1; }
 select.field { appearance: none; -webkit-appearance: none; }
+.field-label-help { display: flex; align-items: center; gap: 6px; }
+.integration-row { min-height: 34px; }
+/* Inside the two-column grid, bottom-align the checkbox with the field beside it. */
+.form-two > .integration-row { align-self: end; min-height: 45px; }
 
 /* ---- desktop-first admin console ---- */
 #admin-app {
@@ -1068,6 +1087,12 @@ select.field { appearance: none; -webkit-appearance: none; }
 }
 .with-tooltip:hover::after,
 .with-tooltip:focus-visible::after { opacity: 1; visibility: visible; }
+/* Anchor to the right edge when the trigger sits at the end of a row. */
+.with-tooltip-end::after { left: auto; right: 0; }
+.help-tip {
+  display: inline-flex; align-items: center; border-bottom: none; color: var(--ink-faint);
+}
+.help-tip:hover, .help-tip:focus-visible { color: var(--ink-soft); }
 .voter-table-wrap { padding: 0; overflow-x: auto; }
 .voter-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .voter-table th {
@@ -1188,8 +1213,9 @@ select.field { appearance: none; -webkit-appearance: none; }
 .walk-title p { margin: 2px 0 0; color: var(--ink-soft); font-size: 12px; }
 .walk-title-row { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; min-width: 0; }
 .walk-wave { font-size: 11.5px; font-weight: 600; color: var(--ink-soft); }
-/* Progress doubles as the status line here, so it sits tighter than in cards. */
-.walk-header .progress-row { margin-top: 7px; }
+/* Progress doubles as the status line here, so it sits tighter than in cards.
+   The right inset keeps the door count off the menu button beside it. */
+.walk-header .progress-row { margin-top: 7px; padding-right: 18px; }
 .walk-menu { position: relative; flex: none; z-index: 1300; display: flex; }
 /* Fills the header's full height so it balances the two-line title block. */
 .walk-menu > .icon-btn { width: 44px; height: auto; min-height: 36px; align-self: stretch; }
@@ -1262,6 +1288,20 @@ select.field { appearance: none; -webkit-appearance: none; }
   font-size: 11px;
 }
 .walk-door-meta-row .pill { max-width: none; flex: none; }
+/* Unit picker for an apartment building, where one map pin covers many doors. */
+.walk-door-units { display: grid; gap: 6px; margin-top: 10px; }
+.walk-door-units-label { color: var(--ink-soft); font-size: 11px; font-weight: 600; }
+.walk-door-unit-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.walk-door-unit {
+  min-height: 32px; padding: 5px 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
+  font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.walk-door-unit.done { color: var(--ink-faint); text-decoration: line-through; }
+.walk-door-unit.active {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+  text-decoration: none;
+}
 .walk-history { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .walk-script { margin: 6px 0 12px; color: var(--ink-soft); font-size: 13px; line-height: 1.4; }
 .walk-list-item { text-align: left; width: 100%; cursor: pointer; border: 1px solid var(--line); background: var(--surface); }

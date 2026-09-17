@@ -3,11 +3,14 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toast";
+import { Icon } from "@/components/Icon";
 import { CampaignIcon } from "@/components/campaigns/CampaignIcon";
 import { Map } from "@/components/map/Map";
 import {
   createCampaign,
   geocodeCampaignRegion,
+  setCampaignCivibyte,
+  setCampaignMinivan,
   updateCampaignProfile,
 } from "@/lib/admin-actions";
 import { waRegionOptions } from "@/lib/wa-regions";
@@ -124,11 +127,18 @@ export function CampaignForm({
   campaignId,
   initial,
   initialBoundary = null,
+  integrations,
 }: {
   mode: "create" | "edit";
   campaignId?: string;
   initial?: Partial<CampaignFormValues>;
   initialBoundary?: [number, number][] | null;
+  integrations?: {
+    minivanEnabled: boolean;
+    minivanAdapterKey: string | null;
+    minivanAdapters: Array<{ key: string; label: string }>;
+    civibyteEnabled: boolean;
+  };
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -137,6 +147,11 @@ export function CampaignForm({
   const [v, setV] = useState<CampaignFormValues>({ ...EMPTY, ...initial });
   const [boundary, setBoundary] = useState<[number, number][] | null>(initialBoundary);
   const [regionNote, setRegionNote] = useState<string | null>(null);
+  const [minivanOn, setMinivanOn] = useState(integrations?.minivanEnabled ?? false);
+  const [minivanKey, setMinivanKey] = useState(
+    integrations?.minivanAdapterKey ?? integrations?.minivanAdapters[0]?.key ?? "",
+  );
+  const [civibyteOn, setCivibyteOn] = useState(integrations?.civibyteEnabled ?? false);
 
   function set<K extends keyof CampaignFormValues>(key: K, value: CampaignFormValues[K]) {
     setV((prev) => ({ ...prev, [key]: value }));
@@ -193,16 +208,37 @@ export function CampaignForm({
 
   function submit() {
     startTransition(async () => {
+      if (integrations && minivanOn && !minivanKey) {
+        toast("Choose a MiniVAN adapter.");
+        return;
+      }
       const input = toInput(v, boundary);
       const res =
         mode === "create"
           ? await createCampaign(input)
           : await updateCampaignProfile(campaignId!, input);
-      toast(res.message);
-      if (res.ok) {
-        if (mode === "create" && res.slug) router.push(`/admin/${res.slug}`);
-        else router.refresh();
+      if (!res.ok) {
+        toast(res.message);
+        return;
       }
+      if (mode === "edit" && campaignId && integrations) {
+        const minivan = await setCampaignMinivan(campaignId, {
+          enabled: minivanOn,
+          adapterKey: minivanOn ? minivanKey || null : null,
+        });
+        if (!minivan.ok) {
+          toast(minivan.message);
+          return;
+        }
+        const civibyte = await setCampaignCivibyte(campaignId, { enabled: civibyteOn });
+        if (!civibyte.ok) {
+          toast(civibyte.message);
+          return;
+        }
+      }
+      toast(res.message);
+      if (mode === "create" && res.slug) router.push(`/admin/${res.slug}`);
+      else router.refresh();
     });
   }
 
@@ -487,6 +523,63 @@ export function CampaignForm({
         </div>
       </div>
       <p className="field-hint">Both name and role are required to save a contact.</p>
+
+      {integrations ? (
+        <>
+          <hr className="form-divider" />
+          <section className="form-section">
+            <div className="eyebrow">Integrations</div>
+            <div className="form-two">
+              <label className="row integration-row">
+                <input
+                  type="checkbox"
+                  checked={minivanOn}
+                  onChange={(e) => setMinivanOn(e.target.checked)}
+                />
+                <span>Enable MiniVAN sync</span>
+              </label>
+              <div className="form-field">
+                <label className="field-label field-label-help" htmlFor="minivan-adapter">
+                  Adapter
+                  <span
+                    className="with-tooltip with-tooltip-end help-tip"
+                    tabIndex={0}
+                    role="note"
+                    aria-label="About MiniVAN adapters"
+                    data-tip="Maps this campaign's MiniVAN script (ResultIDs and status labels) to StrideVote door outcomes. To add one, copy src/lib/minivan/adapters/imraan.ts, fill in the script's mappings, and register it in adapters/index.ts."
+                  >
+                    <Icon name="help" size={14} />
+                  </span>
+                </label>
+                <select
+                  id="minivan-adapter"
+                  className="field"
+                  value={minivanKey}
+                  disabled={!minivanOn || !integrations.minivanAdapters.length}
+                  onChange={(e) => setMinivanKey(e.target.value)}
+                >
+                  {!integrations.minivanAdapters.length ? (
+                    <option value="">No adapters registered</option>
+                  ) : null}
+                  {integrations.minivanAdapters.map((a) => (
+                    <option key={a.key} value={a.key}>
+                      {a.label} ({a.key})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <label className="row integration-row">
+              <input
+                type="checkbox"
+                checked={civibyteOn}
+                onChange={(e) => setCivibyteOn(e.target.checked)}
+              />
+              <span>Enable CiviByte sync</span>
+            </label>
+          </section>
+        </>
+      ) : null}
 
       <div className="form-actions">
         <button className="btn btn-primary btn-block" disabled={pending} onClick={submit}>

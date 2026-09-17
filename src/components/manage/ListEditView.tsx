@@ -6,7 +6,14 @@ import type { ListEditView as ListEditData } from "@/lib/admin-data";
 import { useToast } from "@/components/Toast";
 import { Map } from "@/components/map/Map";
 import { MapHelp, type MapHelpItem } from "@/components/map/MapHelp";
-import { deleteList, enqueueMinivanPull, enqueueMinivanPush, setListCampaigns, updateList } from "@/lib/admin-actions";
+import {
+  deleteList,
+  enqueueMinivanPull,
+  enqueueMinivanPush,
+  pullCivibyteList,
+  setListCampaigns,
+  updateList,
+} from "@/lib/admin-actions";
 import { doorPinColor, DOOR_PIN_COLORS } from "@/lib/canvass/outcomes";
 import { sourceLabel } from "@/lib/format";
 
@@ -163,18 +170,19 @@ export function ListEditView({ list }: { list: ListEditData }) {
                   type="button"
                   className="btn btn-outline"
                   disabled={pending}
-                  title="Imports door ResultIDs only"
+                  title="Pull from MiniVAN — door ResultIDs only"
                   onClick={() => run(() => enqueueMinivanPull(list.id))}
                 >
-                  Pull from MiniVAN
+                  Pull
                 </button>
                 <button
                   type="button"
                   className="btn btn-outline"
                   disabled={pending}
+                  title="Push StrideVote results to MiniVAN"
                   onClick={() => run(() => enqueueMinivanPush(list.id))}
                 >
-                  Push to MiniVAN
+                  Push
                 </button>
               </div>
             ) : null}
@@ -184,6 +192,24 @@ export function ListEditView({ list }: { list: ListEditData }) {
                 answers stay on volunteer phones. Push sends StrideVote results to VAN
                 via the local emulator worker.
               </p>
+            ) : null}
+            {list.civibyteEnabled && list.source === "civibyte" ? (
+              <>
+                <div className="form-actions" style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    disabled={pending}
+                    title="Pull from Civibyte — imports new door dispositions and survey answers"
+                    onClick={() => run(() => pullCivibyteList(list.id))}
+                  >
+                    Pull
+                  </button>
+                </div>
+                <p className="sheet-sub">
+                  Pull imports new door dispositions and available survey answers.
+                </p>
+              </>
             ) : null}
           </div>
         </div>

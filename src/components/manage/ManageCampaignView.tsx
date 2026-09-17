@@ -27,8 +27,7 @@ import {
   enqueueMinivanListImport,
   enqueueMinivanPull,
   enqueueMinivanPush,
-  setCampaignCivibyte,
-  setCampaignMinivan,
+  pullCivibyteList,
   setMemberRoles,
 } from "@/lib/admin-actions";
 
@@ -361,6 +360,8 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                       </span>
                       {l.source === "minivan" ? (
                         <span className="source-chip source-chip-minivan">MiniVAN</span>
+                      ) : l.source === "civibyte" ? (
+                        <span className="source-chip source-chip-civibyte">Civibyte</span>
                       ) : null}
                       {view.perms.manageLists ? (
                         <button
@@ -400,18 +401,34 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                         type="button"
                         className="btn btn-outline btn-sm"
                         disabled={pending}
-                        title="Imports door ResultIDs only (not survey answers)"
+                        title="Pull from MiniVAN — door ResultIDs only (not survey answers)"
                         onClick={() => run(() => enqueueMinivanPull(l.id))}
                       >
-                        Pull from MiniVAN
+                        Pull
                       </button>
                       <button
                         type="button"
                         className="btn btn-outline btn-sm"
                         disabled={pending}
+                        title="Push StrideVote results to MiniVAN"
                         onClick={() => run(() => enqueueMinivanPush(l.id))}
                       >
-                        Push to MiniVAN
+                        Push
+                      </button>
+                    </div>
+                  ) : null}
+                  {view.civibyteEnabled &&
+                  l.source === "civibyte" &&
+                  view.perms.manageLists ? (
+                    <div className="member-actions" style={{ marginTop: 10 }}>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        disabled={pending}
+                        title="Pull from Civibyte — imports new door dispositions and survey answers"
+                        onClick={() => run(() => pullCivibyteList(l.id))}
+                      >
+                        Pull
                       </button>
                     </div>
                   ) : null}
@@ -447,24 +464,18 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
               campaignId={view.id}
               initial={campaignToForm(view)}
               initialBoundary={view.boundary}
+              integrations={
+                view.perms.isPlatformAdmin
+                  ? {
+                      minivanEnabled: view.minivanEnabled,
+                      minivanAdapterKey: view.minivanAdapterKey,
+                      minivanAdapters: view.minivanAdapters,
+                      civibyteEnabled: view.civibyteEnabled,
+                    }
+                  : undefined
+              }
             />
           </div>
-          {view.perms.isPlatformAdmin ? (
-            <>
-              <MinivanSettingsCard
-                enabled={view.minivanEnabled}
-                adapterKey={view.minivanAdapterKey}
-                adapters={view.minivanAdapters}
-                pending={pending}
-                onSave={(input) => run(() => setCampaignMinivan(view.id, input))}
-              />
-              <CivibyteSettingsCard
-                enabled={view.civibyteEnabled}
-                pending={pending}
-                onSave={(enabled) => run(() => setCampaignCivibyte(view.id, { enabled }))}
-              />
-            </>
-          ) : null}
           {view.perms.deleteCampaign ? (
             <div className="danger-zone">
               <div>
@@ -600,118 +611,6 @@ function campaignToForm(view: CampaignAdminView): Partial<CampaignFormValues> {
   };
 }
 
-function MinivanSettingsCard({
-  enabled,
-  adapterKey,
-  adapters,
-  pending,
-  onSave,
-}: {
-  enabled: boolean;
-  adapterKey: string | null;
-  adapters: Array<{ key: string; label: string }>;
-  pending: boolean;
-  onSave: (input: { enabled: boolean; adapterKey: string | null }) => void;
-}) {
-  const [on, setOn] = useState(enabled);
-  const [key, setKey] = useState(adapterKey ?? adapters[0]?.key ?? "");
-
-  return (
-    <div className="card" style={{ marginTop: 16 }}>
-      <div className="section-head" style={{ marginBottom: 8 }}>
-        <span className="eyebrow">MiniVAN (platform admin)</span>
-      </div>
-      <p className="sheet-sub" style={{ marginTop: 0 }}>
-        When enabled, admins can import printed MiniVAN lists via the local emulator
-        worker. Pull imports door dispositions only; survey answers stay on volunteer
-        phones.
-      </p>
-      <label className="role-option" style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-        <input
-          type="checkbox"
-          checked={on}
-          onChange={(e) => setOn(e.target.checked)}
-        />
-        <span>
-          <b>Enable MiniVAN for this campaign</b>
-          <span style={{ display: "block", opacity: 0.8 }}>
-            Requires a running minivan_tools worker and a logged-in emulator.
-          </span>
-        </span>
-      </label>
-      <div className="form-field">
-        <label className="field-label">Campaign adapter</label>
-        <select
-          className="field"
-          value={key}
-          disabled={!on || !adapters.length}
-          onChange={(e) => setKey(e.target.value)}
-        >
-          {!adapters.length ? <option value="">No adapters registered</option> : null}
-          {adapters.map((a) => (
-            <option key={a.key} value={a.key}>
-              {a.label} ({a.key})
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="form-actions">
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={pending || (on && !key)}
-          onClick={() => onSave({ enabled: on, adapterKey: on ? key || null : null })}
-        >
-          Save MiniVAN settings
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function CivibyteSettingsCard({
-  enabled,
-  pending,
-  onSave,
-}: {
-  enabled: boolean;
-  pending: boolean;
-  onSave: (enabled: boolean) => void;
-}) {
-  const [on, setOn] = useState(enabled);
-
-  return (
-    <div className="card" style={{ marginTop: 16 }}>
-      <div className="section-head" style={{ marginBottom: 8 }}>
-        <span className="eyebrow">CiviByte (platform admin)</span>
-      </div>
-      <p className="sheet-sub" style={{ marginTop: 0 }}>
-        When enabled, admins can add lists that link to CiviByte.
-      </p>
-      <label className="role-option" style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-        <input
-          type="checkbox"
-          checked={on}
-          onChange={(e) => setOn(e.target.checked)}
-        />
-        <span>
-          <b>Enable CiviByte for this campaign</b>
-        </span>
-      </label>
-      <div className="form-actions">
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={pending}
-          onClick={() => onSave(on)}
-        >
-          Save CiviByte settings
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function NewListForm({
   pending,
   minivanEnabled,
@@ -735,7 +634,6 @@ function NewListForm({
     minivanEnabled ? "minivan" : "civibyte",
   );
   const [sourceRef, setSourceRef] = useState("");
-  const [doors, setDoors] = useState("0");
 
   return (
     <>
@@ -760,16 +658,12 @@ function NewListForm({
               {civibyteEnabled ? <option value="civibyte">CiviByte</option> : null}
             </select>
           </div>
-          {source !== "minivan" ? (
+          {source === "civibyte" ? (
             <div className="form-field">
-              <label className="field-label">Doors</label>
-              <input
-                className="field"
-                type="number"
-                min={0}
-                value={doors}
-                onChange={(e) => setDoors(e.target.value)}
-              />
+              <label className="field-label">Import</label>
+              <p className="sheet-sub" style={{ margin: 0 }}>
+                Pulls doors and voters now
+              </p>
             </div>
           ) : (
             <div className="form-field">
@@ -802,18 +696,22 @@ function NewListForm({
             disabled={
               pending ||
               !name.trim() ||
-              (source === "minivan" && !/^\d+-\d+$/.test(sourceRef.trim()))
+              (source === "minivan" && !/^\d+-\d+$/.test(sourceRef.trim())) ||
+              (source === "civibyte" &&
+                !/^https:\/\/(?:www\.)?civibyte\.com\/(?:c|canvassing-session)\/[^/]+\/?$/i.test(
+                  sourceRef.trim(),
+                ))
             }
             onClick={() =>
               onSubmit({
                 name: name.trim(),
                 source,
                 sourceRef: sourceRef.trim(),
-                doorsCount: Number(doors) || 0,
+                doorsCount: 0,
               })
             }
           >
-            {source === "minivan" ? "Queue MiniVAN import" : "Create list"}
+            {source === "minivan" ? "Queue MiniVAN import" : "Import Civibyte list"}
           </button>
         </div>
       </div>

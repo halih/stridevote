@@ -248,6 +248,8 @@ export interface ListVM {
   nativeCanvass: boolean;
   /** MiniVAN pull available (campaign gated + list sourced from MiniVAN). */
   minivanPull: boolean;
+  /** Civibyte pull available (campaign gated + imported guest list). */
+  civibytePull: boolean;
   /** Admin assigned this list to the volunteer — already theirs, no checkout step. */
   assignedToMe: boolean;
   /** Door pins for map preview (coords + walk status; capped). */
@@ -482,6 +484,9 @@ export async function getCanvassBoard(user: User): Promise<ListVM[]> {
         minivanPull:
           l.source === "minivan" &&
           openLinks.some((cl) => cl.campaign.minivanEnabled),
+        civibytePull:
+          l.source === "civibyte" &&
+          openLinks.some((cl) => cl.campaign.civibyteEnabled),
         assignedToMe,
         doorPins,
         campaigns: openLinks.map((cl) => ({

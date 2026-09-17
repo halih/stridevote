@@ -17,6 +17,7 @@ import {
   resultFromMapboxFeature,
 } from "./geocode-mapbox";
 import {
+  needsSessionGeocode,
   packetForOfflineCache,
   persistableDoorCoords,
   resolveDoorCoords,
@@ -184,6 +185,38 @@ describe("census batch parsing", () => {
 describe("mapbox storage terms", () => {
   it("never persists Mapbox results (permanent geocoding disabled)", () => {
     assert.equal(canPersistMapboxCoords(), false);
+  });
+
+  it("prefers a session point over a pin that came with an import", () => {
+    // Civibyte ships its own coordinates, and they land off the building often
+    // enough to misdraw a walk map, so a temporary Mapbox point wins.
+    const imported = resolveDoorCoords({
+      lat: 47.6,
+      lng: -122.3,
+      geocodeSource: "civibyte",
+      session: { lat: 47.61, lng: -122.33 },
+    });
+    assert.equal(imported.coordSource, "session-mapbox");
+    assert.equal(imported.lat, 47.61);
+    assert.equal(imported.stableLat, 47.6);
+
+    assert.equal(needsSessionGeocode({ lat: 47.6, lng: -122.3, geocodeSource: "civibyte" }), true);
+    assert.equal(needsSessionGeocode({ lat: 47.6, lng: -122.3, geocodeSource: "county" }), false);
+    assert.equal(needsSessionGeocode({ lat: null, lng: null, geocodeSource: "county" }), true);
+
+    // Without a Mapbox result the imported pin is still better than no pin.
+    const noSession = resolveDoorCoords({
+      lat: 47.6,
+      lng: -122.3,
+      geocodeSource: "civibyte",
+    });
+    assert.equal(noSession.coordSource, "imported");
+    assert.equal(noSession.lat, 47.6);
+
+    // Session coords never reach durable storage; the import's pin comes back.
+    const cached = persistableDoorCoords(imported);
+    assert.equal(cached.coordSource, "imported");
+    assert.equal(cached.lat, 47.6);
   });
 
   it("uses persistent lat/lng and only overlays session when missing", () => {

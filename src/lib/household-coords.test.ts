@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   canReplaceGeocode,
   geocodeSourceRank,
+  importedGeocodeWrite,
   isHouseholdGeocoded,
   resolveHouseholdCoords,
 } from "./household-coords";
@@ -27,6 +28,54 @@ describe("geocode source ranking", () => {
     assert.equal(canReplaceGeocode("county", "mapbox"), false);
     assert.equal(canReplaceGeocode("mapbox", "county"), false);
     assert.equal(geocodeSourceRank("county"), geocodeSourceRank("mapbox"));
+    assert.equal(geocodeSourceRank("civibyte"), 0);
+    assert.equal(canReplaceGeocode("census", "civibyte"), false);
+    assert.equal(canReplaceGeocode("county", "civibyte"), false);
+    assert.equal(canReplaceGeocode("mapbox", "civibyte"), false);
+    assert.equal(canReplaceGeocode("civibyte", "census"), true);
+  });
+
+  it("lets imported pins fill blanks but not overwrite census or county", () => {
+    const incoming = { lat: 47.1, lng: -122.1, source: "civibyte" };
+    assert.deepEqual(importedGeocodeWrite({ current: null, ...incoming }), {
+      lat: 47.1,
+      lng: -122.1,
+      geocodeSource: "civibyte",
+      geocodeStatus: "matched",
+    });
+    assert.deepEqual(
+      importedGeocodeWrite({
+        current: { lat: null, lng: null, geocodeSource: null },
+        ...incoming,
+      }),
+      {
+        lat: 47.1,
+        lng: -122.1,
+        geocodeSource: "civibyte",
+        geocodeStatus: "matched",
+      },
+    );
+    assert.equal(
+      importedGeocodeWrite({
+        current: { lat: 47.7, lng: -122.3, geocodeSource: "census" },
+        ...incoming,
+      }),
+      null,
+    );
+    assert.equal(
+      importedGeocodeWrite({
+        current: { lat: 47.7, lng: -122.3, geocodeSource: "county" },
+        ...incoming,
+      }),
+      null,
+    );
+    assert.equal(
+      importedGeocodeWrite({
+        current: { lat: 47.7, lng: -122.3, geocodeSource: "minivan" },
+        ...incoming,
+      }),
+      null,
+    );
   });
 
   it("resolves a single persistent pin", () => {

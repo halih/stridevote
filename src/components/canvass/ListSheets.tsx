@@ -7,6 +7,7 @@ import { Icon } from "@/components/Icon";
 import { Map } from "@/components/map/Map";
 import { MapHelp, type MapHelpItem } from "@/components/map/MapHelp";
 import { doorPinColor, DOOR_PIN_COLORS } from "@/lib/canvass/outcomes";
+import { sourceHref } from "@/lib/format";
 import { useMemo, useState } from "react";
 
 const HALF_A_COLOR = "#185FA5";
@@ -217,6 +218,20 @@ function SplitSheetBody({
   );
 }
 
+async function copyToClipboard(
+  value: string,
+  onCopied: () => void,
+  onCopyFailed: () => void,
+) {
+  try {
+    await navigator.clipboard.writeText(value);
+    onCopied();
+  } catch {
+    // Clipboard is blocked without HTTPS or permission — the value is on screen.
+    onCopyFailed();
+  }
+}
+
 function MinivanOpenSheetBody({
   list,
   onWalkHere,
@@ -229,14 +244,14 @@ function MinivanOpenSheetBody({
   const [copied, setCopied] = useState(false);
 
   async function copyListNumber(value: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard is blocked without HTTPS or permission — the number is on screen.
-      onCopyFailed();
-    }
+    await copyToClipboard(
+      value,
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2000);
+      },
+      onCopyFailed,
+    );
   }
 
   return (
@@ -283,8 +298,106 @@ function MinivanOpenSheetBody({
         </li>
         <li>Knock the doors in MiniVAN — nothing to log here.</li>
         <li>
-          When you are done, come back here and tap Pull MiniVAN so the door
-          counts sync in StrideVote.
+          When you are done, come back here and tap Sync so the door counts
+          land in StrideVote.
+        </li>
+      </ol>
+    </>
+  );
+}
+
+function CivibyteOpenSheetBody({
+  list,
+  onWalkHere,
+  onCopyFailed,
+}: {
+  list: ListVM;
+  onWalkHere: () => void;
+  onCopyFailed: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const href = sourceHref(list.source, list.sourceRef);
+
+  async function copyLink(value: string) {
+    await copyToClipboard(
+      value,
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2000);
+      },
+      onCopyFailed,
+    );
+  }
+
+  function openCivibyte() {
+    if (!href) {
+      onCopyFailed();
+      return;
+    }
+    window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  return (
+    <>
+      <h2>How do you want to walk {list.name}?</h2>
+      <p className="sheet-sub">
+        {list.nativeCanvass
+          ? "These doors came from Civibyte, so you can knock them here or in Civibyte itself. Results only sync back from the doors you knock here."
+          : "Door knocking for this list happens in Civibyte. Open the guest link on your phone, then pull results back here when you are done."}
+      </p>
+
+      {list.nativeCanvass ? (
+        <button
+          className="btn btn-primary btn-block"
+          style={{ marginTop: 14 }}
+          onClick={onWalkHere}
+        >
+          Canvass in StrideVote
+        </button>
+      ) : null}
+
+      <div className="eyebrow" style={{ marginTop: list.nativeCanvass ? 18 : 14 }}>
+        {list.nativeCanvass ? "Or use Civibyte" : "Open in Civibyte"}
+      </div>
+      {href ? (
+        <div className="minivan-list-number">
+          <span className="section-sub" style={{ wordBreak: "break-all" }}>
+            <b>{href}</b>
+          </span>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => void copyLink(href)}
+          >
+            <Icon name={copied ? "check" : "copy"} size={14} />{" "}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+      ) : (
+        <p className="section-sub" style={{ marginTop: 6 }}>
+          Ask your organizer for the Civibyte link.
+        </p>
+      )}
+      {href ? (
+        <button
+          className={`btn ${list.nativeCanvass ? "btn-outline" : "btn-primary"} btn-block`}
+          style={{ marginTop: 12 }}
+          onClick={openCivibyte}
+        >
+          Open Civibyte link
+        </button>
+      ) : null}
+      <ol className="sheet-steps">
+        <li>Open the Civibyte guest link on your phone (Safari or Chrome).</li>
+        <li>
+          Knock the doors in Civibyte
+          {list.nativeCanvass
+            ? " — nothing to log here unless you chose StrideVote."
+            : " — nothing to log here."}
+        </li>
+        <li>
+          When you are done, come back here and tap Sync so the door counts
+          land in StrideVote.
         </li>
       </ol>
     </>
@@ -386,6 +499,11 @@ export function ListSheets({
                   {" "}
                   <span className="source-chip source-chip-minivan">MiniVAN</span>
                 </>
+              ) : l.source === "civibyte" ? (
+                <>
+                  {" "}
+                  <span className="source-chip source-chip-civibyte">Civibyte</span>
+                </>
               ) : null}
             </p>
             {l.status === "available" ? (
@@ -395,7 +513,7 @@ export function ListSheets({
                 disabled={checkoutPending}
                 onClick={() => onConfirmCheckout(l)}
               >
-                Check out this list
+                {checkoutPending ? "Checking out…" : "Check out & start canvassing"}
               </button>
             ) : null}
           </>
@@ -414,11 +532,19 @@ export function ListSheets({
             onConfirm={(keepHalf) => onConfirmSplit?.(keepHalf)}
           />
         ) : sheet.kind === "open" ? (
-          <MinivanOpenSheetBody
-            list={l}
-            onWalkHere={() => onWalkHere?.(l)}
-            onCopyFailed={() => onCopyFailed?.()}
-          />
+          l.source === "civibyte" ? (
+            <CivibyteOpenSheetBody
+              list={l}
+              onWalkHere={() => onWalkHere?.(l)}
+              onCopyFailed={() => onCopyFailed?.()}
+            />
+          ) : (
+            <MinivanOpenSheetBody
+              list={l}
+              onWalkHere={() => onWalkHere?.(l)}
+              onCopyFailed={() => onCopyFailed?.()}
+            />
+          )
         ) : (
           <>
             <h2>Ready to canvass {l.name}?</h2>
@@ -433,7 +559,7 @@ export function ListSheets({
               disabled={checkoutPending}
               onClick={() => onConfirmCheckout(l)}
             >
-              Confirm checkout
+              {checkoutPending ? "Checking out…" : "Check out & start canvassing"}
             </button>
           </>
         )

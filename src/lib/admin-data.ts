@@ -344,6 +344,7 @@ export interface ListEditView {
   activeCheckouts: number;
   programName: string | null;
   minivanEnabled: boolean;
+  civibyteEnabled: boolean;
 }
 
 // A precinct turf runs a few hundred doors, but a campaign-wide generated list
@@ -361,7 +362,12 @@ export async function getListEditView(
       campaignLinks: {
         include: {
           campaign: {
-            select: { slug: true, name: true, minivanEnabled: true },
+            select: {
+              slug: true,
+              name: true,
+              minivanEnabled: true,
+              civibyteEnabled: true,
+            },
           },
           program: { select: { id: true, name: true, status: true } },
         },
@@ -502,5 +508,6 @@ export async function getListEditView(
     campaignOptions,
     activeCheckouts: list._count.checkouts,
     minivanEnabled: list.campaignLinks.some((l) => l.campaign.minivanEnabled),
+    civibyteEnabled: list.campaignLinks.some((l) => l.campaign.civibyteEnabled),
   };
 }

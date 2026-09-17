@@ -7,7 +7,7 @@ import { Icon } from "@/components/Icon";
 import { Map } from "@/components/map/Map";
 import { useToast } from "@/components/Toast";
 import { checkoutList, releaseList, toggleWatch, previewListSplit, splitList } from "@/lib/actions";
-import { enqueueMinivanPull } from "@/lib/admin-actions";
+import { enqueueMinivanPull, pullCivibyteList } from "@/lib/admin-actions";
 import { ListSheets, type SheetState } from "./ListSheets";
 import { externalListOpen } from "@/lib/canvass/external";
 import { downloadPacket, getOutboxCount, purgePacketIfSynced, deletePacket } from "@/lib/canvass/offline-store";
@@ -92,6 +92,18 @@ export function CanvassView({
               : "Checked out — download when you have a signal",
           );
         }
+        router.refresh();
+        // MiniVAN / Civibyte doors can also be walked in the source app.
+        if (list.source === "minivan" || list.source === "civibyte") {
+          setSheet({ kind: "open", list: { ...list, programId } });
+          return;
+        }
+        router.push(`/canvass/${list.id}?programId=${encodeURIComponent(programId)}`);
+        return;
+      }
+      setSheet(null);
+      if (list.source === "civibyte") {
+        setSheet({ kind: "open", list: { ...list, programId: programId ?? list.programId } });
       }
       router.refresh();
     });
@@ -165,6 +177,11 @@ export function CanvassView({
   }
 
   function onOpen(list: ListVM) {
+    // Imported MiniVAN / Civibyte doors can be walked here or in the source app.
+    if (list.source === "minivan" || list.source === "civibyte") {
+      setSheet({ kind: "open", list });
+      return;
+    }
     if (!list.nativeCanvass) {
       const ext = externalListOpen(list.source, list.sourceRef);
       if (ext?.href) {
@@ -172,11 +189,6 @@ export function CanvassView({
         return;
       }
       toast(ext?.hint ?? "Open this list in the external app.");
-      return;
-    }
-    // Imported MiniVAN doors can be walked either here or in MiniVAN itself.
-    if (list.source === "minivan") {
-      setSheet({ kind: "open", list });
       return;
     }
     walkHere(list);
@@ -275,6 +287,11 @@ export function CanvassView({
                       run(() => enqueueMinivanPull(l.id))
                   : undefined
               }
+              onPullCivibyte={
+                l.civibytePull
+                  ? () => run(() => pullCivibyteList(l.id))
+                  : undefined
+              }
             />
           ))
         ) : (
@@ -312,6 +329,7 @@ function ListCard({
   onWatch,
   onOpen,
   onPullMinivan,
+  onPullCivibyte,
 }: {
   list: ListVM;
   pending: boolean;
@@ -323,6 +341,7 @@ function ListCard({
   onWatch: () => void;
   onOpen: () => void;
   onPullMinivan?: () => void;
+  onPullCivibyte?: () => void;
 }) {
   const pct =
     l.progressTotal > 0 ? Math.round((l.progressDone / l.progressTotal) * 100) : 0;
@@ -370,6 +389,8 @@ function ListCard({
         ))}
         {l.source === "minivan" ? (
           <span className="source-chip source-chip-minivan">MiniVAN</span>
+        ) : l.source === "civibyte" ? (
+          <span className="source-chip source-chip-civibyte">Civibyte</span>
         ) : null}
       </div>
 
@@ -423,10 +444,21 @@ function ListCard({
                   type="button"
                   className="btn btn-outline btn-sm"
                   disabled={pending}
-                  title="Door ResultIDs only — not survey answers"
+                  title="Sync from MiniVAN — door ResultIDs only, not survey answers"
                   onClick={onPullMinivan}
                 >
-                  Pull MiniVAN
+                  <Icon name="sync" size={14} /> Sync
+                </button>
+              ) : null}
+              {onPullCivibyte ? (
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  disabled={pending}
+                  title="Sync from Civibyte — imports new door results"
+                  onClick={onPullCivibyte}
+                >
+                  <Icon name="sync" size={14} /> Sync
                 </button>
               ) : null}
               {canSplit ? (
@@ -451,8 +483,8 @@ function ListCard({
           </div>
         </>
       ) : l.status === "taken" ? (
-        <div className="list-foot">
-          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+        <div className="list-foot list-foot-compact">
+          <div className="list-foot-actions">
             <button type="button" className="btn btn-outline btn-sm" onClick={onPreview}>
               <Icon name="map" size={14} /> Preview
             </button>
@@ -467,7 +499,7 @@ function ListCard({
           </button>
         </div>
       ) : (
-        <div className="list-foot">
+        <div className="list-foot list-foot-compact">
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             <button type="button" className="btn btn-outline btn-sm" onClick={onPreview}>
               <Icon name="map" size={14} /> Preview
@@ -477,10 +509,21 @@ function ListCard({
                 type="button"
                 className="btn btn-outline btn-sm"
                 disabled={pending}
-                title="Door ResultIDs only — not survey answers"
+                title="Sync from MiniVAN — door ResultIDs only, not survey answers"
                 onClick={onPullMinivan}
               >
-                Pull MiniVAN
+                <Icon name="sync" size={14} /> Sync
+              </button>
+            ) : null}
+            {onPullCivibyte ? (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={pending}
+                title="Sync from Civibyte — imports new door results"
+                onClick={onPullCivibyte}
+              >
+                <Icon name="sync" size={14} /> Sync
               </button>
             ) : null}
           </div>
