@@ -20,6 +20,12 @@ import {
 
 const QUERY_CHUNK = 10000;
 
+type SplitVoterRow = {
+  voterId: string;
+  matchedSeed: boolean;
+  vanId: number | null;
+};
+
 function chunked<T>(items: T[], size = QUERY_CHUNK): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) {
@@ -36,6 +42,13 @@ function slugify(input: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
   return base || "list";
+}
+
+function asDataObject(data: unknown): Record<string, unknown> {
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    return { ...(data as Record<string, unknown>) };
+  }
+  return {};
 }
 
 async function uniqueNameAndSlug(
@@ -182,7 +195,7 @@ async function rewriteLiveMembership(
   tx: Prisma.TransactionClient,
   listId: string,
   half: SplitHalfPlan,
-  voterRows: Array<{ voterId: string; matchedSeed: boolean }>,
+  voterRows: SplitVoterRow[],
 ) {
   await tx.listHousehold.deleteMany({ where: { listId } });
   await tx.listVoter.deleteMany({ where: { listId } });
@@ -202,6 +215,7 @@ async function rewriteLiveMembership(
         listId,
         voterId: row.voterId,
         matchedSeed: row.matchedSeed,
+        vanId: row.vanId,
       })),
     )) {
       await tx.listVoter.createMany({ data: rows });
@@ -214,7 +228,7 @@ async function rewriteProgramSnapshot(
   programId: string,
   listId: string,
   half: SplitHalfPlan,
-  voterRows: Array<{ voterId: string; matchedSeed: boolean }>,
+  voterRows: SplitVoterRow[],
 ) {
   await tx.programListHousehold.deleteMany({ where: { programId, listId } });
   await tx.programListVoter.deleteMany({ where: { programId, listId } });
@@ -245,9 +259,9 @@ async function rewriteProgramSnapshot(
 
 function votersForHouseholds(
   householdIds: Set<string>,
-  byHousehold: Map<string, Array<{ voterId: string; matchedSeed: boolean }>>,
-): Array<{ voterId: string; matchedSeed: boolean }> {
-  const out: Array<{ voterId: string; matchedSeed: boolean }> = [];
+  byHousehold: Map<string, SplitVoterRow[]>,
+): SplitVoterRow[] {
+  const out: SplitVoterRow[] = [];
   const seen = new Set<string>();
   for (const householdId of householdIds) {
     for (const member of byHousehold.get(householdId) ?? []) {
@@ -270,13 +284,13 @@ export async function applyListSplit(opts: {
     where: { id: opts.listId, deletedAt: null },
     include: {
       campaignLinks: true,
-      voters: { select: { voterId: true, matchedSeed: true } },
+      voters: { select: { voterId: true, matchedSeed: true, vanId: true } },
       households: { select: { householdId: true } },
     },
   });
   if (!list) return { ok: false, message: "List not found." };
-  if (list.source !== "stridevote") {
-    return { ok: false, message: "Only StrideVote lists can be split." };
+  if (!list.households.length) {
+    return { ok: false, message: "This list has no doors to split." };
   }
 
   const doors = await loadSplitDoors(opts.listId, opts.programId);
@@ -298,23 +312,28 @@ export async function applyListSplit(opts: {
   const keptHalf: SplitHalfPlan = { ...kept, name: keptNamed.name };
   const releasedHalf: SplitHalfPlan = { ...released, name: releasedNamed.name };
 
-  const seedByVoter = new Map(
-    list.voters.map((v) => [v.voterId, v.matchedSeed] as const),
+  const voterMetaById = new Map(
+    list.voters.map(
+      (v) =>
+        [
+          v.voterId,
+          { matchedSeed: v.matchedSeed, vanId: v.vanId ?? null },
+        ] as const,
+    ),
   );
   const householdVoters = await prisma.householdVoter.findMany({
     where: { householdId: { in: list.households.map((h) => h.householdId) } },
     select: { householdId: true, voterId: true },
   });
-  const votersByHousehold = new Map<
-    string,
-    Array<{ voterId: string; matchedSeed: boolean }>
-  >();
+  const votersByHousehold = new Map<string, SplitVoterRow[]>();
   for (const row of householdVoters) {
-    if (!seedByVoter.has(row.voterId)) continue;
+    const meta = voterMetaById.get(row.voterId);
+    if (!meta) continue;
     const bucket = votersByHousehold.get(row.householdId) ?? [];
     bucket.push({
       voterId: row.voterId,
-      matchedSeed: seedByVoter.get(row.voterId) ?? false,
+      matchedSeed: meta.matchedSeed,
+      vanId: meta.vanId,
     });
     votersByHousehold.set(row.householdId, bucket);
   }
@@ -331,21 +350,25 @@ export async function applyListSplit(opts: {
     return { ok: false, message: "List is not published in this program." };
   }
 
+  const baseData = asDataObject(list.data);
+
   const releasedListId = await prisma.$transaction(async (tx) => {
     const created = await tx.list.create({
       data: {
         slug: releasedNamed.slug,
         name: releasedNamed.name,
-        source: "stridevote",
+        source: list.source,
+        sourceRef: list.sourceRef,
         doorsCount: releasedHalf.doorsCount,
         centroidLat: releasedHalf.centroidLat,
         centroidLng: releasedHalf.centroidLng,
         boundary: releasedHalf.boundary ?? undefined,
         data: {
+          ...baseData,
           splitFrom: opts.listId,
           splitAxis: plan.axis,
           splitSuffix: releasedHalf.suffix,
-        },
+        } as Prisma.InputJsonValue,
       },
     });
 
@@ -359,9 +382,7 @@ export async function applyListSplit(opts: {
         centroidLng: keptHalf.centroidLng,
         boundary: keptHalf.boundary ?? Prisma.DbNull,
         data: {
-          ...(typeof list.data === "object" && list.data && !Array.isArray(list.data)
-            ? (list.data as Record<string, unknown>)
-            : {}),
+          ...baseData,
           splitAxis: plan.axis,
           splitSuffix: keptHalf.suffix,
           splitReleasedListId: created.id,
@@ -421,7 +442,7 @@ export async function applyListSplit(opts: {
         listId: opts.listId,
         householdId: { in: [...releasedIds] },
       },
-      select: { id: true, checkoutId: true },
+      select: { id: true },
     });
     if (movedAttempts.length) {
       await tx.canvassAttempt.updateMany({

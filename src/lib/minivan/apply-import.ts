@@ -126,6 +126,20 @@ export async function applyMinivanImport(
   const printed =
     jobPayload.printedListNumber || payload.printedListNumber;
 
+  const existingForSource = await prisma.list.findFirst({
+    where: {
+      source: "minivan",
+      sourceRef: printed,
+      deletedAt: null,
+    },
+    select: { id: true, name: true },
+  });
+  if (existingForSource) {
+    const msg = `MiniVAN list ${printed} is already imported as "${existingForSource.name}". Split that list instead of importing again.`;
+    await failMinivanJob(jobId, msg);
+    return { ok: false, error: msg };
+  }
+
   // Candidates: campaign voters + any voter whose address could match (campaign-scoped preferred).
   const campaignVoters = await prisma.campaignVoter.findMany({
     where: { campaignId: job.campaignId },

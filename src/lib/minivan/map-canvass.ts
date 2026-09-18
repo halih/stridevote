@@ -62,12 +62,19 @@ export function isHouseholdStatus(
   return adapter.householdStatuses.includes(slug);
 }
 
-/** Stable clientAttemptId for MiniVAN pull rows (idempotent). */
+/** Normalize MiniVAN TeamCanvass timestamps for attempt ids. */
+export function minivanAttemptDateKey(dateCreated: string): string {
+  return dateCreated.replace(/\s+/g, "T").slice(0, 19);
+}
+
+/**
+ * Stable clientAttemptId for MiniVAN pull rows (idempotent).
+ * `vendorKey` is the printed list number (`List.sourceRef`), not a StrideVote list id.
+ */
 export function minivanClientAttemptId(
-  listId: string,
+  vendorKey: string,
   vanId: number,
   dateCreated: string,
 ): string {
-  const date = dateCreated.replace(/\s+/g, "T").slice(0, 19);
-  return `minivan:${listId}:${vanId}:${date}`;
+  return `minivan:${vendorKey}:${vanId}:${minivanAttemptDateKey(dateCreated)}`;
 }

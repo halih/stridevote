@@ -360,10 +360,9 @@ function ListCard({
     ? externalListOpen(l.source, l.sourceRef)
     : null;
   const hasPickup = l.campaigns.some((c) => c.pickup);
-  // Splitting rewrites list membership, which MiniVAN-sourced lists cannot own.
+  // Native doors (StrideVote or imported MiniVAN/Civibyte) can be split in-app.
   const canSplit =
     l.status === "mine" &&
-    l.source === "stridevote" &&
     l.nativeCanvass &&
     l.doorsCount >= MIN_SPLIT_DOORS;
 

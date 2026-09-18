@@ -344,10 +344,10 @@ async function requireOwnedCheckout(
     },
   });
   if (!list) return { ok: false as const, message: "List not found." };
-  if (list.source !== "stridevote") {
+  if (list.doorsCount <= 0) {
     return {
       ok: false as const,
-      message: "Only StrideVote lists can be split.",
+      message: "This list has no doors to split.",
     };
   }
 

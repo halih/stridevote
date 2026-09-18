@@ -66,9 +66,9 @@ test("extractStreetNo and matchKey", () => {
   assert.equal(matchKey("Bortz", "766", "98133-5671"), "BORTZ|766|98133");
 });
 
-test("minivanClientAttemptId is stable", () => {
+test("minivanClientAttemptId keys off the printed list number", () => {
   assert.equal(
-    minivanClientAttemptId("list1", 2086019, "2026-07-05 08:58:03"),
-    "minivan:list1:2086019:2026-07-05T08:58:03",
+    minivanClientAttemptId("57429198-80406", 2086019, "2026-07-05 08:58:03"),
+    "minivan:57429198-80406:2086019:2026-07-05T08:58:03",
   );
 });

@@ -67,12 +67,17 @@ export function matchCivibyteSessionDoor<T extends { id: string; addressPk: stri
   return byId.get(importedDoorId) ?? byAddressPk.get(addressPk);
 }
 
+/**
+ * Stable clientAttemptId for Civibyte pull rows (idempotent).
+ * `vendorKey` is `List.sourceRef` (guest link URL) — the volunteer-facing handle.
+ * Do not use `canvassingSessionId`; it can change if the link is reissued.
+ */
 export function civibyteClientAttemptId(
-  listId: string,
+  vendorKey: string,
   sessionDoorId: string,
   attemptedAt: string,
 ): string {
-  return `civibyte:${listId}:${sessionDoorId}:${new Date(attemptedAt).toISOString()}`;
+  return `civibyte:${vendorKey}:${sessionDoorId}:${new Date(attemptedAt).toISOString()}`;
 }
 
 export function parseCivibyteAddress(completeAddress: string): {

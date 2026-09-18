@@ -61,6 +61,20 @@ export async function importCivibyteList(input: {
     throw new Error("Set CIVIBYTE_GUEST_PHONE before importing.");
   }
 
+  const existingForSource = await prisma.list.findFirst({
+    where: {
+      source: "civibyte",
+      sourceRef: input.link,
+      deletedAt: null,
+    },
+    select: { id: true, name: true },
+  });
+  if (existingForSource) {
+    throw new Error(
+      `This Civibyte link is already imported as "${existingForSource.name}". Split that list instead of importing again.`,
+    );
+  }
+
   const session = await pullCivibyteSession({
     link: input.link,
     phoneNumber,

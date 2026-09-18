@@ -55,9 +55,13 @@ test("matches rebuilt session doors by addressPk when ids change", () => {
   );
 });
 
-test("builds stable Civibyte attempt ids", () => {
+test("builds stable Civibyte attempt ids from the guest link", () => {
   assert.equal(
-    civibyteClientAttemptId("list-1", "door-1", "2026-09-17T04:00:00Z"),
-    "civibyte:list-1:door-1:2026-09-17T04:00:00.000Z",
+    civibyteClientAttemptId(
+      "https://civibyte.com/c/abc",
+      "door-1",
+      "2026-09-17T04:00:00Z",
+    ),
+    "civibyte:https://civibyte.com/c/abc:door-1:2026-09-17T04:00:00.000Z",
   );
 });

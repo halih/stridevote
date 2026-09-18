@@ -81,6 +81,14 @@ export async function pushCivibyteCanvass(input: {
     session.sessionDoors.map((door) => [door.addressPk, door]),
   );
   const programQuestions = parseProgramQuestions(link.program.questions);
+  const listHouseholdIds = new Set(
+    (
+      await prisma.listHousehold.findMany({
+        where: { listId: list.id },
+        select: { householdId: true },
+      })
+    ).map((row) => row.householdId),
+  );
   const attempts = await prisma.canvassAttempt.findMany({
     where: { listId: list.id, programId: link.programId },
     orderBy: { capturedAt: "desc" },
@@ -102,6 +110,11 @@ export async function pushCivibyteCanvass(input: {
   const submissions: Array<{ doorId: string; log: CivibyteCanvassLog }> = [];
   let skipped = 0;
   for (const [doorId, doorLink] of Object.entries(previousMeta.doors)) {
+    // Full door map is copied onto split peers; only push this list's doors.
+    if (!listHouseholdIds.has(doorLink.householdId)) {
+      skipped += 1;
+      continue;
+    }
     const door = matchCivibyteSessionDoor(
       doorId,
       doorLink.addressPk,

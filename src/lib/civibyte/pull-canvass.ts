@@ -140,6 +140,15 @@ export async function pullCivibyteCanvass(input: {
     linksByAddress.set(doorLink.addressPk, doorLink);
   }
 
+  const listHouseholdIds = new Set(
+    (
+      await prisma.listHousehold.findMany({
+        where: { listId: list.id },
+        select: { householdId: true },
+      })
+    ).map((row) => row.householdId),
+  );
+
   let applied = 0;
   let skipped = 0;
   for (const door of completedDoors) {
@@ -151,13 +160,18 @@ export async function pullCivibyteCanvass(input: {
       skipped += 1;
       continue;
     }
+    // Full session door map is copied onto split peers; only apply this list's doors.
+    if (!listHouseholdIds.has(doorLink.householdId)) {
+      skipped += 1;
+      continue;
+    }
     const capturedAt = new Date(attemptedAt);
     if (Number.isNaN(capturedAt.getTime())) {
       skipped += 1;
       continue;
     }
     const clientAttemptId = civibyteClientAttemptId(
-      list.id,
+      list.sourceRef,
       door.id,
       attemptedAt,
     );

@@ -1506,6 +1506,20 @@ export async function enqueueMinivanListImport(
   const parsed = schema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
 
+  const existingForSource = await prisma.list.findFirst({
+    where: {
+      source: "minivan",
+      sourceRef: parsed.data.printedListNumber,
+      deletedAt: null,
+    },
+    select: { name: true },
+  });
+  if (existingForSource) {
+    return fail(
+      `MiniVAN list ${parsed.data.printedListNumber} is already imported as "${existingForSource.name}". Split that list instead of importing again.`,
+    );
+  }
+
   const job = await enqueueMinivanJob({
     type: "import_list",
     campaignId,

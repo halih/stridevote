@@ -118,6 +118,12 @@ export async function applyMinivanPull(
     return { ok: false, error: "No user" };
   }
 
+  const vendorKey = job.list.sourceRef?.trim();
+  if (!vendorKey) {
+    await failMinivanJob(jobId, "List has no MiniVAN printed list number");
+    return { ok: false, error: "No printed list number" };
+  }
+
   // Latest disposition per VanID from the payload.
   const latest = new Map<number, TeamCanvassRow>();
   for (const row of rows) {
@@ -182,7 +188,7 @@ export async function applyMinivanPull(
     const capturedAt = parseMinivanDate(row.dateCreated);
     const personOutcome = pullDoorToPersonOutcome(outcome);
     const clientAttemptId = minivanClientAttemptId(
-      job.listId,
+      vendorKey,
       vanId,
       row.dateCreated,
     );
