@@ -182,8 +182,15 @@ a { color: inherit; }
 
 /* ---- map ---- */
 .fakemap { position: relative; border-radius: var(--r-lg); overflow: hidden; background: var(--surface-2); border: 1px solid var(--line); }
-.fakemap .leaflet-container { font-family: inherit; background: var(--surface-2); height: 100%; width: 100%; }
+.fakemap .leaflet-container,
+.fakemap .maplibregl-map,
+.walk-maplibre { font-family: inherit; background: var(--surface-2); height: 100%; width: 100%; }
 .fakemap .leaflet-control-attribution { font-size: 9px; }
+.fakemap .maplibregl-ctrl-attrib { font-size: 9px; }
+.map-loading {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  color: var(--ink-faint); font-size: 12px;
+}
 .home-pin {
   width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: var(--paper);
   border: 2px solid var(--surface); box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
@@ -195,6 +202,20 @@ a { color: inherit; }
   border: 2px solid var(--surface); box-shadow: 0 1px 4px rgba(0, 0, 0, .28);
   display: flex; align-items: center; justify-content: center;
 }
+.walk-map-door {
+  appearance: none; padding: 0; width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid #fff; background: var(--door-color); cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .28); color: #fff;
+}
+.walk-map-door.current {
+  width: 24px; height: 24px; border: 3px solid #0f1216;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--door-color) 22%, transparent);
+}
+.walk-map-door.counted {
+  width: 26px; height: 26px; font: 700 11px/1 system-ui, sans-serif;
+  display: flex; align-items: center; justify-content: center;
+}
+.walk-map-door.current.counted { width: 30px; height: 30px; }
 /* Door count for a multi-unit building. Leaflet forces `display: block` on
    every marker icon, so the span — which Leaflet has no rule for — fills the
    icon box and centres the digits on the dot. */
@@ -1248,10 +1269,24 @@ select.field { appearance: none; -webkit-appearance: none; }
 .walk-map-frame {
   position: relative;
   border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden;
-  background: var(--surface); min-height: 280px;
+  background: var(--surface);
+  /* A fraction of the viewport, so the door card shares the screen on a phone
+     and on a desktop alike. Subtracting a fixed pixel block instead bottoms
+     out against the floor on short screens, where further trims stop having
+     any effect. */
+  height: clamp(380px, 70vh, 680px);
 }
+/* `svh`, not `dvh`: the dynamic unit re-resolves while mobile browser chrome
+   collapses on scroll, which resizes the map canvas mid-scroll and flutters.
+   The small viewport is stable. Kept in its own rule so the `vh` fallback
+   above survives CSS minification for browsers without viewport-unit support. */
+@supports (height: 1svh) {
+  .walk-map-frame { height: clamp(380px, 70svh, 680px); }
+}
+.walk-map-frame .fakemap-fill,
 .walk-map-frame .map-wrap,
-.walk-map-frame .leaflet-container { min-height: 280px; height: 42vh; }
+.walk-map-frame .leaflet-container,
+.walk-map-frame .maplibregl-map { height: 100%; }
 .sheet-map {
   position: relative;
   border-radius: var(--r-md);

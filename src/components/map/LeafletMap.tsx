@@ -35,10 +35,14 @@ function homeIcon(inside?: boolean) {
   });
 }
 
-function youIcon() {
+function youIcon(heading?: number | null) {
+  const rotation =
+    heading != null && Number.isFinite(heading)
+      ? ` style="transform:rotate(${heading}deg)"`
+      : "";
   return L.divIcon({
     className: "",
-    html: `<div class="you-pin" title="Current location">${YOU_SVG}</div>`,
+    html: `<div class="you-pin" title="Current location"${rotation}>${YOU_SVG}</div>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   });
@@ -180,7 +184,11 @@ export function LeafletMap({
         <Marker position={[home.lat, home.lng]} icon={homeIcon(home.inside)} interactive={false} />
       ) : null}
       {you ? (
-        <Marker position={[you.lat, you.lng]} icon={youIcon()} interactive={false} />
+        <Marker
+          position={[you.lat, you.lng]}
+          icon={youIcon(you.heading)}
+          interactive={false}
+        />
       ) : null}
       <FitBounds points={fitPoints} pointsKey={fitKey} />
       <KeepSelectionInView

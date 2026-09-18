@@ -29,6 +29,9 @@ export interface MapHome {
 export interface MapYou {
   lat: number;
   lng: number;
+  /** Direction of travel clockwise from true north, when GPS can determine it. */
+  heading?: number | null;
+  accuracy?: number | null;
 }
 
 export interface MapProps {
@@ -43,4 +46,6 @@ export interface MapProps {
   caption?: string;
   /** Fired when a door/list marker is clicked. */
   onMarkerClick?: (marker: MapMarker) => void;
+  /** Walking maps preserve the user's camera and support touch rotation. */
+  mode?: "overview" | "walk";
 }

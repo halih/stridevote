@@ -13,9 +13,9 @@ Jargon used below:
 
 ## Field-test blockers
 
-- [ ] **One coordinate rule for drawn turfs (and generate from the nearby box, not the whole campaign)**
+- [ ] **Generate drawn turfs from the nearby box, not the whole campaign**
 
-  Preview and generate do not always use the same lat/lng for a household (Census vs Mapbox). A door can look inside the polygon in the estimate and then get dropped (or the reverse) when the list is created. Drawn-turf create also loads every matching household in the campaign and then clips, which will time out on a real district. Preview already queries “households in this map box”; generate should do the same, and both should pick coordinates the same way (prefer stored Mapbox, else Census).
+  Preview and generation now use the same persistent household pin, so their polygon membership agrees. Generation still loads every matching seed voter and expands every matching household in the campaign before clipping the result in memory. Start with the polygon’s bounding box in the database, as preview does, so a real district does not time out.
 
 - [ ] **Don’t mix Census voting districts with official precincts**
 
@@ -25,9 +25,9 @@ Jargon used below:
 
   When a volunteer opens a list, we may call Mapbox for every door that still has no stored pin. That is billed, can make download slow or fail, and doors that still have no pin just vanish from the map. Put a limit or a confirmation on those calls, and surface doors that stay unpinned instead of failing silently.
 
-- [ ] **Restore prior answers when updating a door (and mark seed vs roommate)**
+- [ ] **Mark list targets vs other voters at the door**
 
-  Opening a door you already logged resets person outcomes and survey answers to “not home.” Volunteers will overwrite real data without meaning to. Reload the last answers. Also show which people were the original list targets vs other voters at the same address (`matchedSeed` is stored but not shown).
+  `matchedSeed` reaches the packet, but the walk UI does not show which people matched the list’s source filter and which were included only because they share the household.
 
 ---
 
@@ -37,17 +37,13 @@ Jargon used below:
 
   Publishing a list into a wave is supposed to freeze who is on it. Packet download still copies extra doors from the live turf if the snapshot is shorter, so an admin who edits the turf mid-walk can change what a volunteer sees. Removed doors also stay on the old snapshot. Treat publish as freeze; if you need updates, add an explicit “republish this wave” action.
 
-- [ ] **Compute “current knock” in the database**
+- [ ] **Compute “current knock” and stats aggregates in the database**
 
-  “What is the latest result at this door?” is calculated in app code by loading all attempts and folding them in memory. Fine for a demo list; slow and fragile once a wave has tens of thousands of knocks. Store a current flag, or answer it with one SQL query.
+  “What is the latest result at this door?” and volunteer stats/leaderboards are calculated by loading attempts and folding them in application memory. Fine for demo data; slow and fragile once a wave has tens of thousands of knocks. Store/query current rows directly and aggregate reporting metrics in SQL.
 
 - [ ] **Decide what happens when two results collide**
 
   If a volunteer syncs after the list was released, or two phones log the same door, we currently accept the extra knock and mark it `staleCheckout` for admin. That may be right, or we may want to reject / last-write-wins. Pick a rule and make the volunteer UI say what happened, not only an admin footnote.
-
-- [x] **Watch lists are not tied to a wave**
-
-  Watches are scoped to a list and wave. Releasing an unfinished list emails that wave’s watchers and consumes the one-shot watches. Splitting a watched list also emails watchers about the available half while retaining the watch on the original kept half.
 
 - [ ] **Voter data on the phone (IndexedDB)**
 
@@ -61,13 +57,9 @@ Jargon used below:
 
   Precinct turfs correctly include doors Census could not place (the voter file precinct is enough). On the walk those doors have no map pin, so they are easy to skip. Keep them on the list and mark them as “no map location” so people still knock them.
 
-- [ ] **Hide MiniVAN / Civibyte “create list” unless you import**
-
-  Admin can still type a MiniVAN number or Civibyte URL and create a list. That does not import doors into native knocking; it only stores a pointer. Hide or relabel that until a real import exists, so organizers are not surprised.
-
 - [ ] **Batch precinct create: report each turf, not only the first error**
 
-  Creating many precincts at once stops at the first failure message. If 18 of 20 succeed, the admin should see which two failed and why, and still keep the 18.
+  Creating many precincts now continues after failures and keeps the successful turfs, but the result names only the first error. If 18 of 20 succeed, report which two failed and why.
 
 - [ ] **Warn when drawn polygons overlap**
 
@@ -81,10 +73,6 @@ Jargon used below:
 
   When a precinct straddles the campaign district, we currently drop vertices that fall outside. That is not a true clip: the shape can go wrong or the precinct can become unselectable. Fine for a first WA test; replace before statewide use.
 
-- [ ] **Real MiniVAN / Civibyte import**
-
-  Checkout and “open in the other app” exist. Pulling those vendors’ doors/voters into StrideVote knocking does not.
-
 - [ ] **Warn when a district has more than 400 precincts**
 
   The map loads at most 400 precincts and silently drops the rest. A large district can be missing precincts with no message.
@@ -96,3 +84,28 @@ Jargon used below:
 - [ ] **Bind profile phone only after OTP once SMS is live**
 
   Profile currently saves a unique phone onto the user so organizers can store numbers without paying for OTP. Email and phone are unique per user. When phone login is enabled, require a successful OTP before `User.phone` becomes a sign-in key, so a typo or someone else’s number cannot take over the account.
+
+- [ ] **Use canonical records for external list identity**
+
+  MiniVAN printed-list numbers and Civibyte guest links currently double as editable list metadata, remote identity, and idempotency keys. Store a stable vendor source record separately from mutable URLs/credentials, and let intentional split peers reference it.
+
+- [ ] **Complete MiniVAN survey round-trip**
+
+  MiniVAN pull imports door dispositions only, and push maps candidate support but not the wave’s other survey answers. Add adapter-backed mappings in both directions.
+
+- [ ] **Add database-backed lifecycle tests**
+
+  Unit tests cover pure mapping and planning helpers, but not the Prisma transactions and constraints that protect sync/writeback, list relinking, split concurrency and redirects, multi-wave checkout isolation, external pull idempotency, or campaign deletion.
+
+- [ ] **Allow volunteers to remove saved home location**
+
+  Profile can replace saved coordinates but offers no way to clear the address/ZIP and coordinates completely.
+
+- [ ] **Define OTP challenge retention**
+
+  Consumed and expired OTP challenges retain destination phone numbers indefinitely. Add a retention period and cleanup job.
+
+- [ ] **Persist county-geocode misses**
+
+  County geocoding records successful matches only. Mark unmatched and ambiguous attempts so reruns are resumable and do not repeatedly perform the same lookup.
+npm run start:prod

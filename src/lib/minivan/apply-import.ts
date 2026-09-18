@@ -8,6 +8,7 @@ import { requireMinivanAdapter } from "@/lib/minivan/adapters";
 import { completeMinivanJob, failMinivanJob } from "@/lib/minivan/jobs";
 import { progressiveScoreFromLikelyParty } from "@/lib/canvass/progressive-score";
 import { revalidatePath } from "next/cache";
+import { expandExternalListVoters } from "@/lib/external-list-voters";
 
 function slugify(input: string): string {
   const base = input
@@ -338,6 +339,23 @@ export async function applyMinivanImport(
         ? { lat: d.sortKey.lat, lng: d.sortKey.lng }
         : null,
   });
+  const householdMemberLinks = await prisma.householdVoter.findMany({
+    where: {
+      householdId: { in: ordered.map((door) => door.householdId) },
+      voter: {
+        campaignLinks: { some: { campaignId: job.campaignId } },
+      },
+    },
+    select: { voterId: true },
+  });
+  const expandedVoterRows = expandExternalListVoters(
+    matchedVanIds.map((vanId) => ({
+      voterId: mapping.get(vanId)!,
+      vanId,
+    })),
+    householdMemberLinks.map((link) => link.voterId),
+  );
+  const expandedVoterIds = expandedVoterRows.map((row) => row.voterId);
 
   const program = await ensureActiveProgram(job.campaignId);
   const slug = await uniqueSlug(slugify(listName));
@@ -370,7 +388,7 @@ export async function applyMinivanImport(
             people: payload.people.length,
             ...stats,
             doors: ordered.length,
-            voters: voterIds.length,
+            voters: expandedVoterRows.length,
           },
         },
       },
@@ -384,26 +402,15 @@ export async function applyMinivanImport(
         })),
       },
       voters: {
-        create: (() => {
-          // One ListVoter per voterId (unique). Prefer first VanID match.
-          const seen = new Set<string>();
-          const rows: Array<{ voterId: string; vanId: number; matchedSeed: boolean }> = [];
-          for (const vanId of matchedVanIds) {
-            const voterId = mapping.get(vanId)!;
-            if (seen.has(voterId)) continue;
-            seen.add(voterId);
-            rows.push({ voterId, vanId, matchedSeed: true });
-          }
-          return rows;
-        })(),
+        create: expandedVoterRows,
       },
     },
   });
 
   // Link matched voters to campaign if missing.
-  if (voterIds.length) {
+  if (expandedVoterIds.length) {
     await prisma.campaignVoter.createMany({
-      data: voterIds.map((voterId) => ({
+      data: expandedVoterIds.map((voterId) => ({
         campaignId: job.campaignId,
         voterId,
       })),
@@ -421,7 +428,7 @@ export async function applyMinivanImport(
   const result = {
     listId: list.id,
     doors: ordered.length,
-    voters: voterIds.length,
+    voters: expandedVoterRows.length,
     stats,
   };
   await completeMinivanJob(jobId, result);
@@ -430,5 +437,13 @@ export async function applyMinivanImport(
   revalidatePath(`/admin/${job.campaign.slug}`);
   revalidatePath("/canvass");
 
-  return { ok: true, listId: list.id, stats: { ...stats, doors: ordered.length, voters: voterIds.length } };
+  return {
+    ok: true,
+    listId: list.id,
+    stats: {
+      ...stats,
+      doors: ordered.length,
+      voters: expandedVoterRows.length,
+    },
+  };
 }

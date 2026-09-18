@@ -225,6 +225,43 @@ export async function buildFieldPacket(opts: {
     })) as typeof households;
   }
 
+  // Older external imports stored only the vendor's source voters. Bring them
+  // up to the same rule as native lists: if a door is selected, include every
+  // campaign voter at that household. This also makes existing imported lists
+  // consistent the next time a packet is downloaded.
+  if (link.list.source === "minivan" || link.list.source === "civibyte") {
+    const householdVoters = await prisma.householdVoter.findMany({
+      where: {
+        household: { lists: { some: { listId: opts.listId } } },
+        voter: {
+          campaignLinks: { some: { campaignId: link.campaignId } },
+        },
+      },
+      select: { voterId: true },
+    });
+    if (householdVoters.length) {
+      await Promise.all([
+        prisma.listVoter.createMany({
+          data: householdVoters.map(({ voterId }) => ({
+            listId: opts.listId,
+            voterId,
+            matchedSeed: false,
+          })),
+          skipDuplicates: true,
+        }),
+        prisma.programListVoter.createMany({
+          data: householdVoters.map(({ voterId }) => ({
+            programId: opts.programId,
+            listId: opts.listId,
+            voterId,
+            matchedSeed: false,
+          })),
+          skipDuplicates: true,
+        }),
+      ]);
+    }
+  }
+
   let programVoters = await prisma.programListVoter.findMany({
     where: { programId: opts.programId, listId: opts.listId },
     select: { voterId: true, matchedSeed: true },

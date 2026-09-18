@@ -14,6 +14,7 @@ import {
   type CivibyteDoorLink,
   type CivibyteListMeta,
 } from "@/lib/civibyte/map";
+import { expandExternalListVoters } from "@/lib/external-list-voters";
 
 function slugify(input: string): string {
   const base = input
@@ -177,7 +178,22 @@ export async function importCivibyteList(input: {
         );
       }
 
-      const voterIds = [...listVoterIds];
+      const householdMemberLinks = await tx.householdVoter.findMany({
+        where: {
+          householdId: {
+            in: householdRows.map((row) => row.householdId),
+          },
+          voter: {
+            campaignLinks: { some: { campaignId: campaign.id } },
+          },
+        },
+        select: { voterId: true },
+      });
+      const expandedVoterRows = expandExternalListVoters(
+        [...listVoterIds].map((voterId) => ({ voterId })),
+        householdMemberLinks.map((link) => link.voterId),
+      );
+      const voterIds = expandedVoterRows.map((row) => row.voterId);
       const meta: CivibyteListMeta = {
         sessionId: session.canvassingSessionId,
         importedAt: new Date().toISOString(),
@@ -211,7 +227,7 @@ export async function importCivibyteList(input: {
           },
           households: { create: householdRows },
           voters: {
-            create: voterIds.map((voterId) => ({ voterId, matchedSeed: true })),
+            create: expandedVoterRows,
           },
         },
       });

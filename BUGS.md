@@ -1,8 +1,6 @@
 # Bugs
 
-Code-review findings for the whole codebase. Check an item when it is fixed (or decided not to fix). Known field-test work already listed in `TODO.md` is not repeated here unless this review found a sharper failure mode.
-
-Verified fixed and removed (Sep 2026): outbox chunking past 100 knocks, per-knock note clipping so one long note cannot 400 the batch, exclusive checkout via a partial unique index + `claimActiveCheckout`, creating/updating an active wave no longer closes siblings first, assigned lists can “Complete & release” when every door is done. Updating a door no longer wipes conversation people/notes (packet hydrates prior answers; lit/inaccessible keep person data; observed scores persist without replacing the knock). Formatted phone OTP login uses the API’s E.164 destination (and Auth.js normalizes again) so verification and the dev inbox match. Canvass sync requires a checkout this user held and refuses archived/deleted lists; person responses must live at the knock’s household. `.env.example` no longer ships a known `AUTH_SECRET` or a platform-admin email; production rejects the example secret. Unused unauthenticated `ensureCampaignProgram` export removed. Profile phone save stays unique-only until OTP bind (see `TODO.md`).
+Code-review findings for the whole codebase. Remove an item when it is fixed (or deliberately accepted). Known field-test work already listed in `TODO.md` is not repeated here unless this review found a sharper failure mode.
 
 Jargon used below:
 
@@ -14,27 +12,11 @@ Jargon used below:
 
 ---
 
-## Field-test / walk blockers
-
-- [x] **Updating a door wipes the conversation (worse than TODO.md)**
-
-  `TODO.md` already tracks restoring prior answers. The packet’s `current` object still has no people or notes. The sheet starts notes empty and rebuilds conversation groups from scratch. “Lit drop” / “Inaccessible” on a done door replace the knock with `people: []` and `notes: null`. Hydrate the sheet from the last result, and do not let quick actions drop person data. Persist observed sign scores without replacing the knock.
-
-- [x] **Formatted phone numbers cannot finish OTP login**
-
-  `/api/otp` normalizes `(206) 555-0134` to E.164 before hashing. The login form then verifies with the original typed string, so the hash never matches. The form also ignores the `destination` returned by the API. Dev inbox lookup uses the same unnormalized string, so the on-screen test code never appears either. Keep the normalized destination from the API (or normalize again in Auth.js).
-
----
-
 ## Auth / security
 
-- [x] **Canvass sync does not check who may write**
+- [ ] **`.env.example` ships a production-accepted Auth.js secret**
 
-  `/api/canvass/sync` only requires a signed-in user. It confirms the list is published in that wave, then accepts the knock. No campaign membership, `canvass:checkout`, visibility, assignment, or `deletedAt` / `archivedAt` check. Missing checkout only sets `staleCheckout: true`. Anyone with cached IDs (or a removed volunteer) can write results and field-layer scores, including onto an archived list. Require current permission, or a prior checkout the same user actually held, and refuse archived lists/campaigns.
-
-- [x] **Person responses are not tied to the door being logged**
-
-  Sync accepts a voter if they appear *anywhere on the list*, not at `householdId`. A knock on door A can mark a voter at door B moved/scored. Check `HouseholdVoter` for that household as well as list membership.
+  The example says to leave `AUTH_SECRET` blank but sets it to the public value `this-is-a-real-secret`. Production validation rejects a different old placeholder, so a deployment copied from the example boots with a known signing secret. Keep the example blank and make the guard reject every documented placeholder.
 
 - [ ] **Dev inbox is public in any non-production build**
 
@@ -48,25 +30,13 @@ Jargon used below:
 
   Two correct submits can both see `consumedAt = null`. Concurrent wrong guesses can all see `attempts < 5`. Atomically increment / consume (`UPDATE … WHERE consumedAt IS NULL`), and only succeed if one row changed.
 
-- [x] **An unverified profile phone becomes a login key** *(deferred — unique save for now)*
-
-  Saving a phone still writes it onto the user so we can store numbers without paid OTP. Email and phone stay unique per user. OTP bind is tracked in `TODO.md`; do that before enabling phone login.
-
 - [ ] **SMS / WhatsApp adapters always log the plaintext code; email can log magic links**
 
-  Stub SMS/WhatsApp `send()` prints the code. Email with no live provider (or after a *dev* delivery failure) logs the full magic link — and `isDev` is any non-production `NODE_ENV`. Fail startup in production unless every enabled channel has a real provider; never log credentials outside an explicit local stub.
+  Stub SMS/WhatsApp `send()` prints the code. In non-production, email without a configured provider also logs the full magic link. Never log credentials outside an explicitly local stub, and prevent tunnel/shared development deployments from exposing them.
 
-- [x] **`.env.example` ships a known `AUTH_SECRET` and a real platform-admin email**
+- [ ] **One campaign’s admin can rename, archive, unlink, or push a shared list**
 
-  Copying the example into a reachable deploy grants that inbox platform admin and uses a public JWT secret. Leave admin emails blank; reject the example secret outside local dev.
-
-- [x] **`ensureCampaignProgram` is an unauthenticated server action**
-
-  It is still exported from `"use server"` with no session check and can activate or create a “Default” wave for any campaign id. It is unused in the UI. Remove the export or require `lists:manage`.
-
-- [ ] **One campaign’s admin can archive or unlink a shared list**
-
-  `canManageList` is true if the user manages *any* linked campaign. Archive (`deletedAt`) then hides the list for every campaign. Relinking still deletes every `ListCampaign` row and only checks permission on the campaigns being kept. Require permission on every affected campaign, or make lists campaign-owned.
+  `canManageList` is true if the user manages *any* linked campaign. Rename/archive affects every campaign; relinking deletes every `ListCampaign` row while checking only campaigns being kept, and is not transactional; external push selects whichever enabled campaign link appears first. Require permission on every affected campaign, make these operations atomic, or make lists campaign-owned.
 
 - [ ] **Voter detail can show other campaigns’ field events**
 
@@ -80,6 +50,22 @@ Jargon used below:
 
   Keys are `programId:listId` only. On a shared browser, user B can see user A’s cached voters if they can open the same list — and can sync A’s outbox as B’s work. Namespace by user id and wipe or quarantine on account change. (Product retention for packets is still in `TODO.md`.)
 
+- [ ] **Removed volunteers can retain or regain packet access**
+
+  Packet download checks an active checkout plus list visibility/assignment, but not current campaign membership or `canvass:checkout`. The walk route can recreate a checkout from a stale assignment, and removing membership does not release existing checkouts or assignments. A removed volunteer can revisit a saved walk URL and download voter PII and history.
+
+- [ ] **A phone-only user can erase their only login identifier**
+
+  OTP can create an account with only `phone`, while profile save allows that phone to be cleared. After sign-out, the account has neither an email nor phone credential and cannot be reached again. Refuse to remove the last login identifier.
+
+- [ ] **Email magic-link send has no throttle**
+
+  Email sign-in immediately sends through Auth.js/Resend/SMTP with no destination or IP cooldown. Repeated submissions can harass a recipient and consume provider quota, just like the separately tracked OTP send abuse.
+
+- [ ] **Clearing both profile names leaves the old display identity**
+
+  `firstName` and `lastName` become null, but `name` and `initials` update only when the new full name is non-empty. Account menus, checkout attribution, and reports continue showing the stale name.
+
 - [ ] **MiniVAN import can match against the entire voter table**
 
   If the campaign has no `CampaignVoter` rows yet, `applyMinivanImport` loads up to 500,000 statewide voters, matches MiniVAN people against them, and writes phones/emails/`likelyParty` onto those master records. Scope matching to the campaign (or fail until voters are synced).
@@ -90,11 +76,11 @@ Jargon used below:
 
 - [ ] **Older offline knocks overwrite newer field-layer scores**
 
-  Household observed score and voter talk score / moved are written unconditionally. A 10:00 knock synced after an 11:00 knock wins. Update only when `capturedAt` is newer (atomic SQL), or recompute from `FieldEvent`.
+  Household observed score and voter talk score / moved are written unconditionally. A 10:00 knock synced after an 11:00 knock wins. Standalone observed-score retries are also unsafe: duplicate `clientEventId` suppresses a second event, but still rewrites denormalized household state from the old payload. Update only when `capturedAt` is newer (atomic SQL), or recompute from `FieldEvent`.
 
 - [ ] **Field writeback is not retried after a successful knock**
 
-  The attempt is committed first; field events and denormalized columns run afterward; errors are swallowed. A retry sees the existing `clientAttemptId` and returns ok without finishing writeback. Put both in one transaction, or keep a writeback-pending flag and retry it.
+  Native sync, MiniVAN pull, and Civibyte pull commit the attempt before field events and denormalized columns. A failure leaves knock history committed; retries see the existing attempt and skip without finishing writeback. Put both in one transaction, or keep a writeback-pending flag and retry it.
 
 - [ ] **Outbox is keyed only by list, not by wave**
 
@@ -104,6 +90,10 @@ Jargon used below:
 
   Same freeze issue as `TODO.md`: if the live list is longer than the snapshot, download copies the extra doors. Sync also falls back to live `ListHousehold` / `ListVoter` when the snapshot has no row. Treat publish as freeze; require an explicit republish.
 
+- [ ] **Splitting one wave corrupts completion thresholds in older waves**
+
+  Split rewrites global live membership and `List.doorsCount`, but rewrites only the selected wave’s snapshot. An older wave can retain its full snapshot while release compares progress to the new half-sized global count, marking that older walk complete too early.
+
 - [ ] **Double-tap save creates two “current” knocks**
 
   Save and quick-result buttons have no lock. Two UUIDs can both supersede the same prior id, so neither is superseded. Disable submit until enqueue finishes; add a stable tie-break (`createdAt` / id) when `capturedAt` matches.
@@ -111,6 +101,10 @@ Jargon used below:
 - [ ] **Incomplete offline packets are still walkable**
 
   A short packet sets an error *and* still renders doors. Saves are blocked for expired packets, not incomplete ones. Volunteers can finish and release a subset. Hide result controls until a full download.
+
+- [ ] **List-board release proceeds when IndexedDB cannot be checked**
+
+  The list board catches an outbox read failure and releases anyway, unlike the walk screen. If IndexedDB is broken or unavailable while knocks remain queued, the volunteer can release the list and abandon unsynced work.
 
 - [ ] **Online refresh failure throws away a good cache**
 
@@ -156,9 +150,65 @@ Jargon used below:
 
   Completeness uses the newest date across *all* election types. If the latest row is a special, VRDB-only primaries/generals may not count as complete. Compute “latest complete” per election type.
 
+- [ ] **Voter-history and voter imports normalize state IDs differently**
+
+  History import strips a `WA` prefix and leading zeros, while VRDB import stores `StateVoterID` verbatim. Valid history rows can be skipped or stored without a voter link when the source formats differ.
+
+- [ ] **Campaign region edits report success without saving the region**
+
+  The update schema and form submit centroid, region, and boundary fields, but `updateCampaignProfile` writes none of them. Voter sync, precinct loading, and turf boundaries continue using the old district after a successful save message.
+
+- [ ] **MiniVAN pull and push can switch to the wrong wave**
+
+  Both flows call `ensureActiveProgram` instead of using the list’s published `ListCampaign.programId`. After the active wave changes, pull can create attempts in a wave where the list was never published and push can export results from the wrong wave.
+
+- [ ] **MiniVAN lit drops create several current knocks for one door**
+
+  Pull expands one household lit result to every VanID, then creates one unsuperseded `CanvassAttempt` per voter at the same household and timestamp. Current-result selection, reports, and push can choose an arbitrary row.
+
+- [ ] **MiniVAN jobs have no lease or crash recovery**
+
+  Claiming marks a job `running`, and the queue refuses all other work while any running row exists. There is no heartbeat, timeout, or reclaim path; a worker crash or uncaught apply error strands that job and blocks the entire queue indefinitely.
+
+- [ ] **External imports are not atomic**
+
+  MiniVAN enriches voters and creates/relocates households before list creation. Civibyte commits the list before snapshotting it into the wave. A failure can leave partial master-data changes or a live unsnapshotted list while reporting failure, and duplicate-source checks can then block a clean retry.
+
+- [ ] **Civibyte import can relocate a voter globally**
+
+  Import upserts `HouseholdVoter` with the household parsed from Civibyte and overwrites an existing household link. Stale or malformed vendor data changes that voter’s master household for every campaign and future list.
+
+- [ ] **External source references are editable identity keys**
+
+  List edit allows arbitrary `sourceRef` changes, while MiniVAN idempotency and Civibyte authentication/idempotency trust that field. Editing a printed-list number or guest URL can duplicate pulls, target a different remote list, or pair old metadata with another session.
+
+- [ ] **Civibyte guest tokens are persisted and sent to field devices**
+
+  Civibyte pull builds `clientAttemptId` from the full guest-link URL. That ID is stored on attempts and returned as the current attempt ID in field packets, exposing the bearer-style token through IndexedDB, logs, and exports. Use a hash or opaque canonical source ID.
+
+- [ ] **Civibyte pull can duplicate knocks after a session rebuild**
+
+  Door matching deliberately falls back from mutable session-door ID to stable `addressPk`, but the attempt ID still includes the mutable door ID. If Civibyte rebuilds/reissues door rows, the same remote knock can be imported again under a new key.
+
+- [ ] **A transient Civibyte detail failure permanently drops person answers**
+
+  Door-detail requests use `Promise.allSettled`; a failed detail request still creates the door attempt without contacted people or survey answers. Future pulls see the attempt ID and skip it, so the missing detail is never repaired.
+
+- [ ] **MiniVAN key migration can duplicate prior pulls**
+
+  Current code changes pull IDs from StrideVote list ID to printed-list number without looking up or healing IDs written by the old scheme. The first pull after deployment can recreate every previously imported result. Migrate legacy IDs or recognize both formats.
+
 ---
 
 ## Admin / reporting / product bugs
+
+- [ ] **Canvass board conflates checkouts from different waves**
+
+  The board emits one card per list and can select an active checkout by another user without constraining it to the card’s program. A list checked out in one wave can therefore appear taken in another even though checkout exclusivity is scoped by `(listId, programId)`.
+
+- [ ] **The same list can be split twice concurrently**
+
+  Split ownership is checked before the transaction, and there is no uniqueness constraint preventing two splits of the same source list/program. A double submit or two requests can create competing released lists and redirects from the same starting membership.
 
 - [ ] **Program results silently use only the last 200 knocks**
 
@@ -174,7 +224,23 @@ Jargon used below:
 
 - [ ] **Required survey questions are not required**
 
-  Questions may set `required: true`, but the door sheet’s `canSave` ignores them and sync does not validate answers against the wave definition. Enforce on client and server.
+  The model supports `required: true`, but the program editor has no required control, the door sheet’s `canSave` ignores it, and sync does not validate answers against the wave definition. Expose and enforce it on client and server.
+
+- [ ] **Civibyte survey answers disappear from reports**
+
+  Pull stores answers under Civibyte’s numeric question IDs, while reports read answers by StrideVote program-question IDs. Unless those unrelated IDs happen to match, imported answers are silently omitted.
+
+- [ ] **Civibyte’s walk sheet gives obsolete sync guidance**
+
+  The sheet says results logged in Civibyte do not sync back, but pull support is now available to volunteers and admins. This can cause volunteers to duplicate work or organizers to skip a supported pull.
+
+- [ ] **Reports coverage chart silently drops lists after 15**
+
+  The coverage chart uses `view.coverage.slice(0, 15)` without saying it is truncated. The detail list below contains every list, so organizers can mistakenly treat the chart as complete.
+
+- [ ] **Volunteer “Response rate” is actually contact rate**
+
+  Stats calculate contacts divided by every door outcome, including no-answer, lit, and inaccessible. Calling that “Response rate” is ambiguous and inconsistent with reports, which label the same concept “contact rate.”
 
 - [ ] **“Send message” to a campaign contact does nothing**
 
@@ -188,9 +254,13 @@ Jargon used below:
 
   The query string and saved filters store `programId`, but canvass audience is always campaign-wide. Drop the field or actually scope canvassed/exclude to that wave.
 
-- [ ] **Lint currently fails on walk / sheets / reports**
+- [ ] **Failed availability email consumes the one-shot watch**
 
-  `npm run lint` errors: `setState` in effects (`WalkView`, `BottomSheet`, `CampaignTurfManager`) and an immutability flag in `ReportsDashboard`. Not user-facing by themselves, but they block CI if lint is gated.
+  Release deletes watches before awaiting delivery. A transient provider failure leaves the volunteer unsubscribed without receiving the notification.
+
+- [ ] **Lint currently fails with five React-hook errors**
+
+  `npm run lint` reports `setState` in effects (`BottomSheet`, twice in `WalkView`, and `CampaignTurfManager`) plus an immutability error in `ReportsDashboard`, along with two warnings. These block adding lint to CI.
 
 ---
 
@@ -206,14 +276,22 @@ Jargon used below:
 
 - [ ] **PWA / email icons 404**
 
-  The web manifest still points at 512 and 1024 PNGs; email HTML points at a 120px PNG. Those files are not under `public/brand` (SVGs exist). Add the PNGs or drop the PNG entries.
+  The web manifest points at 512 and 1024 PNGs, email HTML at a 120px PNG, and Apple metadata at a 180px PNG. None exists under `public/brand` (SVGs do). Add the PNGs or drop the PNG references.
 
-- [ ] **No CI; `npm run build` does not run tests or lint**
+- [ ] **A personal ngrok hostname is hardcoded in Next.js config**
 
-  The defects above (auth, sync, checkout races) have no automated coverage. Existing tests are unit tests of pure helpers.
+  `allowedDevOrigins` includes `duckie-hammad.ngrok.app` alongside the generic ngrok patterns. It leaks a private tunnel name into shared config and gives that one hostname special development-origin access.
+
+- [ ] **README documents the wrong standalone production command**
+
+  Next is configured with `output: "standalone"` and the repository provides `npm run start:prod` to launch that output, but the scripts table tells operators to use `npm run start` (`next start`). Document the standalone launcher and the county-geocode script, and keep the documented Node version aligned with CI/Docker.
+
+- [ ] **CI runs unit tests only**
+
+  GitHub Actions runs Prisma generation and 114 unit tests, but not lint, a production build, migration deployment, or database-backed integration tests. Transaction, constraint, generated-client, and framework build failures can still merge.
 
 ---
 
 ## Already tracked in TODO.md (not duplicated)
 
-Coordinate mismatch on drawn turfs, Census-vs-official precinct picker, Mapbox volume on packet download, freeze-after-publish (listed above only where sync still accepts live membership), in-memory “current knock,” collision policy, packet PII/TTL policy, ungeocoded precinct doors, MiniVAN/Civibyte pointer lists, batch precinct error reporting, overlapping drawn turfs, real polygon clip, precinct map cap of 400, production map tiles.
+Drawn-turf generation scalability, Census-vs-official precinct picker, Mapbox volume on packet download, freeze-after-publish (listed above only where sync still accepts live membership), in-memory “current knock,” collision policy, packet PII/TTL policy, ungeocoded precinct doors, batch precinct error reporting, overlapping drawn turfs, real polygon clip, precinct map cap of 400, production map tiles, external-source identity design, MiniVAN survey round-trip, database-backed lifecycle tests, saved-location removal, OTP retention, and county-geocode retry state.

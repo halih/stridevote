@@ -798,7 +798,7 @@ export function WalkView({
             <div className="walk-map-stage">
               <div className="walk-map-frame">
                 <Map
-                  aspectRatio={1}
+                  mode="walk"
                   markers={mappedDoorMarkers}
                   home={location.home ? { ...location.home, inside: true } : undefined}
                   you={location.you ?? undefined}

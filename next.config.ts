@@ -15,6 +15,19 @@ const nextConfig: NextConfig = {
     "*.ngrok-free.app",
     "*.ngrok.io",
   ],
+  async headers() {
+    // Dev-only. Turbopack derives dev chunk URLs from module paths, so a file's
+    // URL never changes when its contents do. `no-cache` still lets iOS Safari
+    // serve its stored copy without revalidating, which strands a phone testing
+    // over a tunnel on stale CSS. `no-store` forbids keeping it at all.
+    if (process.env.NODE_ENV !== "development") return [];
+    return [
+      {
+        source: "/_next/static/:path*",
+        headers: [{ key: "Cache-Control", value: "no-store, must-revalidate" }],
+      },
+    ];
+  },
   async redirects() {
     return [
       {
