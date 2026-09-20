@@ -97,6 +97,7 @@ export function WalkMap({
   home,
   you,
   onMarkerClick,
+  followSelection,
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -105,6 +106,8 @@ export function WalkMap({
   const youMarkerRef = useRef<MapLibreMarker | null>(null);
   const markersRef = useRef(markers);
   const onMarkerClickRef = useRef(onMarkerClick);
+  // The opening camera already frames the selection, so only later steps pan.
+  const lastFollowRef = useRef(followSelection);
 
   useEffect(() => {
     markersRef.current = markers;
@@ -221,12 +224,19 @@ export function WalkMap({
         .setLngLat([marker.lng, marker.lat])
         .addTo(map);
     });
-
-    const selected = markers.find((marker) => marker.current);
-    if (selected && !map.getBounds().contains([selected.lng, selected.lat])) {
-      map.panTo([selected.lng, selected.lat]);
-    }
   }, [markers, onMarkerClick]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (followSelection === lastFollowRef.current) return;
+    lastFollowRef.current = followSelection;
+    const selected = markersRef.current.find((marker) => marker.current);
+    if (!selected) return;
+    // Stepping along a block usually keeps the next door on screen already.
+    if (map.getBounds().contains([selected.lng, selected.lat])) return;
+    map.panTo([selected.lng, selected.lat]);
+  }, [followSelection]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -18,17 +18,26 @@ import { authorizeCanvassWrite } from "@/lib/canvass/access";
 
 const progressiveScoreSchema = z.number().int().min(0).max(5).nullable();
 
-const personResponseSchema = z.object({
-  voterId: z.string().min(1),
-  outcome: z.enum(PERSON_OUTCOMES),
-  support: z.number().int().min(1).max(5).nullable().optional(),
-  talkScore: progressiveScoreSchema.optional(),
-  clearTalkScore: z.boolean().optional(),
-  /** Carry an existing score into a replacement without refreshing field history. */
-  preserveTalkScore: z.boolean().optional(),
-  answers: z.record(z.unknown()).optional(),
-  notes: z.string().max(PERSON_NOTES_MAX).nullable().optional(),
-});
+const personResponseSchema = z
+  .object({
+    voterId: z.string().min(1).nullable().optional(),
+    offList: z.boolean().optional(),
+    outcome: z.enum(PERSON_OUTCOMES),
+    support: z.number().int().min(1).max(5).nullable().optional(),
+    talkScore: progressiveScoreSchema.optional(),
+    clearTalkScore: z.boolean().optional(),
+    /** Carry an existing score into a replacement without refreshing field history. */
+    preserveTalkScore: z.boolean().optional(),
+    answers: z.record(z.unknown()).optional(),
+    notes: z.string().max(PERSON_NOTES_MAX).nullable().optional(),
+  })
+  .refine(
+    (person) =>
+      person.offList === true
+        ? person.voterId == null
+        : typeof person.voterId === "string",
+    { message: "Person must be a listed voter or marked off-list" },
+  );
 
 export const syncAttemptSchema = z.object({
   clientAttemptId: z.string().uuid(),
@@ -258,12 +267,16 @@ async function syncOneAttempt(
   }
 
   const people = input.people ?? [];
-  if (people.length) {
+  const listedPeople = people.filter(
+    (person): person is typeof person & { voterId: string } =>
+      typeof person.voterId === "string",
+  );
+  if (listedPeople.length) {
     const allowed = await prisma.programListVoter.findMany({
       where: {
         programId: input.programId,
         listId: resolvedListId,
-        voterId: { in: people.map((p) => p.voterId) },
+        voterId: { in: listedPeople.map((p) => p.voterId) },
       },
       select: { voterId: true },
     });
@@ -272,7 +285,7 @@ async function syncOneAttempt(
       const live = await prisma.listVoter.findMany({
         where: {
           listId: resolvedListId,
-          voterId: { in: people.map((p) => p.voterId) },
+          voterId: { in: listedPeople.map((p) => p.voterId) },
         },
         select: { voterId: true },
       });
@@ -281,12 +294,12 @@ async function syncOneAttempt(
     const atDoor = await prisma.householdVoter.findMany({
       where: {
         householdId: input.householdId,
-        voterId: { in: people.map((p) => p.voterId) },
+        voterId: { in: listedPeople.map((p) => p.voterId) },
       },
       select: { voterId: true },
     });
     const atDoorIds = new Set(atDoor.map((row) => row.voterId));
-    for (const person of people) {
+    for (const person of listedPeople) {
       if (!allowedIds.has(person.voterId)) {
         return {
           clientAttemptId: input.clientAttemptId,
@@ -327,7 +340,8 @@ async function syncOneAttempt(
       observedScore,
       people: {
         create: people.map((p) => ({
-          voter: { connect: { id: p.voterId } },
+          voterId: p.voterId ?? null,
+          offList: p.offList ?? false,
           outcome: p.outcome,
           support: p.support ?? null,
           talkScore: isProgressiveScore(p.talkScore) ? p.talkScore : null,
@@ -350,7 +364,7 @@ async function syncOneAttempt(
       capturedAt,
       observedScore,
       clearObservedScore: input.clearObservedScore === true,
-      people: people.map((p) => ({
+      people: listedPeople.map((p) => ({
         voterId: p.voterId,
         outcome: p.outcome,
         talkScore:

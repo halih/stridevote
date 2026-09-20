@@ -4,6 +4,7 @@ import { imraanAdapter } from "./adapters/imraan";
 import { getMinivanAdapter, requireMinivanAdapter } from "./adapters/index";
 import {
   doorToPortableStatus,
+  minivanPushOutcome,
   minivanClientAttemptId,
   pullDoorToPersonOutcome,
   pullDispositionToDoor,
@@ -34,6 +35,21 @@ test("push door labels round-trip for imraan", () => {
   assert.equal(pushDoorToStatusLabel(imraanAdapter, "lit"), "Lit Dropped");
   assert.equal(doorToPortableStatus("lit"), "lit-dropped");
   assert.equal(doorToPortableStatus("no_answer"), "not-home");
+});
+
+test("MiniVAN maps only anonymous contacts to a lit drop", () => {
+  const offList = {
+    voterId: null,
+    offList: true,
+    outcome: "talked",
+  };
+  const listed = {
+    voterId: "voter-1",
+    offList: false,
+    outcome: "talked",
+  };
+  assert.equal(minivanPushOutcome("contact", [offList]), "lit");
+  assert.equal(minivanPushOutcome("contact", [offList, listed]), "contact");
 });
 
 test("adapter registry", () => {

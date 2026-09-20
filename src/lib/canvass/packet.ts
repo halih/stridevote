@@ -60,7 +60,8 @@ export interface FieldPacketDoor {
     observedScore: number | null;
     notes: string | null;
     people: Array<{
-      voterId: string;
+      voterId: string | null;
+      offList: boolean;
       outcome: PersonOutcome;
       support: number | null;
       talkScore: number | null;

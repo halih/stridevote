@@ -157,20 +157,29 @@ export async function pushCivibyteCanvass(input: {
         voterPk,
       ]),
     );
-    const talked = attempt.people.filter(
-      (person) => person.outcome === "talked" && voterPkById.has(person.voterId),
+    const hasOffListContact = attempt.people.some(
+      (person) => person.outcome === "talked" && person.offList,
     );
     const voters =
       attempt.outcome === "contact"
-        ? talked.map((person) => ({
-            voterPk: voterPkById.get(person.voterId)!,
-            answers: civibyteAnswersForPerson({
-              survey: session.survey,
-              programQuestions,
-              support: person.support,
-              answers: person.answers,
-            }),
-          }))
+        ? attempt.people.flatMap((person) => {
+            if (
+              person.outcome !== "talked" ||
+              person.voterId == null ||
+              !voterPkById.has(person.voterId)
+            ) {
+              return [];
+            }
+            return [{
+              voterPk: voterPkById.get(person.voterId)!,
+              answers: civibyteAnswersForPerson({
+                survey: session.survey,
+                programQuestions,
+                support: person.support,
+                answers: person.answers,
+              }),
+            }];
+          })
         : door.voterPks.map((voterPk) => ({ voterPk, answers: [] }));
 
     submissions.push({
@@ -182,7 +191,9 @@ export async function pushCivibyteCanvass(input: {
         addressPk: door.addressPk,
         doorResult,
         ...(attempt.notes ? { doorNotes: attempt.notes } : {}),
-        someoneElseContacted: attempt.outcome === "contact" && voters.length === 0,
+        someoneElseContacted:
+          attempt.outcome === "contact" &&
+          (hasOffListContact || voters.length === 0),
         voters,
       },
     });

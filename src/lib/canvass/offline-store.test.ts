@@ -60,6 +60,37 @@ describe("offline observed scores", () => {
     assert.equal(merged.doors[0].current?.observedScore, 5);
   });
 
+  it("keeps a full off-list response in the local packet", () => {
+    const attempt = {
+      clientAttemptId: "33333333-3333-4333-8333-333333333333",
+      programId: "program",
+      listId: "list",
+      householdId: "house",
+      campaignId: "campaign",
+      outcome: "contact",
+      capturedAt: "2026-09-15T22:00:00.000Z",
+      people: [{
+        voterId: null,
+        offList: true,
+        outcome: "talked",
+        support: 4,
+        talkScore: 5,
+        answers: { issue: "Transit" },
+      }],
+    } satisfies SyncAttemptInput;
+
+    const merged = mergeOutboxIntoPacket(packet(), [attempt]);
+    assert.deepEqual(merged.doors[0].current?.people[0], {
+      voterId: null,
+      offList: true,
+      outcome: "talked",
+      support: 4,
+      talkScore: 5,
+      answers: { issue: "Transit" },
+      notes: null,
+    });
+  });
+
   it("does not let an older standalone score overwrite a later outbox score", () => {
     const attempt = {
       clientAttemptId: "22222222-2222-4222-8222-222222222222",

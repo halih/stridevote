@@ -84,6 +84,8 @@ export function WalkView({
   const [filter, setFilter] = useState<WalkFilter>("all");
   const [view, setView] = useState<WalkViewMode>("map");
   const [index, setIndex] = useState(0);
+  // Bumped only when stepping doors, so hand-panning the map is never undone.
+  const [followSelection, setFollowSelection] = useState(0);
   const [sheetDoor, setSheetDoor] = useState<FieldPacketDoor | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -95,6 +97,8 @@ export function WalkView({
   } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const pendingDoorId = useRef<string | null>(null);
+  /** True when the pending door is an auto-advance step, which follows like next. */
+  const pendingFollow = useRef(false);
   const gpsOrderedVersion = useRef<string | null>(null);
   const walkStarted = useRef(false);
 
@@ -270,6 +274,10 @@ export function WalkView({
     if (idx < 0) return;
     setIndex(idx);
     pendingDoorId.current = null;
+    if (pendingFollow.current) {
+      pendingFollow.current = false;
+      setFollowSelection((n) => n + 1);
+    }
   }, [filteredDoors, packet]);
 
   async function forceSync() {
@@ -347,6 +355,7 @@ export function WalkView({
     pendingDoorId.current = autoAdvance
       ? nextDoor?.householdId ?? null
       : input.door.householdId;
+    pendingFollow.current = autoAdvance && nextDoor != null;
     // A completed door is absent from the Remaining filter. Keep it visible
     // when auto-advance is off instead of appearing to move anyway.
     if (!autoAdvance && filter === "remaining") setFilter("all");
@@ -506,6 +515,7 @@ export function WalkView({
       setIndex(idx);
     } else {
       pendingDoorId.current = door.householdId;
+      pendingFollow.current = false;
       setFilter("all");
     }
     if (openSheet) setSheetDoor(door);
@@ -519,12 +529,14 @@ export function WalkView({
     if (!currentDoor || index >= filteredDoors.length - 1) return;
     walkStarted.current = true;
     setIndex((i) => Math.min(filteredDoors.length - 1, i + 1));
+    setFollowSelection((n) => n + 1);
   }
 
   function goPrevious() {
     if (index <= 0) return;
     walkStarted.current = true;
     setIndex((i) => Math.max(0, i - 1));
+    setFollowSelection((n) => n + 1);
   }
 
   const closed = packet?.doors.filter((d) => doorStatus(d) === "done").length ?? 0;
@@ -799,6 +811,7 @@ export function WalkView({
               <div className="walk-map-frame">
                 <Map
                   mode="walk"
+                  followSelection={followSelection}
                   markers={mappedDoorMarkers}
                   home={location.home ? { ...location.home, inside: true } : undefined}
                   you={location.you ?? undefined}

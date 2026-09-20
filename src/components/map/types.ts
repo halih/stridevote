@@ -48,4 +48,9 @@ export interface MapProps {
   onMarkerClick?: (marker: MapMarker) => void;
   /** Walking maps preserve the user's camera and support touch rotation. */
   mode?: "overview" | "walk";
+  /**
+   * Bumped when the walker steps to another door (prev/next). The camera follows
+   * the selection only on those steps, so panning the map by hand sticks.
+   */
+  followSelection?: number;
 }

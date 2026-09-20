@@ -25,6 +25,7 @@ type ConversationGroup = {
   id: string;
   type: GroupType;
   voterIds: string[];
+  notOnList: boolean;
   support: number | null;
   talkScore: ProgressiveScore | null;
   talkScoreTouched: boolean;
@@ -37,6 +38,7 @@ function newGroup(type: GroupType, voterIds: string[] = []): ConversationGroup {
     id: crypto.randomUUID(),
     type,
     voterIds,
+    notOnList: false,
     support: null,
     talkScore: null,
     talkScoreTouched: false,
@@ -82,7 +84,8 @@ export function DoorSheet({
       .map((person) => ({
         id: crypto.randomUUID(),
         type: person.outcome as GroupType,
-        voterIds: [person.voterId],
+        voterIds: person.voterId ? [person.voterId] : [],
+        notOnList: person.offList,
         support: person.support,
         talkScore: isProgressiveScore(person.talkScore)
           ? person.talkScore
@@ -113,10 +116,12 @@ export function DoorSheet({
     if (!outcome) return false;
     if (isRefused) return true;
     if (!isContact) return true;
-    const talked = groups.filter((g) => g.type === "talked" && g.voterIds.length);
+    const talked = groups.filter(
+      (g) => g.type === "talked" && (g.voterIds.length || g.notOnList),
+    );
     const moved = groups.filter((g) => g.type === "moved" && g.voterIds.length);
     if (!talked.length && !moved.length) return false;
-    return talked.every((g) => g.voterIds.length > 0);
+    return true;
   }, [outcome, isRefused, isContact, groups]);
 
   function setGroup(id: string, patch: Partial<ConversationGroup>) {
@@ -147,7 +152,9 @@ export function DoorSheet({
 
   function buildPeople(): SyncAttemptInput["people"] {
     const priorByVoter = new Map(
-      (door.current?.people ?? []).map((person) => [person.voterId, person]),
+      (door.current?.people ?? [])
+        .filter((person) => person.voterId != null)
+        .map((person) => [person.voterId as string, person]),
     );
     if (isRefused) {
       return door.voters.map((v) => {
@@ -174,6 +181,7 @@ export function DoorSheet({
       string,
       NonNullable<SyncAttemptInput["people"]>[number]
     >();
+    const offListPeople: NonNullable<SyncAttemptInput["people"]> = [];
 
     for (const v of door.voters) {
       const prior = priorByVoter.get(v.voterId);
@@ -189,7 +197,22 @@ export function DoorSheet({
     }
 
     for (const g of groups) {
-      if (!g.voterIds.length) continue;
+      if (g.type === "talked" && g.notOnList) {
+        offListPeople.push({
+          voterId: null,
+          offList: true,
+          outcome: "talked",
+          support: g.support,
+          talkScore: g.talkScoreTouched ? g.talkScore : undefined,
+          clearTalkScore:
+            g.talkScoreTouched && g.talkScore == null ? true : undefined,
+          ...(g.talkScoreTouched
+            ? {}
+            : { talkScore: g.talkScore ?? undefined }),
+          answers: g.answers,
+          notes: g.notes,
+        });
+      }
       for (const voterId of g.voterIds) {
         if (g.type === "moved") {
           byVoter.set(voterId, {
@@ -220,7 +243,7 @@ export function DoorSheet({
       }
     }
 
-    return Array.from(byVoter.values());
+    return [...byVoter.values(), ...offListPeople];
   }
 
   const priorBits: string[] = [];
@@ -257,7 +280,17 @@ export function DoorSheet({
 
   return (
     <BottomSheet open onClose={onClose}>
-      <h2>{door.address}</h2>
+      <div className="door-sheet-heading">
+        <button
+          type="button"
+          className="icon-btn door-sheet-back"
+          aria-label="Close door details"
+          onClick={onClose}
+        >
+          ←
+        </button>
+        <h2>{door.address}</h2>
+      </div>
       <p className="sheet-sub">
         {door.voters.length} voter{door.voters.length === 1 ? "" : "s"}
         {door.current ? ` · Current: ${door.current.outcomeLabel}` : ""}
@@ -355,40 +388,60 @@ export function DoorSheet({
                     key={t}
                     type="button"
                     className={`btn btn-sm ${group.type === t ? "btn-primary" : "btn-outline"}`}
-                    onClick={() => setGroup(group.id, { type: t })}
+                    onClick={() =>
+                      setGroup(group.id, {
+                        type: t,
+                        notOnList: t === "talked" ? group.notOnList : false,
+                      })
+                    }
                   >
                     {t === "talked" ? "Talked" : "Moved"}
                   </button>
                 ))}
               </div>
 
-              {door.voters.length > 1 ? (
+              {group.type === "talked" || door.voters.length > 1 ? (
                 <div className="stack" style={{ gap: 6, marginTop: 10 }}>
                   <span className="field-label">Who</span>
-                  {door.voters.map((voter) => {
-                    const checked = group.voterIds.includes(voter.voterId);
-                    const elsewhere =
-                      !checked && assignedIds.has(voter.voterId);
-                    return (
-                      <label
-                        key={voter.voterId}
-                        className="row"
-                        style={{ gap: 8, opacity: elsewhere ? 0.45 : 1 }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={elsewhere}
-                          onChange={() => toggleVoter(group.id, voter.voterId)}
-                        />
-                        {voter.firstName} {voter.lastName}
-                      </label>
-                    );
-                  })}
+                  {door.voters.length > 1
+                    ? door.voters.map((voter) => {
+                        const checked = group.voterIds.includes(voter.voterId);
+                        const elsewhere =
+                          !checked && assignedIds.has(voter.voterId);
+                        return (
+                          <label
+                            key={voter.voterId}
+                            className="row"
+                            style={{ gap: 8, opacity: elsewhere ? 0.45 : 1 }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={elsewhere}
+                              onChange={() => toggleVoter(group.id, voter.voterId)}
+                            />
+                            {voter.firstName} {voter.lastName}
+                          </label>
+                        );
+                      })
+                    : null}
+                  {group.type === "talked" ? (
+                    <label className="row" style={{ gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={group.notOnList}
+                        onChange={(e) =>
+                          setGroup(group.id, { notOnList: e.target.checked })
+                        }
+                      />
+                      Not on the list
+                    </label>
+                  ) : null}
                 </div>
               ) : null}
 
-              {group.type === "talked" && group.voterIds.length ? (
+              {group.type === "talked" &&
+              (group.voterIds.length || group.notOnList) ? (
                 <>
                   <div className="eyebrow" style={{ marginTop: 10 }}>
                     Support (1–5)
@@ -468,26 +521,27 @@ export function DoorSheet({
         />
       </div>
 
-      <button
-        type="button"
-        className="btn btn-primary btn-block"
-        style={{ marginTop: 14 }}
-        disabled={!canSave}
-        onClick={() => {
-          if (!outcome) return;
-          onSave({
-            outcome,
-            notes: notes.trim() || null,
-            supersedesClientId: door.current?.clientAttemptId ?? null,
-            observedScore: observedTouched ? observedScore : undefined,
-            clearObservedScore:
-              observedTouched && observedScore == null ? true : undefined,
-            people: buildPeople(),
-          });
-        }}
-      >
-        {door.current ? "Replace result" : "Save result"}
-      </button>
+      <div className="door-sheet-save">
+        <button
+          type="button"
+          className="btn btn-primary btn-block"
+          disabled={!canSave}
+          onClick={() => {
+            if (!outcome) return;
+            onSave({
+              outcome,
+              notes: notes.trim() || null,
+              supersedesClientId: door.current?.clientAttemptId ?? null,
+              observedScore: observedTouched ? observedScore : undefined,
+              clearObservedScore:
+                observedTouched && observedScore == null ? true : undefined,
+              people: buildPeople(),
+            });
+          }}
+        >
+          {door.current ? "Update result" : "Save result"}
+        </button>
+      </div>
     </BottomSheet>
   );
 }

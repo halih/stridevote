@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireMinivanAdapter } from "@/lib/minivan/adapters";
 import {
   doorToPortableStatus,
+  minivanPushOutcome,
   pushDoorToStatusLabel,
 } from "@/lib/minivan/map-canvass";
 import { ensureActiveProgram } from "@/lib/canvass/programs";
@@ -107,10 +108,12 @@ export async function buildMinivanPushPayload(jobId: string): Promise<{
     let canvass: Record<string, unknown> | null = null;
 
     if (attempt && isDoorOutcome(attempt.outcome)) {
-      const statusLabel = pushDoorToStatusLabel(adapter, attempt.outcome);
+      const pushOutcome = minivanPushOutcome(attempt.outcome, attempt.people);
+      const statusLabel = pushDoorToStatusLabel(adapter, pushOutcome);
       if (statusLabel) {
         const person =
-          attempt.people.find((p) => p.voterId === lv.voterId) ?? attempt.people[0];
+          attempt.people.find((p) => p.voterId === lv.voterId) ??
+          attempt.people.find((p) => p.voterId != null);
         const survey_responses: Array<{
           question: string;
           question_short: string;
@@ -126,7 +129,7 @@ export async function buildMinivanPushPayload(jobId: string): Promise<{
           });
         }
         canvass = {
-          status: doorToPortableStatus(attempt.outcome),
+          status: doorToPortableStatus(pushOutcome),
           status_label: statusLabel,
           date: attempt.capturedAt.toISOString().replace("T", " ").slice(0, 19),
           source: "stridevote",

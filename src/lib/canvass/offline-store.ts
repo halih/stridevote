@@ -242,7 +242,8 @@ export function mergeOutboxIntoPacket(
               : door.current?.observedScore ?? null,
           notes: local.notes ?? null,
           people: (local.people ?? door.current?.people ?? []).map((person) => ({
-            voterId: person.voterId,
+            voterId: person.voterId ?? null,
+            offList: person.offList ?? false,
             outcome: person.outcome,
             support: person.support ?? null,
             talkScore: person.talkScore ?? null,

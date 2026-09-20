@@ -46,6 +46,25 @@ export function doorToPortableStatus(outcome: DoorOutcome): string {
   }
 }
 
+/** MiniVAN cannot attach a response to an unidentified person. */
+export function minivanPushOutcome(
+  outcome: DoorOutcome,
+  people: ReadonlyArray<{
+    voterId: string | null;
+    offList: boolean;
+    outcome: string;
+  }>,
+): DoorOutcome {
+  if (outcome !== "contact") return outcome;
+  const hasListedContact = people.some(
+    (person) => person.outcome === "talked" && person.voterId != null,
+  );
+  const hasOffListContact = people.some(
+    (person) => person.outcome === "talked" && person.offList,
+  );
+  return hasOffListContact && !hasListedContact ? "lit" : outcome;
+}
+
 export function pushDoorToStatusLabel(
   adapter: MinivanAdapter,
   outcome: DoorOutcome,

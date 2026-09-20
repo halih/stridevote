@@ -270,6 +270,18 @@ a { color: inherit; }
 .sheet-handle { width: 36px; height: 4px; border-radius: 99px; background: var(--line); margin: 6px auto 14px; }
 .sheet h2 { font-size: 17px; margin: 0 0 4px; font-weight: 700; }
 .sheet .sheet-sub { font-size: 13px; color: var(--ink-soft); margin: 0 0 16px; }
+.door-sheet-heading { display: flex; align-items: center; gap: 10px; }
+.door-sheet-heading h2 { margin-bottom: 0; }
+.door-sheet-back { flex: none; font-size: 20px; line-height: 1; }
+.door-sheet-save {
+  position: sticky;
+  bottom: calc(-22px - env(safe-area-inset-bottom, 0px));
+  z-index: 2;
+  margin: 14px -18px calc(-22px - env(safe-area-inset-bottom, 0px));
+  padding: 10px 18px calc(22px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
 
 .list-complete {
   position: relative;

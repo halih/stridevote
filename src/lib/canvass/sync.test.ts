@@ -80,6 +80,36 @@ describe("parseSyncBatch", () => {
     assert.equal(parsed.attempts[0].notes?.length, DOOR_NOTES_MAX);
   });
 
+  it("keeps a full off-list person response", () => {
+    const parsed = parseSyncBatch({
+      attempts: [
+        attempt({
+          people: [
+            {
+              voterId: null,
+              offList: true,
+              outcome: "talked",
+              support: 4,
+              talkScore: 5,
+              answers: { issue: "Transit" },
+            },
+          ],
+        }),
+      ],
+    });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    assert.deepEqual(parsed.attempts[0].people?.[0], {
+      voterId: null,
+      offList: true,
+      outcome: "talked",
+      support: 4,
+      talkScore: 5,
+      answers: { issue: "Transit" },
+      notes: undefined,
+    });
+  });
+
   it("acks an invalid knock without dropping the rest of the batch", () => {
     const bad = {
       ...attempt({ clientAttemptId: "44444444-4444-4444-8444-444444444444" }),

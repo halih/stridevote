@@ -21,7 +21,8 @@ export async function getCurrentAttemptsForList(
       observedScore: number | null;
       notes: string | null;
       people: Array<{
-        voterId: string;
+        voterId: string | null;
+        offList: boolean;
         outcome: PersonOutcome;
         support: number | null;
         talkScore: number | null;
@@ -46,6 +47,7 @@ export async function getCurrentAttemptsForList(
       people: {
         select: {
           voterId: true,
+          offList: true,
           outcome: true,
           support: true,
           talkScore: true,
@@ -73,7 +75,8 @@ export async function getCurrentAttemptsForList(
       observedScore: number | null;
       notes: string | null;
       people: Array<{
-        voterId: string;
+        voterId: string | null;
+        offList: boolean;
         outcome: PersonOutcome;
         support: number | null;
         talkScore: number | null;

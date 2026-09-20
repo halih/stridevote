@@ -369,7 +369,8 @@ model CanvassAttempt {
 model CanvassPersonResponse {
   id        String  @id @default(cuid())
   attemptId String
-  voterId   String
+  voterId   String?
+  offList   Boolean @default(false)
   outcome   String // talked | refused | moved | not_home
   support   Int? // 1–5 race support
   // Progressive talk score (0–5); null = unknown / not collected.
@@ -378,7 +379,7 @@ model CanvassPersonResponse {
   notes     String?
 
   attempt CanvassAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
-  voter   Voter          @relation(fields: [voterId], references: [id], onDelete: Cascade)
+  voter   Voter?         @relation(fields: [voterId], references: [id], onDelete: Cascade)
 
   @@unique([attemptId, voterId])
   @@index([voterId])
