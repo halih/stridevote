@@ -75,6 +75,18 @@ function pinElement(kind: "home" | "you", outside = false): HTMLElement {
   return element;
 }
 
+/**
+ * The walk map is torn down whenever the screen swaps to the list or reloads the
+ * packet. Remembering the camera per walk keeps the volunteer's own framing
+ * instead of jumping back to the selected door on every remount.
+ */
+let savedCamera: {
+  key: string;
+  center: [number, number];
+  zoom: number;
+  bearing: number;
+} | null = null;
+
 function nearestMarker(
   map: MapLibreMap,
   point: { x: number; y: number },
@@ -98,6 +110,7 @@ export function WalkMap({
   you,
   onMarkerClick,
   followSelection,
+  cameraKey,
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -106,8 +119,13 @@ export function WalkMap({
   const youMarkerRef = useRef<MapLibreMarker | null>(null);
   const markersRef = useRef(markers);
   const onMarkerClickRef = useRef(onMarkerClick);
+  const cameraKeyRef = useRef(cameraKey);
   // The opening camera already frames the selection, so only later steps pan.
   const lastFollowRef = useRef(followSelection);
+
+  useEffect(() => {
+    cameraKeyRef.current = cameraKey;
+  }, [cameraKey]);
 
   useEffect(() => {
     markersRef.current = markers;
@@ -121,11 +139,15 @@ export function WalkMap({
     if (!containerRef.current) return;
     const selected = markersRef.current.find((marker) => marker.current);
     const first = selected ?? markersRef.current[0];
-    const initial = first
-      ? ([first.lng, first.lat] as [number, number])
-      : you
-        ? ([you.lng, you.lat] as [number, number])
-        : ([-122.34, 47.72] as [number, number]);
+    const resumed =
+      cameraKey && savedCamera?.key === cameraKey ? savedCamera : null;
+    const initial =
+      resumed?.center ??
+      (first
+        ? ([first.lng, first.lat] as [number, number])
+        : you
+          ? ([you.lng, you.lat] as [number, number])
+          : ([-122.34, 47.72] as [number, number]));
     const map = new MapLibreMap({
       container: containerRef.current,
       style: {
@@ -142,7 +164,8 @@ export function WalkMap({
         layers: [{ id: "osm", type: "raster", source: "osm" }],
       },
       center: initial,
-      zoom: first ? 18 : 15,
+      zoom: resumed?.zoom ?? (first ? 18 : 15),
+      bearing: resumed?.bearing ?? 0,
       dragRotate: true,
       touchZoomRotate: true,
       pitchWithRotate: false,
@@ -185,6 +208,19 @@ export function WalkMap({
       const picked = nearestMarker(map, event.point, markersRef.current);
       if (picked) onMarkerClickRef.current?.(picked);
     });
+    const rememberCamera = () => {
+      if (!cameraKeyRef.current) return;
+      const center = map.getCenter();
+      savedCamera = {
+        key: cameraKeyRef.current,
+        center: [center.lng, center.lat],
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+      };
+    };
+    map.on("moveend", rememberCamera);
+    map.on("zoomend", rememberCamera);
+    map.on("rotateend", rememberCamera);
     const observer = new ResizeObserver(() => map.resize());
     observer.observe(containerRef.current);
     mapRef.current = map;

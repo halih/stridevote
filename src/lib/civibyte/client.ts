@@ -38,6 +38,7 @@ const surveyQuestionSchema = z
     internalLabel: z.string().nullish(),
     responseType: z.string(),
     displayOrder: z.number(),
+    required: z.boolean().optional(),
     options: z.array(surveyOptionSchema).default([]),
   })
   .passthrough();
@@ -183,6 +184,23 @@ function normalizePhone(phoneNumber: string): string {
   return normalized;
 }
 
+/** Civibyte error bodies carry the actionable reason; a bare status is not debuggable. */
+async function failureDetail(response: Response): Promise<string> {
+  const body = await response.text().catch(() => "");
+  if (!body) return "";
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as Record<string, unknown>;
+      const message = record.message ?? record.error;
+      if (typeof message === "string" && message.trim()) return message.trim();
+    }
+  } catch {
+    // Not JSON; fall through to the raw text.
+  }
+  return body.trim().slice(0, 300);
+}
+
 async function requestJson(
   fetchImpl: typeof fetch,
   path: string,
@@ -193,7 +211,10 @@ async function requestJson(
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`Civibyte request failed (${response.status}).`);
+    const detail = await failureDetail(response);
+    throw new Error(
+      `Civibyte request failed (${response.status})${detail ? `: ${detail}` : ""}.`,
+    );
   }
   return response.json();
 }

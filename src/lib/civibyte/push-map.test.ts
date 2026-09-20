@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { civibyteAnswersForPerson } from "./push-map";
+import {
+  civibyteAnswersForPerson,
+  civibyteRequiredAnswersMissing,
+} from "./push-map";
 
 const survey = {
   id: 14,
@@ -57,6 +60,28 @@ test("maps support score by option order and program answers by label", () => {
       },
     ],
   );
+});
+
+test("detects contacted voters missing a required survey answer", () => {
+  const required = {
+    ...survey,
+    questions: [{ ...survey.questions[0], required: true }, survey.questions[1]],
+  };
+  const answered = [
+    { questionId: 13, answerOptionIds: [74], textValue: null, numericValue: null },
+  ];
+
+  assert.equal(
+    civibyteRequiredAnswersMissing(required, [{ answers: answered }]),
+    false,
+  );
+  assert.equal(
+    civibyteRequiredAnswersMissing(required, [{ answers: answered }, { answers: [] }]),
+    true,
+  );
+  assert.equal(civibyteRequiredAnswersMissing(survey, [{ answers: [] }]), false);
+  assert.equal(civibyteRequiredAnswersMissing(null, [{ answers: [] }]), false);
+  assert.equal(civibyteRequiredAnswersMissing(required, []), false);
 });
 
 test("omits answers that cannot be matched safely", () => {

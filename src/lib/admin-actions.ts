@@ -1469,9 +1469,12 @@ export async function pushCivibyteList(listId: string): Promise<AdminResult> {
     const rejected = result.rejected
       ? `; ${result.rejected} rejected by CiviByte`
       : "";
+    const blocked = result.blocked
+      ? `; ${result.blocked} held back for a missing required survey answer`
+      : "";
     return {
       ok: result.rejected === 0,
-      message: `Pushed ${result.applied} CiviByte result${result.applied === 1 ? "" : "s"}${rejected}; ${result.skipped} unchanged, remote-newer, or unsupported.`,
+      message: `Pushed ${result.applied} CiviByte result${result.applied === 1 ? "" : "s"}${rejected}${blocked}; ${result.skipped} unchanged, remote-newer, or unsupported.`,
     };
   } catch (error) {
     return fail(error instanceof Error ? error.message : "CiviByte push failed.");

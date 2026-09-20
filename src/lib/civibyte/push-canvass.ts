@@ -15,7 +15,10 @@ import {
   matchCivibyteSessionDoor,
   type CivibyteListMeta,
 } from "@/lib/civibyte/map";
-import { civibyteAnswersForPerson } from "@/lib/civibyte/push-map";
+import {
+  civibyteAnswersForPerson,
+  civibyteRequiredAnswersMissing,
+} from "@/lib/civibyte/push-map";
 
 const BATCH_SIZE = 100;
 const UUID_PATTERN =
@@ -35,7 +38,13 @@ function readCivibyteMeta(data: unknown): CivibyteListMeta | null {
 export async function pushCivibyteCanvass(input: {
   listId: string;
   campaignId: string;
-}): Promise<{ applied: number; rejected: number; skipped: number; total: number }> {
+}): Promise<{
+  applied: number;
+  rejected: number;
+  skipped: number;
+  blocked: number;
+  total: number;
+}> {
   const list = await prisma.list.findFirst({
     where: { id: input.listId, source: "civibyte", deletedAt: null },
     include: {
@@ -109,6 +118,7 @@ export async function pushCivibyteCanvass(input: {
 
   const submissions: Array<{ doorId: string; log: CivibyteCanvassLog }> = [];
   let skipped = 0;
+  let blocked = 0;
   for (const [doorId, doorLink] of Object.entries(previousMeta.doors)) {
     // Full door map is copied onto split peers; only push this list's doors.
     if (!listHouseholdIds.has(doorLink.householdId)) {
@@ -181,6 +191,13 @@ export async function pushCivibyteCanvass(input: {
             }];
           })
         : door.voterPks.map((voterPk) => ({ voterPk, answers: [] }));
+    if (
+      attempt.outcome === "contact" &&
+      civibyteRequiredAnswersMissing(session.survey, voters)
+    ) {
+      blocked += 1;
+      continue;
+    }
 
     submissions.push({
       doorId,
@@ -225,6 +242,7 @@ export async function pushCivibyteCanvass(input: {
     lastPushApplied: applied,
     lastPushRejected: rejected,
     lastPushSkipped: skipped,
+    lastPushBlocked: blocked,
     pushedAttempts,
   };
   const data = list.data as Record<string, unknown>;
@@ -238,5 +256,5 @@ export async function pushCivibyteCanvass(input: {
   revalidatePath("/canvass");
   revalidatePath("/stats");
   revalidatePath(`/admin/${link.campaign.slug}`);
-  return { applied, rejected, skipped, total: submissions.length };
+  return { applied, rejected, skipped, blocked, total: submissions.length };
 }

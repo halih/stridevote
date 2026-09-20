@@ -23,6 +23,7 @@ export interface CivibyteListMeta {
   lastPushApplied?: number;
   lastPushRejected?: number;
   lastPushSkipped?: number;
+  lastPushBlocked?: number;
   pushedAttempts?: Record<string, string>;
 }
 

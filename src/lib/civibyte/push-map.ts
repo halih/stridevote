@@ -80,6 +80,24 @@ function mapAnswer(
   };
 }
 
+/**
+ * Civibyte rejects a whole batch when a contacted voter is missing an answer to
+ * a required survey question, so doors like that must be held back locally.
+ */
+export function civibyteRequiredAnswersMissing(
+  survey: CivibyteSurvey | null | undefined,
+  voters: Array<{ answers: CivibyteCanvassAnswer[] }>,
+): boolean {
+  const required = (survey?.questions ?? []).filter(
+    (question) => question.required === true,
+  );
+  if (!required.length) return false;
+  return voters.some((voter) => {
+    const answered = new Set(voter.answers.map((answer) => answer.questionId));
+    return required.some((question) => !answered.has(question.questionId));
+  });
+}
+
 export function civibyteAnswersForPerson(input: {
   survey: CivibyteSurvey | null | undefined;
   programQuestions: ProgramQuestion[];

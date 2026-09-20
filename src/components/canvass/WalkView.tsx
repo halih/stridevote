@@ -767,10 +767,10 @@ export function WalkView({
         </div>
       ) : null}
 
-      {loading ? <div className="empty-state">Loading doors…</div> : null}
+      {loading && !packet ? <div className="empty-state">Loading doors…</div> : null}
       {error ? <div className="empty-state">{error}</div> : null}
 
-      {packet && !loading ? (
+      {packet ? (
         <>
           {/* View icons lead on the left so they clear the menu button above. */}
           <div className="walk-toolbar">
@@ -812,6 +812,7 @@ export function WalkView({
                 <Map
                   mode="walk"
                   followSelection={followSelection}
+                  cameraKey={`${programId}:${listId}`}
                   markers={mappedDoorMarkers}
                   home={location.home ? { ...location.home, inside: true } : undefined}
                   you={location.you ?? undefined}

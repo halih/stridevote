@@ -53,4 +53,10 @@ export interface MapProps {
    * the selection only on those steps, so panning the map by hand sticks.
    */
   followSelection?: number;
+  /**
+   * Identifies the walk this camera belongs to. The map restores the camera the
+   * volunteer left behind when it remounts (view toggle, refresh) under the same
+   * key, instead of snapping back to the selected door.
+   */
+  cameraKey?: string;
 }
