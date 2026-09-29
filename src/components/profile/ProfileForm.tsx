@@ -13,6 +13,8 @@ export interface ProfileInitial {
   firstName: string;
   lastName: string;
   phone: string;
+  /** False when this phone is the account's only way to sign in. */
+  phoneOptional: boolean;
   area: string | null;
   homeLat: number | null;
   homeLng: number | null;
@@ -153,7 +155,9 @@ export function ProfileForm({ initial }: { initial: ProfileInitial }) {
           onChange={(e) => setPhone(e.target.value)}
         />
         <p className="field-hint" style={{ marginTop: 6 }}>
-          Optional. Must be unique — another account cannot already use this number.
+          {initial.phoneOptional
+            ? "Optional. Must be unique — another account cannot already use this number."
+            : "This number is how you sign in, so it has to stay on the account. It must be unique."}
         </p>
       </div>
 

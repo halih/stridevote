@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   civibyteAnswersForPerson,
+  civibyteDoorNotes,
+  civibyteNotOnListNote,
   civibyteRequiredAnswersMissing,
 } from "./push-map";
 
@@ -82,6 +84,53 @@ test("detects contacted voters missing a required survey answer", () => {
   assert.equal(civibyteRequiredAnswersMissing(survey, [{ answers: [] }]), false);
   assert.equal(civibyteRequiredAnswersMissing(null, [{ answers: [] }]), false);
   assert.equal(civibyteRequiredAnswersMissing(required, []), false);
+});
+
+test("names the person Civibyte does not have when a contact needs a note", () => {
+  assert.equal(
+    civibyteNotOnListNote(["Ada Lovelace"]),
+    "Talked to another person Ada Lovelace not on the list.",
+  );
+  assert.equal(
+    civibyteNotOnListNote(["Ada Lovelace", "Ada Lovelace", "  "]),
+    "Talked to another person Ada Lovelace not on the list.",
+  );
+  assert.equal(
+    civibyteNotOnListNote(["Ada Lovelace", "Grace Hopper"]),
+    "Talked to other people Ada Lovelace and Grace Hopper not on the list.",
+  );
+  assert.equal(
+    civibyteDoorNotes({
+      existing: "Left a card.",
+      someoneElseContacted: true,
+      notOnListNames: ["Ada Lovelace"],
+    }),
+    "Left a card.\nTalked to another person Ada Lovelace not on the list.",
+  );
+  assert.equal(
+    civibyteDoorNotes({
+      existing: null,
+      someoneElseContacted: true,
+      notOnListNames: [],
+    }),
+    "Talked to another person not on the list.",
+  );
+  assert.equal(
+    civibyteDoorNotes({
+      existing: "Volunteer note.",
+      someoneElseContacted: true,
+      notOnListNames: [],
+    }),
+    "Volunteer note.",
+  );
+  assert.equal(
+    civibyteDoorNotes({
+      existing: "Volunteer note.",
+      someoneElseContacted: false,
+      notOnListNames: ["Ada Lovelace"],
+    }),
+    "Volunteer note.",
+  );
 });
 
 test("omits answers that cannot be matched safely", () => {

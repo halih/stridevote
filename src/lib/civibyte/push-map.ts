@@ -80,6 +80,48 @@ function mapAnswer(
   };
 }
 
+function uniqueNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const name of names) {
+    const cleaned = name.trim();
+    const key = cleaned.toLowerCase();
+    if (!cleaned || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(cleaned);
+  }
+  return unique;
+}
+
+/** Civibyte requires a note whenever a contact is marked not on its list. */
+export function civibyteNotOnListNote(names: string[]): string {
+  const unique = uniqueNames(names);
+  if (unique.length === 0) return "Talked to another person not on the list.";
+  if (unique.length === 1) {
+    return `Talked to another person ${unique[0]} not on the list.`;
+  }
+  const listed =
+    unique.length === 2
+      ? `${unique[0]} and ${unique[1]}`
+      : `${unique.slice(0, -1).join(", ")}, and ${unique.at(-1)}`;
+  return `Talked to other people ${listed} not on the list.`;
+}
+
+export function civibyteDoorNotes(input: {
+  existing: string | null | undefined;
+  someoneElseContacted: boolean;
+  notOnListNames: string[];
+}): string | undefined {
+  const existing = input.existing?.trim() ?? "";
+  if (!input.someoneElseContacted) return existing || undefined;
+  const named = uniqueNames(input.notOnListNames);
+  if (!named.length) return existing || civibyteNotOnListNote([]);
+  const generated = civibyteNotOnListNote(named);
+  if (!existing) return generated;
+  if (existing.includes(generated)) return existing;
+  return `${existing}\n${generated}`;
+}
+
 /**
  * Civibyte rejects a whole batch when a contacted voter is missing an answer to
  * a required survey question, so doors like that must be held back locally.

@@ -17,6 +17,7 @@ import {
 } from "@/lib/civibyte/map";
 import {
   civibyteAnswersForPerson,
+  civibyteDoorNotes,
   civibyteRequiredAnswersMissing,
 } from "@/lib/civibyte/push-map";
 
@@ -101,7 +102,11 @@ export async function pushCivibyteCanvass(input: {
   const attempts = await prisma.canvassAttempt.findMany({
     where: { listId: list.id, programId: link.programId },
     orderBy: { capturedAt: "desc" },
-    include: { people: true },
+    include: {
+      people: {
+        include: { voter: { select: { firstName: true, lastName: true } } },
+      },
+    },
   });
   const superseded = new Set(
     attempts
@@ -199,6 +204,31 @@ export async function pushCivibyteCanvass(input: {
       continue;
     }
 
+    const someoneElseContacted =
+      attempt.outcome === "contact" &&
+      (hasOffListContact || voters.length === 0);
+    const notOnListNames = someoneElseContacted
+      ? attempt.people.flatMap((person) => {
+          if (
+            person.outcome !== "talked" ||
+            (person.voterId != null &&
+              voterPkById.has(person.voterId) &&
+              !person.offList)
+          ) {
+            return [];
+          }
+          const name = [person.voter?.firstName, person.voter?.lastName]
+            .filter((part) => part?.trim())
+            .join(" ");
+          return name ? [name] : [];
+        })
+      : [];
+    const doorNotes = civibyteDoorNotes({
+      existing: attempt.notes,
+      someoneElseContacted,
+      notOnListNames,
+    });
+
     submissions.push({
       doorId,
       log: {
@@ -207,10 +237,8 @@ export async function pushCivibyteCanvass(input: {
         sessionDoorId: door.id,
         addressPk: door.addressPk,
         doorResult,
-        ...(attempt.notes ? { doorNotes: attempt.notes } : {}),
-        someoneElseContacted:
-          attempt.outcome === "contact" &&
-          (hasOffListContact || voters.length === 0),
+        ...(doorNotes ? { doorNotes } : {}),
+        someoneElseContacted,
         voters,
       },
     });

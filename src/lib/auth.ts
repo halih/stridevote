@@ -144,7 +144,7 @@ export const authConfig: NextAuthConfig = {
         session.user.id = uid;
         const u = await prisma.user.findUnique({ where: { id: uid } });
         if (u) {
-          session.user.name = u.name ?? session.user.name;
+          session.user.name = u.name;
           session.user.email = u.email ?? session.user.email;
           session.user.phone = u.phone;
           session.user.initials = u.initials;

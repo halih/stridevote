@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma";
 import { getSessionUser } from "@/lib/session";
 import { normalizePhone } from "@/lib/phone";
+import { displayIdentity, removingLastLoginIdentifier } from "@/lib/profile-identity";
 import { geocodeAddress, reverseGeocode } from "@/lib/geocode";
 
 export interface ProfileResult {
@@ -81,13 +82,6 @@ const updateSchema = z.object({
     .optional(),
 });
 
-function initialsFrom(first: string, last: string, fallback: string): string {
-  const a = first.trim()[0] ?? "";
-  const b = last.trim()[0] ?? "";
-  const combined = (a + b).toUpperCase();
-  return combined || fallback;
-}
-
 export async function updateProfile(input: unknown): Promise<ProfileResult> {
   const user = await getSessionUser();
   if (!user) return { ok: false, message: "Please sign in." };
@@ -98,7 +92,7 @@ export async function updateProfile(input: unknown): Promise<ProfileResult> {
 
   const firstName = (d.firstName ?? "").trim();
   const lastName = (d.lastName ?? "").trim();
-  const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+  const identity = displayIdentity(firstName, lastName);
 
   let phone: string | null = user.phone;
   if (d.phone !== undefined) {
@@ -121,15 +115,26 @@ export async function updateProfile(input: unknown): Promise<ProfileResult> {
     }
   }
 
+  if (
+    removingLastLoginIdentifier({
+      email: user.email,
+      currentPhone: user.phone,
+      nextPhone: phone,
+    })
+  ) {
+    return {
+      ok: false,
+      message: "This phone number is how you sign in, so it can't be removed.",
+    };
+  }
+
   const data: Record<string, unknown> = {
     firstName: firstName || null,
     lastName: lastName || null,
+    name: identity.name,
+    initials: identity.initials,
     phone,
   };
-  if (fullName) {
-    data.name = fullName;
-    data.initials = initialsFrom(firstName, lastName, user.initials ?? "SV");
-  }
 
   if (d.location) {
     const loc = d.location;

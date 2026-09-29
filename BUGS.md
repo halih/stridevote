@@ -32,7 +32,11 @@ Jargon used below:
 
 - [ ] **SMS / WhatsApp adapters always log the plaintext code; email can log magic links**
 
-  Stub SMS/WhatsApp `send()` prints the code. In non-production, email without a configured provider also logs the full magic link. Never log credentials outside an explicitly local stub, and prevent tunnel/shared development deployments from exposing them.
+  Stub SMS/WhatsApp `send()` prints the code. In non-production, email falls back to the plaintext-logging dev stub not only when no provider is configured, but whenever `deliverEmail` throws for *any* reason — a Resend API error, an SMTP failure, a bad recipient, a provider outage (`src/lib/otp/adapters/email.ts` catches and retries with `forceDevStub: true` whenever `env.isDev`). A shared staging/tunnel deployment that has a real provider configured still leaks a live magic link into the public dev inbox (see the item above) the moment delivery to a given address fails once. Never log credentials outside an explicitly local stub, and prevent tunnel/shared development deployments from exposing them.
+
+- [ ] **OTP codes hash with a guessable default salt outside production**
+
+  `hashCode()` (`src/lib/otp/index.ts`) falls back to the hardcoded literal `"dev"` as salt whenever `AUTH_SECRET` is unset, and `AUTH_SECRET` is only required when `NODE_ENV === "production"`. Any non-prod deployment that forgets to set it stores every `OtpChallenge.codeHash` salted with a public constant. Low-impact today since codes are already logged in plaintext (above), but it would silently undermine the DB-side hash if that logging bug is fixed without also requiring a real secret outside production.
 
 - [ ] **One campaign’s admin can rename, archive, unlink, or push a shared list**
 
@@ -52,19 +56,11 @@ Jargon used below:
 
 - [ ] **Removed volunteers can retain or regain packet access**
 
-  Packet download checks an active checkout plus list visibility/assignment, but not current campaign membership or `canvass:checkout`. The walk route can recreate a checkout from a stale assignment, and removing membership does not release existing checkouts or assignments. A removed volunteer can revisit a saved walk URL and download voter PII and history.
-
-- [ ] **A phone-only user can erase their only login identifier**
-
-  OTP can create an account with only `phone`, while profile save allows that phone to be cleared. After sign-out, the account has neither an email nor phone credential and cannot be reached again. Refuse to remove the last login identifier.
+  Packet download checks an active checkout plus list visibility/assignment, but not current campaign membership or `canvass:checkout`. The walk route can recreate a checkout from a stale assignment, and removing membership does not release existing checkouts or assignments. A removed volunteer can revisit a saved walk URL and download voter PII and history. The same "auto-claim checkout from an `assigned` list link" logic is independently duplicated in `getCanvassBoard` (`src/lib/data.ts`), re-checking only cached `activeMemberships` rather than `canvass:checkout` at claim time — a fix needs to cover both call sites or they will drift apart again.
 
 - [ ] **Email magic-link send has no throttle**
 
   Email sign-in immediately sends through Auth.js/Resend/SMTP with no destination or IP cooldown. Repeated submissions can harass a recipient and consume provider quota, just like the separately tracked OTP send abuse.
-
-- [ ] **Clearing both profile names leaves the old display identity**
-
-  `firstName` and `lastName` become null, but `name` and `initials` update only when the new full name is non-empty. Account menus, checkout attribution, and reports continue showing the stale name.
 
 - [ ] **MiniVAN import can match against the entire voter table**
 
@@ -73,6 +69,18 @@ Jargon used below:
 ---
 
 ## Data / sync integrity
+
+- [ ] **Off-list checkbox at a single-voter door creates a duplicate phantom person**
+
+  A single-voter household auto-selects that voter (`DoorSheet.tsx`), and the "Who" checkbox list that would let you deselect them only renders when a door has more than one voter — but "Not on the list" is still offered. Checking it while the auto-selected voter stays checked makes `buildPeople` emit **both** the listed voter and a synthetic off-list person from the same group, with identical support/talk-score/survey answers. One conversation with someone who isn't Jane gets recorded as two contacted people and overwrites Jane's field-layer talk score/support with data that was never about her. Clear the listed voter automatically when "Not on the list" is checked at a single-voter door, or block the combination.
+
+- [ ] **"Current" knock selection has no tiebreaker for equal `capturedAt`**
+
+  `capturedAt` is client-supplied with no bound (see above), and every "current result" query orders by `capturedAt desc` alone (`progress.ts`, three call sites) with no secondary key. A double-tap save, two volunteers finishing the same door at the same client-reported instant, or a skewed device clock produces two attempts with identical `capturedAt`; which one "wins" as current depends on undefined database row order and can flip between page loads. Add a stable secondary sort (`id` or server receive order).
+
+- [ ] **Split can delete the local packet before confirming its replacement downloaded**
+
+  `CanvassView.tsx`'s split-confirm flow calls `deletePacket` then `downloadPacket` in one `try`, swallowing failure with only a comment that refresh is "best-effort." If the device goes offline right after a split completes (plausible — the split itself required connectivity), the volunteer's offline copy is gone with no replacement until they're back online and reopen the list. Don't delete the old packet until the new one has downloaded successfully.
 
 - [ ] **Older offline knocks overwrite newer field-layer scores**
 
@@ -162,6 +170,22 @@ Jargon used below:
 
   Both flows call `ensureActiveProgram` instead of using the list’s published `ListCampaign.programId`. After the active wave changes, pull can create attempts in a wave where the list was never published and push can export results from the wrong wave.
 
+- [ ] **MiniVAN’s first-initial fallback match can bind enrichment to the wrong voter**
+
+  `matchMinivanPeople` (`src/lib/minivan/match.ts`) falls back from a full first-name match to a first-initial match whenever exactly one candidate at the same (lastName, streetNo, zip) shares the initial, and treats that as confirmed (`matched_initial`). Import then writes MiniVAN phone/email/`likelyParty` (and can seed talk score) onto that record. "J. Smith" from MiniVAN can bind to "Jane Smith" when the real contact was "John Smith," permanently corrupting a different voter's master data with no reconciliation path.
+
+- [ ] **Civibyte pull and push can act on an arbitrary campaign link when a list is shared**
+
+  `pullCivibyteList` and `pushCivibyteList` (`src/lib/admin-actions.ts`) both pick `campaignLinks.find(active && enabled) ?? campaignLinks.find(enabled)` — independent of which campaign the admin is actually working in. If a Civibyte list is linked to two or more campaigns and none has the currently active wave, the choice is whatever order Prisma returns. An admin can get a spurious "Not allowed" on their own campaign's list, or push results into / pull results tagged to a campaign other than the one they intended. Same defect class as the MiniVAN wrong-wave item above, but a distinct mechanism (campaign, not program) and code path.
+
+- [ ] **MiniVAN job complete/fail endpoints don’t validate the job’s current status**
+
+  `completeMinivanJob` and `failMinivanJob` (`src/lib/minivan/jobs.ts`) do an unconditional `update` by id with no precondition on the job's current `status`/`type`, unlike the apply-import/apply-pull handlers which do check `status !== "running"`. A retried worker POST, a duplicate call, or anyone holding the single shared worker token can mark a never-claimed `pending` job "completed" with fabricated results, or flip an already-finished job back and forth — corrupting job history and making the admin UI report success for work that never ran.
+
+- [ ] **Civibyte "candidate support" question is identified by a fragile heuristic**
+
+  `push-map.ts` treats a Civibyte survey question as the candidate-support question whenever its text/internal label contains the substring "support" and it has exactly 5 options. Any unrelated question matching both (e.g. "Financial support level") silently receives the volunteer's 1–5 support rating instead of its own answer, corrupting that field with no error.
+
 - [ ] **MiniVAN lit drops create several current knocks for one door**
 
   Pull expands one household lit result to every VanID, then creates one unsuperseded `CanvassAttempt` per voter at the same household and timestamp. Current-result selection, reports, and push can choose an arbitrary row.
@@ -190,6 +214,10 @@ Jargon used below:
 
   Door matching deliberately falls back from mutable session-door ID to stable `addressPk`, but the attempt ID still includes the mutable door ID. If Civibyte rebuilds/reissues door rows, the same remote knock can be imported again under a new key.
 
+- [ ] **Civibyte push silently drops off-list contacts’ survey answers**
+
+  `push-canvass.ts`'s door mapping explicitly skips any person with `voterId == null` — i.e. every off-list respondent — when building the exported `voters` array, and required-answer validation only checks that array. The only surviving trace of an off-list conversation is a `someoneElseContacted` boolean; their actual support rating and survey answers are discarded with no counter and no error.
+
 - [ ] **A transient Civibyte detail failure permanently drops person answers**
 
   Door-detail requests use `Promise.allSettled`; a failed detail request still creates the door attempt without contacted people or survey answers. Future pulls see the attempt ID and skip it, so the missing detail is never repaired.
@@ -201,6 +229,14 @@ Jargon used below:
 ---
 
 ## Admin / reporting / product bugs
+
+- [ ] **Turf access edits silently target the wrong wave**
+
+  `TurfAccessCard.save()` (`CampaignTurfManager.tsx`) calls `setTurfAccess(campaignId, turf.id, visibility, assignedUserId)`, omitting the optional `programId` argument. `setTurfAccess` then falls back to the campaign's *currently active* wave instead of the turf's actual wave. Editing sharing/assignment on any list that belongs to a non-active wave (e.g. a draft "Wave B" while "Wave A" is active) looks up the wrong `ListCampaign` row and fails with "Turf not found in this wave," even though it plainly is. `createTurf`/`createPrecinctTurfs` pass `programId` correctly — only this call site is missing it.
+
+- [ ] **Reports free-text answers silently truncated to 25 distinct values**
+
+  `admin-reports.ts` sorts `textResponses` by count and slices to the top 25 with no total-count indicator, and the dashboard renders only that array with no "showing N of M" note — the same silent-truncation pattern as the already-documented 200-knock, 90-day, 400-door, and 15-list caps in this file, just not yet applied here.
 
 - [ ] **Canvass board conflates checkouts from different waves**
 
@@ -274,9 +310,13 @@ Jargon used below:
 
   `predev` always runs `free-port.mjs`, which `kill -9`s any listener. Refuse to start, or only kill a PID this project created.
 
-- [ ] **PWA / email icons 404**
+- [ ] **`npm run db:reset` has no safety guard**
 
-  The web manifest points at 512 and 1024 PNGs, email HTML at a 120px PNG, and Apple metadata at a 180px PNG. None exists under `public/brand` (SVGs do). Add the PNGs or drop the PNG references.
+  `"db:reset": "prisma migrate reset --force"` skips Prisma's interactive confirmation and drops/recreates the database unconditionally. The seed script does refuse to re-seed when `NODE_ENV === "production"`, but that check only runs *after* the drop. A stray `DATABASE_URL` pointed at a shared/staging database (bad `.env`, wrong shell export) gets wiped with zero confirmation and zero check on the destructive step itself.
+
+- [ ] **Containers can boot against an unmigrated schema with no warning**
+
+  `docker-entrypoint.sh` only runs `prisma migrate deploy` `if [ -n "$DATABASE_URL" ]`; when that variable is unset or misnamed (a typo, or a platform that names the secret differently), the block is skipped with no log line at all before `exec node server.js`. Distinct from the already-listed "boots after migrate fails" bug — this is a silently *skipped* migration, not a failed one.
 
 - [ ] **A personal ngrok hostname is hardcoded in Next.js config**
 
@@ -288,10 +328,10 @@ Jargon used below:
 
 - [ ] **CI runs unit tests only**
 
-  GitHub Actions runs Prisma generation and 114 unit tests, but not lint, a production build, migration deployment, or database-backed integration tests. Transaction, constraint, generated-client, and framework build failures can still merge.
+  GitHub Actions runs Prisma generation and 114 unit tests, but not lint, a production build, migration deployment, or database-backed integration tests. Transaction, constraint, generated-client, and framework build failures can still merge. It also has no explicit `permissions:` block, so `GITHUB_TOKEN` gets the org/repo default (often broader than `contents: read`) for a workflow that runs `npm ci` against third-party packages.
 
 ---
 
 ## Already tracked in TODO.md (not duplicated)
 
-Drawn-turf generation scalability, Census-vs-official precinct picker, Mapbox volume on packet download, freeze-after-publish (listed above only where sync still accepts live membership), in-memory “current knock,” collision policy, packet PII/TTL policy, ungeocoded precinct doors, batch precinct error reporting, overlapping drawn turfs, real polygon clip, precinct map cap of 400, production map tiles, external-source identity design, MiniVAN survey round-trip, database-backed lifecycle tests, saved-location removal, OTP retention, and county-geocode retry state.
+Drawn-turf generation scalability, Census-vs-official precinct picker, Mapbox volume on packet download, freeze-after-publish (listed above only where sync still accepts live membership), in-memory “current knock,” collision policy, packet PII/TTL policy, ungeocoded precinct doors, batch precinct error reporting, overlapping drawn turfs, real polygon clip, precinct map cap of 400, production map tiles, external-source identity design, MiniVAN survey round-trip, database-backed lifecycle tests, saved-location removal, OTP retention, county-geocode retry state, split-redirect chain cap, stuck outbox entries, MiniVAN pull writeback-on-skip, walk-map camera scope, wave question removal, campaign-region edit UI, Civibyte HTTP timeout/retry, Civibyte import centroid, and the VRDB birth-year ceiling.

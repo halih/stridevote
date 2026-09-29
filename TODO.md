@@ -49,6 +49,18 @@ Jargon used below:
 
   Packets hold names, ages, addresses, and survey answers on the device for 72 hours. Decide whether that is acceptable for field use, then encrypt, shorten the TTL, and/or wipe on logout and when the list is completed.
 
+- [ ] **Split-redirect chains silently cap at 8 hops**
+
+  `resolveSplitRedirect` stops following `ListHouseholdRedirect` after 8 hops. A household that has moved through more splits than that resolves to a stale intermediate list instead of the current one, so a late offline sync against the original list id can be misrouted or rejected. Rare today; document the ceiling or heal the chain before it is hit for real.
+
+- [ ] **Permanently-failed outbox entries are indistinguishable from pending ones**
+
+  `syncOutboxUnlocked` only removes attempts the server accepts; one that is structurally rejected forever (e.g. a stale packet referencing a household no longer on the list) stays in the outbox on every retry, keeps the outbox count above zero, and blocks release on both the walk and list-board screens with no way to see which attempt is stuck or discard it.
+
+- [ ] **MiniVAN pull’s idempotent-skip path never runs field writeback**
+
+  When `apply-pull.ts` sees an attempt already exists for a VanID, it upserts the missing `CanvassPersonResponse` but never calls the field-writeback step, so the durable household/voter state for that contact is never recorded even though a person response now exists.
+
 ---
 
 ## Product / UX for real walking
@@ -64,6 +76,14 @@ Jargon used below:
 - [ ] **Warn when drawn polygons overlap**
 
   Two drawn turfs can contain the same door. Precinct-by-code lists do not overlap; freehand polygons can. Warn (or block) when a new polygon covers doors already on another list in the same wave.
+
+- [ ] **Remembered walk-map camera is a single slot, not per-list**
+
+  `WalkMap.tsx` keeps the last-panned camera in one module-level variable keyed by `cameraKey`, so it correctly never leaks onto the wrong list, but it also means only the most recently opened walk's framing survives — pan list A, then open and pan list B, and returning to A in the same session silently loses A's saved view. Low severity; worth a small per-list cache if volunteers hop between lists mid-shift.
+
+- [ ] **Wave survey questions can be added but never removed**
+
+  The program editor's question list only supports appending. An admin who adds a question by mistake, or wants to retire one, has no way to take it off the wave short of abandoning the edit.
 
 ---
 
@@ -108,4 +128,19 @@ Jargon used below:
 - [ ] **Persist county-geocode misses**
 
   County geocoding records successful matches only. Mark unmatched and ambiguous attempts so reruns are resumable and do not repeatedly perform the same lookup.
-npm run start:prod
+
+- [ ] **Campaign region can’t be re-resolved from the edit form**
+
+  Even setting aside the backend gap tracked in `BUGS.md` ("Campaign region edits report success without saving the region"), `CampaignForm.tsx` only renders the region-type/name selectors and "Resolve region on map" button in create mode — edit mode shows a read-only summary. There is currently no UI path to change a campaign's district after creation, independent of whether the save action is fixed.
+
+- [ ] **No timeout or retry on Civibyte HTTP calls**
+
+  `civibyte/client.ts`'s shared request helper has no `AbortSignal`/timeout and no retry. A slow or hanging Civibyte endpoint stalls the admin-triggered import/pull/push action until the platform's own timeout kills it, and none of the import/pull/push flows checkpoint progress incrementally, so a mid-run kill loses whatever wasn't yet committed.
+
+- [ ] **Civibyte import centroid includes doors that were never imported**
+
+  `import-list.ts` averages lat/lng across every session door, including ones later excluded for having no matched voter. The list's map centroid can be skewed away from its actual door set.
+
+- [ ] **VRDB import has a hardcoded birth-year ceiling**
+
+  `parseYear` in `scripts/import-vrdb.ts` only accepts years `1900`–`2026`. Harmless today, but any voter turning 18 in 2045+ imported after this file stops being updated will have `yearOfBirth` silently nulled with no warning. Compute the ceiling from the current year instead of a literal.

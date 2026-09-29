@@ -13,6 +13,7 @@ export default async function ProfilePage() {
     firstName: user.firstName ?? "",
     lastName: user.lastName ?? "",
     phone: user.phone ?? "",
+    phoneOptional: Boolean(user.email?.trim()),
     area: user.area,
     homeLat: user.homeLat,
     homeLng: user.homeLng,
