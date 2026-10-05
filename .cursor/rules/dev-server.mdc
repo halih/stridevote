@@ -1,0 +1,10 @@
+---
+description: Leave starting and restarting the dev server to the user
+alwaysApply: true
+---
+
+# Dev server
+
+Do not start, restart, or stop the app server (`npm run dev`, `next dev`, or any other local server for this project). The user handles that.
+
+If a server is already running, use it. If it is not running, or a restart is needed to pick up a change, say so and wait. Do not launch one in the background to verify work.

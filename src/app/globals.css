@@ -187,6 +187,12 @@ a { color: inherit; }
 .walk-maplibre { font-family: inherit; background: var(--surface-2); height: 100%; width: 100%; }
 .fakemap .leaflet-control-attribution { font-size: 9px; }
 .fakemap .maplibregl-ctrl-attrib { font-size: 9px; }
+/* MapLibre's stock compass is two bare chevrons. Draw a north arrow with an N
+   so the button reads as orientation; the whole icon rotates with the map, so
+   the arrow keeps pointing at true north. */
+.walk-maplibre .maplibregl-ctrl button.maplibregl-ctrl-compass .maplibregl-ctrl-icon {
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' viewBox='0 0 29 29'%3E%3Cpath d='M14.5 1.5 20 14.5 14.5 11.2 9 14.5z' fill='%23333'/%3E%3Ctext x='14.5' y='27' font-family='system-ui,-apple-system,Segoe UI,Roboto,sans-serif' font-size='14' font-weight='700' text-anchor='middle' fill='%23333'%3EN%3C/text%3E%3C/svg%3E");
+}
 .map-loading {
   height: 100%; display: flex; align-items: center; justify-content: center;
   color: var(--ink-faint); font-size: 12px;
@@ -254,6 +260,22 @@ a { color: inherit; }
   width: 10px; height: 10px; border-radius: 999px; flex: none; margin-top: 3px;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, .08);
 }
+.map-controls {
+  position: absolute; top: 10px; right: 10px; z-index: 600;
+  display: grid; gap: 6px;
+}
+.map-ctrl-btn {
+  width: 32px; height: 32px; border-radius: 999px; border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, transparent); color: var(--ink-soft);
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .12); cursor: pointer;
+}
+.map-ctrl-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+.map-ctrl-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* The legend shares the top-right corner; drop it under the control stack
+   (each button is 32px plus a 6px gap). */
+.walk-map-frame:has(.map-controls) > .map-help { top: 48px; }
+.walk-map-frame:has(.map-controls > :nth-child(2)) > .map-help { top: 86px; }
 
 /* ---- modal sheet ---- */
 .scrim {

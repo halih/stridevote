@@ -13,12 +13,9 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { BASEMAP_TILES } from "./basemap";
 import { nearestIndexWithin } from "./nearest";
 import type { MapMarker, MapProps } from "./types";
-
-const TILE_URL =
-  process.env.NEXT_PUBLIC_MAP_TILE_URL ??
-  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 const HOME_SVG =
   '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/></svg>';
@@ -124,13 +121,47 @@ function KeepSelectionInView({
   return null;
 }
 
+/** Centring on the volunteer from a wide view should land at street level. */
+const LOCATE_MIN_ZOOM = 16;
+
+/** Re-centres on the live GPS pin each time the locate button bumps `seq`. */
+function CenterOnYou({
+  you,
+  seq,
+}: {
+  you: [number, number] | null;
+  seq: number | undefined;
+}) {
+  const map = useMap();
+  const youRef = useRef(you);
+  const lastSeq = useRef(seq);
+
+  useEffect(() => {
+    youRef.current = you;
+  }, [you]);
+
+  useEffect(() => {
+    if (seq === lastSeq.current) return;
+    lastSeq.current = seq;
+    if (!youRef.current) return;
+    map.setView(youRef.current, Math.max(map.getZoom(), LOCATE_MIN_ZOOM), {
+      animate: true,
+    });
+  }, [seq, map]);
+
+  return null;
+}
+
 export function LeafletMap({
   polygons = [],
   markers = [],
   home,
   you,
   onMarkerClick,
+  basemap = "street",
+  locateSeq,
 }: MapProps) {
+  const tiles = BASEMAP_TILES[basemap];
   // Fit to turf/doors only — home & live GPS stay visible but don't yank the frame.
   const fitPoints: [number, number][] = [
     ...polygons.flatMap((p) => p.points),
@@ -153,10 +184,12 @@ export function LeafletMap({
       scrollWheelZoom={false}
       style={{ height: "100%", width: "100%" }}
     >
+      {/* Attribution is only read when the layer is created, so remount it. */}
       <TileLayer
-        url={TILE_URL}
-        attribution='&copy; OpenStreetMap contributors'
-        maxZoom={19}
+        key={basemap}
+        url={tiles.url}
+        attribution={tiles.attribution}
+        maxZoom={tiles.maxZoom}
       />
       {polygons.map((p, i) => (
         <Polygon
@@ -195,6 +228,7 @@ export function LeafletMap({
         point={selected ? [selected.lat, selected.lng] : null}
         geometryKey={fitKey}
       />
+      <CenterOnYou you={you ? [you.lat, you.lng] : null} seq={locateSeq} />
     </MapContainer>
   );
 }

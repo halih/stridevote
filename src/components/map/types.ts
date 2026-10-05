@@ -34,9 +34,31 @@ export interface MapYou {
   accuracy?: number | null;
 }
 
+/**
+ * A requested camera framing. Walk maps apply it when `seq` changes, so the
+ * same bounds can be re-requested by bumping the sequence.
+ */
+export interface MapCameraRequest {
+  seq: number;
+  /** [lat, lng] south-west and north-east corners. */
+  bounds: [[number, number], [number, number]];
+  /** Never zoom in past this when the bounds are tiny. */
+  maxZoom?: number;
+}
+
+import type { Basemap } from "./basemap";
+
 export interface MapProps {
   /** Width-to-height ratio. Defaults to 4:3. */
   aspectRatio?: number;
+  /** Show the street / satellite switch over the map. */
+  basemapToggle?: boolean;
+  /** Which tiles to draw. Set by `Map` from the saved preference. */
+  basemap?: Basemap;
+  /** Show a button that re-centres the map on `you` (hidden without a fix). */
+  locateButton?: boolean;
+  /** Bumped by `Map` when the locate button is pressed. */
+  locateSeq?: number;
   polygons?: MapPolygon[];
   markers?: MapMarker[];
   /** Profile / saved home location. */
@@ -59,4 +81,10 @@ export interface MapProps {
    * key, instead of snapping back to the selected door.
    */
   cameraKey?: string;
+  /**
+   * Opening framing for a walk. Applied on mount (unless a camera is being
+   * restored under `cameraKey`) and again whenever `seq` changes, as long as
+   * the volunteer has not moved the map by hand yet.
+   */
+  camera?: MapCameraRequest;
 }

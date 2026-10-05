@@ -2,20 +2,105 @@
 
 import { useEffect, useRef } from "react";
 import {
+  type FitBoundsOptions,
   type GeoJSONSource,
+  type LngLatBoundsLike,
   Map as MapLibreMap,
+  type MapLibreEvent,
   type MapMouseEvent,
   Marker,
   type Marker as MapLibreMarker,
   NavigationControl,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { MapMarker, MapProps } from "./types";
+import { BASEMAP_TILES, type Basemap, maplibreTileUrl } from "./basemap";
+import type { MapCameraRequest, MapMarker, MapProps } from "./types";
 
-const TILE_URL = (
-  process.env.NEXT_PUBLIC_MAP_TILE_URL ??
-  "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-).replace("{s}", "a");
+/** Room around framed bounds so edge pins and the nav control don't collide. */
+const FIT_PADDING = 48;
+const FIT_MAX_ZOOM = 18;
+/** Centring on the volunteer from a wide view should land at street level. */
+const LOCATE_MIN_ZOOM = 17;
+
+function toLngLatBounds(bounds: MapCameraRequest["bounds"]): LngLatBoundsLike {
+  const [[minLat, minLng], [maxLat, maxLng]] = bounds;
+  return [
+    [minLng, minLat],
+    [maxLng, maxLat],
+  ];
+}
+
+function markerBounds(markers: MapMarker[]): MapCameraRequest["bounds"] | null {
+  if (!markers.length) return null;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  for (const marker of markers) {
+    minLat = Math.min(minLat, marker.lat);
+    maxLat = Math.max(maxLat, marker.lat);
+    minLng = Math.min(minLng, marker.lng);
+    maxLng = Math.max(maxLng, marker.lng);
+  }
+  return [
+    [minLat, minLng],
+    [maxLat, maxLng],
+  ];
+}
+
+function fitOptions(maxZoom: number | undefined): FitBoundsOptions {
+  return { padding: FIT_PADDING, maxZoom: maxZoom ?? FIT_MAX_ZOOM };
+}
+
+const BASEMAPS: Basemap[] = ["street", "satellite"];
+
+function basemapSourceId(basemap: Basemap): string {
+  return `basemap-${basemap}`;
+}
+
+/**
+ * Every basemap is a source + raster layer from the start; switching only
+ * flips layer visibility. Swapping the style instead would drop the polygon
+ * layers and the attribution control would briefly show nothing.
+ */
+function basemapSources() {
+  return Object.fromEntries(
+    BASEMAPS.map((basemap) => {
+      const tiles = BASEMAP_TILES[basemap];
+      return [
+        basemapSourceId(basemap),
+        {
+          type: "raster" as const,
+          tiles: [maplibreTileUrl(tiles.url)],
+          tileSize: 256,
+          maxzoom: tiles.maxZoom,
+          attribution: tiles.attribution,
+        },
+      ];
+    }),
+  );
+}
+
+function basemapLayers(active: Basemap) {
+  return BASEMAPS.map((basemap) => ({
+    id: basemapSourceId(basemap),
+    type: "raster" as const,
+    source: basemapSourceId(basemap),
+    layout: {
+      visibility: (basemap === active ? "visible" : "none") as "visible" | "none",
+    },
+  }));
+}
+
+function showBasemap(map: MapLibreMap, active: Basemap) {
+  for (const basemap of BASEMAPS) {
+    map.setLayoutProperty(
+      basemapSourceId(basemap),
+      "visibility",
+      basemap === active ? "visible" : "none",
+    );
+  }
+}
 
 const HOME_SVG =
   '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/></svg>';
@@ -111,6 +196,9 @@ export function WalkMap({
   onMarkerClick,
   followSelection,
   cameraKey,
+  camera,
+  basemap = "street",
+  locateSeq,
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -120,16 +208,32 @@ export function WalkMap({
   const markersRef = useRef(markers);
   const onMarkerClickRef = useRef(onMarkerClick);
   const cameraKeyRef = useRef(cameraKey);
+  const cameraRef = useRef(camera);
+  const basemapRef = useRef(basemap);
+  const youRef = useRef(you);
+  const lastLocateSeqRef = useRef(locateSeq);
   // The opening camera already frames the selection, so only later steps pan.
   const lastFollowRef = useRef(followSelection);
+  // The mount applies the opening request itself; only later ones re-frame.
+  const lastCameraSeqRef = useRef(camera?.seq);
+  // Once the volunteer drags or zooms, opening requests must not undo it.
+  const userMovedRef = useRef(false);
 
   useEffect(() => {
     cameraKeyRef.current = cameraKey;
   }, [cameraKey]);
 
   useEffect(() => {
+    cameraRef.current = camera;
+  }, [camera]);
+
+  useEffect(() => {
     markersRef.current = markers;
   }, [markers]);
+
+  useEffect(() => {
+    youRef.current = you;
+  }, [you]);
 
   useEffect(() => {
     onMarkerClickRef.current = onMarkerClick;
@@ -137,34 +241,34 @@ export function WalkMap({
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const selected = markersRef.current.find((marker) => marker.current);
-    const first = selected ?? markersRef.current[0];
     const resumed =
       cameraKey && savedCamera?.key === cameraKey ? savedCamera : null;
+    // Opening framing: the caller's request, else every pin, so the walk never
+    // opens zoomed onto an arbitrary door.
+    const allPins = markerBounds(markersRef.current);
+    const opening: MapCameraRequest | null = resumed
+      ? null
+      : (cameraRef.current ?? (allPins ? { seq: 0, bounds: allPins } : null));
     const initial =
       resumed?.center ??
-      (first
-        ? ([first.lng, first.lat] as [number, number])
-        : you
-          ? ([you.lng, you.lat] as [number, number])
-          : ([-122.34, 47.72] as [number, number]));
+      (you
+        ? ([you.lng, you.lat] as [number, number])
+        : ([-122.34, 47.72] as [number, number]));
     const map = new MapLibreMap({
       container: containerRef.current,
+      ...(opening
+        ? {
+            bounds: toLngLatBounds(opening.bounds),
+            fitBoundsOptions: fitOptions(opening.maxZoom),
+          }
+        : {}),
       style: {
         version: 8,
-        sources: {
-          osm: {
-            type: "raster",
-            tiles: [TILE_URL],
-            tileSize: 256,
-            maxzoom: 19,
-            attribution: "© OpenStreetMap contributors",
-          },
-        },
-        layers: [{ id: "osm", type: "raster", source: "osm" }],
+        sources: basemapSources(),
+        layers: basemapLayers(basemapRef.current),
       },
       center: initial,
-      zoom: resumed?.zoom ?? (first ? 18 : 15),
+      zoom: resumed?.zoom ?? 15,
       bearing: resumed?.bearing ?? 0,
       dragRotate: true,
       touchZoomRotate: true,
@@ -221,6 +325,14 @@ export function WalkMap({
     map.on("moveend", rememberCamera);
     map.on("zoomend", rememberCamera);
     map.on("rotateend", rememberCamera);
+    // Programmatic moves carry no originalEvent; only hand gestures and the
+    // zoom buttons do.
+    const noteUserMove = (event: MapLibreEvent<unknown>) => {
+      if (event.originalEvent) userMovedRef.current = true;
+    };
+    map.on("dragstart", noteUserMove);
+    map.on("zoomstart", noteUserMove);
+    map.on("rotatestart", noteUserMove);
     const observer = new ResizeObserver(() => map.resize());
     observer.observe(containerRef.current);
     mapRef.current = map;
@@ -232,6 +344,17 @@ export function WalkMap({
   // The map owns its camera for its lifetime; prop updates are handled below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    basemapRef.current = basemap;
+    const map = mapRef.current;
+    if (!map) return;
+    const update = () => showBasemap(map, basemap);
+    // `loaded()` also goes false while tiles stream in, and `load` fires only
+    // once — so test for the layers themselves instead.
+    if (map.getLayer(basemapSourceId(basemap))) update();
+    else map.once("load", update);
+  }, [basemap]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -261,6 +384,34 @@ export function WalkMap({
         .addTo(map);
     });
   }, [markers, onMarkerClick]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !camera) return;
+    if (camera.seq === lastCameraSeqRef.current) return;
+    lastCameraSeqRef.current = camera.seq;
+    if (userMovedRef.current) return;
+    map.fitBounds(toLngLatBounds(camera.bounds), {
+      ...fitOptions(camera.maxZoom),
+      duration: 700,
+    });
+  }, [camera]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || locateSeq === lastLocateSeqRef.current) return;
+    lastLocateSeqRef.current = locateSeq;
+    const target = youRef.current;
+    if (!target) return;
+    // Asking for your position is a deliberate framing, so later opening
+    // camera requests must leave it alone just like a drag would.
+    userMovedRef.current = true;
+    map.easeTo({
+      center: [target.lng, target.lat],
+      zoom: Math.max(map.getZoom(), LOCATE_MIN_ZOOM),
+      duration: 500,
+    });
+  }, [locateSeq]);
 
   useEffect(() => {
     const map = mapRef.current;

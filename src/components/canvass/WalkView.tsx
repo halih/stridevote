@@ -28,6 +28,8 @@ import {
   syncOutbox,
 } from "@/lib/canvass/offline-store";
 import { orderFieldPacketFrom } from "@/lib/canvass/packet-order";
+import { planWalkStart } from "@/lib/canvass/walk-start";
+import type { MapCameraRequest } from "@/components/map/types";
 import { DoorSheet } from "@/components/canvass/DoorSheet";
 import { VotedInPrimaryPill } from "@/components/canvass/VotedInPrimaryPill";
 import { ProgressiveScoreControl } from "@/components/canvass/ProgressiveScoreControl";
@@ -86,6 +88,9 @@ export function WalkView({
   const [index, setIndex] = useState(0);
   // Bumped only when stepping doors, so hand-panning the map is never undone.
   const [followSelection, setFollowSelection] = useState(0);
+  // Opening framing: the whole turf, or you plus your next door when nearby.
+  const [camera, setCamera] = useState<MapCameraRequest | undefined>(undefined);
+  const cameraSeq = useRef(0);
   const [sheetDoor, setSheetDoor] = useState<FieldPacketDoor | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -99,6 +104,9 @@ export function WalkView({
   const pendingDoorId = useRef<string | null>(null);
   /** True when the pending door is an auto-advance step, which follows like next. */
   const pendingFollow = useRef(false);
+  /** Packet version whose opening door/camera was chosen before any GPS fix. */
+  const startedVersion = useRef<string | null>(null);
+  /** Packet version already rebased on GPS and re-framed from there. */
   const gpsOrderedVersion = useRef<string | null>(null);
   const walkStarted = useRef(false);
 
@@ -183,16 +191,32 @@ export function WalkView({
     queueMicrotask(() => setAutoAdvance(stored));
   }, []);
 
+  // Opening a walk: pick the first door that still needs a knock and frame the
+  // map around it. Runs once per packet without GPS, then once more when the
+  // first fix lands (rebasing the street route on where the volunteer stands).
+  // Nothing here fires once the volunteer has started stepping or logging.
   useEffect(() => {
-    if (!packet || !location.you || gpsOrderedVersion.current === packet.version) {
-      return;
+    if (!packet || walkStarted.current) return;
+    const you = location.you;
+    const framed = you ? gpsOrderedVersion : startedVersion;
+    if (framed.current === packet.version) return;
+    framed.current = packet.version;
+
+    const ordered = you ? orderFieldPacketFrom(packet, you) : packet;
+    const plan = planWalkStart(ordered.doors, you);
+    const visible = ordered.doors.filter(
+      (d) => filter === "all" || doorStatus(d) === filter,
+    );
+    const idx = plan.door
+      ? visible.findIndex((d) => d.householdId === plan.door?.householdId)
+      : -1;
+    setIndex(Math.max(0, idx));
+    if (you) setPacket(ordered);
+    if (plan.bounds) {
+      cameraSeq.current += 1;
+      setCamera({ seq: cameraSeq.current, bounds: plan.bounds });
     }
-    gpsOrderedVersion.current = packet.version;
-    if (walkStarted.current) return;
-    const ordered = orderFieldPacketFrom(packet, location.you);
-    setIndex(0);
-    setPacket(ordered);
-  }, [packet, location.you]);
+  }, [packet, location.you, filter]);
 
   useEffect(() => {
     setOnline(navigator.onLine);
@@ -811,7 +835,10 @@ export function WalkView({
               <div className="walk-map-frame">
                 <Map
                   mode="walk"
+                  basemapToggle
+                  locateButton
                   followSelection={followSelection}
+                  camera={camera}
                   cameraKey={`${programId}:${listId}`}
                   markers={mappedDoorMarkers}
                   home={location.home ? { ...location.home, inside: true } : undefined}

@@ -68,6 +68,7 @@ cloud SDKs are baked into the app.
 | `SMTP_URL`                | Optional — enables live email delivery via SMTP.               |
 | `EMAIL_FROM`              | From-address for magic-link emails.                            |
 | `NEXT_PUBLIC_MAP_TILE_URL`| Optional — override the OpenStreetMap tile URL.                |
+| `NEXT_PUBLIC_MAP_SATELLITE_TILE_URL` | Optional — override the satellite tiles behind the canvass map's satellite toggle (default Esri World Imagery). |
 | `PLATFORM_ADMIN_EMAILS`   | CSV of emails granted platform super-admin (create/administer all campaigns). |
 | `MAPBOX_ACCESS_TOKEN`     | Optional — temporary Mapbox overlay when a walk list is downloaded (not stored). |
 

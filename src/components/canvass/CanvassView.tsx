@@ -268,6 +268,8 @@ export function CanvassView({
       {view === "map" && mapPolys.length ? (
         <div className="card" style={{ padding: 0, marginBottom: 14 }}>
           <Map
+            basemapToggle
+            locateButton
             polygons={mapPolys}
             home={location.home ? { ...location.home, inside: true } : undefined}
             you={location.you ?? undefined}
