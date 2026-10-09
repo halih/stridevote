@@ -79,6 +79,14 @@ export interface CampaignVoterDirectory {
   voters: VoterDirectoryRow[];
   total: number;
   campaignTotal: number;
+  /** Distinct households among voters matching the current filters. */
+  doorTotal: number;
+  /** Distinct households among all voters linked to the campaign. */
+  campaignDoorTotal: number;
+  /** Filtered doors with a current canvass result in any wave. */
+  knockedDoors: number;
+  /** Filtered voters who live at a knocked door. */
+  knockedVoters: number;
   regionSync: RegionVoterSync | null;
   filtered: boolean;
   page: number;
@@ -164,9 +172,22 @@ export async function getCampaignVoterDirectory(
     canvass,
   );
   const campaignScope = { campaignLinks: { some: { campaignId: campaign.id } } };
+  const canvassedIds = campaignAudience.canvassedHouseholdIds;
+  const doorsWhere = { voters: { some: { voter: where } } };
 
-  const [voters, total, campaignTotal, precincts, genders, elections, savedFilters] =
-    await Promise.all([
+  const [
+    voters,
+    total,
+    campaignTotal,
+    doorTotal,
+    campaignDoorTotal,
+    knockedDoors,
+    knockedVoters,
+    precincts,
+    genders,
+    elections,
+    savedFilters,
+  ] = await Promise.all([
       prisma.voter.findMany({
         where,
         orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
@@ -187,6 +208,31 @@ export async function getCampaignVoterDirectory(
       }),
       prisma.voter.count({ where }),
       filtered ? prisma.voter.count({ where: campaignScope }) : Promise.resolve(0),
+      prisma.household.count({ where: doorsWhere }),
+      filtered
+        ? prisma.household.count({
+            where: { voters: { some: { voter: campaignScope } } },
+          })
+        : Promise.resolve(0),
+      canvassedIds.length
+        ? prisma.household.count({
+            where: { id: { in: canvassedIds }, ...doorsWhere },
+          })
+        : Promise.resolve(0),
+      canvassedIds.length
+        ? prisma.voter.count({
+            where: {
+              AND: [
+                where,
+                {
+                  householdLinks: {
+                    some: { householdId: { in: canvassedIds } },
+                  },
+                },
+              ],
+            },
+          })
+        : Promise.resolve(0),
       prisma.$queryRaw<Array<{
         countyCode: string;
         precinctCode: string;
@@ -275,6 +321,10 @@ export async function getCampaignVoterDirectory(
     }),
     total,
     campaignTotal: filtered ? campaignTotal : total,
+    doorTotal,
+    campaignDoorTotal: filtered ? campaignDoorTotal : doorTotal,
+    knockedDoors,
+    knockedVoters,
     filtered,
     page,
     pageSize: PAGE_SIZE,

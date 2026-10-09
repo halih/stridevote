@@ -18,6 +18,10 @@ function one(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 }
 
+function plural(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`;
+}
+
 function formatElection(iso: string): string {
   const [year, month, day] = iso.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-US", {
@@ -271,11 +275,31 @@ export default async function CampaignVotersPage({
             </form>
 
             <div className="voter-summary">
-              <b>{directory.total.toLocaleString()}</b>
-              <span>
-                {directory.filtered
-                  ? `voter${directory.total === 1 ? "" : "s"} match these filters, out of ${directory.campaignTotal.toLocaleString()} in this campaign`
-                  : `voter${directory.total === 1 ? "" : "s"} in this campaign`}
+              <span className="voter-summary-counts">
+                <b>{directory.total.toLocaleString()}</b>
+                {` ${plural(directory.total, "voter")} · `}
+                <b>{directory.doorTotal.toLocaleString()}</b>
+                {` ${plural(directory.doorTotal, "door")}`}
+                {directory.filtered ? (
+                  <>
+                    {" matching these filters, out of "}
+                    <b>{directory.campaignTotal.toLocaleString()}</b>
+                    {` voters · `}
+                    <b>{directory.campaignDoorTotal.toLocaleString()}</b>
+                    {" doors in this campaign"}
+                  </>
+                ) : (
+                  " in this campaign"
+                )}
+              </span>
+              <span
+                className="voter-summary-knocked"
+                title="Doors in this list with a canvass result, and the voters at those doors"
+              >
+                <b>{directory.knockedDoors.toLocaleString()}</b>
+                {` ${plural(directory.knockedDoors, "door")} knocked · `}
+                <b>{directory.knockedVoters.toLocaleString()}</b>
+                {` ${plural(directory.knockedVoters, "voter")}`}
               </span>
               {directory.voters.length ? (
                 <span className="voter-summary-range">

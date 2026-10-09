@@ -543,6 +543,68 @@ export async function setMemberRoles(
   return { ok: true, message: "Roles updated" };
 }
 
+/** Drop a person's campaign membership. Their user account and canvass history stay. */
+export async function removeMembership(
+  campaignId: string,
+  userId: string,
+): Promise<AdminResult> {
+  const actor = await getSessionUser();
+  if (!actor) return fail("Please sign in.");
+  if (!(await can(actor, campaignId, "members:add"))) return fail("Not allowed.");
+
+  const membership = await prisma.campaignMembership.findUnique({
+    where: { userId_campaignId: { userId, campaignId } },
+    include: { user: { select: { name: true, email: true, phone: true } } },
+  });
+  if (!membership || membership.status !== "active") return fail("Member not found.");
+
+  if (
+    permissionsForRoles(membership.roles).has("campaign:edit") &&
+    !isPlatformAdmin(actor)
+  ) {
+    const others = await prisma.campaignMembership.findMany({
+      where: { campaignId, status: "active", userId: { not: userId } },
+      select: { roles: true },
+    });
+    const anotherAdmin = others.some((row) =>
+      permissionsForRoles(row.roles).has("campaign:edit"),
+    );
+    if (!anotherAdmin) {
+      return fail(
+        actor.id === userId
+          ? "Add another admin before leaving this campaign."
+          : "Add another admin before removing the last one.",
+      );
+    }
+  }
+
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.listCheckout.updateMany({
+      where: { userId, status: "active", program: { campaignId } },
+      data: { status: "released", releasedAt: now },
+    });
+    await tx.listCampaign.updateMany({
+      where: { campaignId, assignedUserId: userId, visibility: "assigned" },
+      data: { assignedUserId: null, visibility: "volunteers" },
+    });
+    await tx.listCampaign.updateMany({
+      where: { campaignId, assignedUserId: userId },
+      data: { assignedUserId: null },
+    });
+    await tx.listWatch.deleteMany({
+      where: { userId, program: { campaignId } },
+    });
+    await tx.campaignMembership.delete({ where: { id: membership.id } });
+  });
+
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  revalidateCampaign(campaign?.slug);
+  const label =
+    membership.user.name ?? membership.user.email ?? membership.user.phone ?? "Member";
+  return { ok: true, message: `Removed ${label}` };
+}
+
 // ---- Lists ----
 const boundarySchema = z
   .array(

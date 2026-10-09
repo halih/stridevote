@@ -29,6 +29,7 @@ import {
   enqueueMinivanPush,
   pullCivibyteList,
   pushCivibyteList,
+  removeMembership,
   setMemberRoles,
 } from "@/lib/admin-actions";
 
@@ -187,6 +188,17 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
     [view.lists, listFilter],
   );
 
+  function removeMember(member: MemberRow) {
+    const self = member.userId === view.viewerUserId;
+    const warning = self
+      ? `Remove yourself from ${view.name}? Your account stays, and you will lose access to this campaign. Canvass history is kept.`
+      : `Remove ${member.name} from ${view.name}? Their account stays, and their canvass history is kept. Lists they have checked out will be released.`;
+    if (!window.confirm(warning)) return;
+    run(() => removeMembership(view.id, member.userId), () => {
+      if (self) router.push("/admin");
+    });
+  }
+
   function removeList(list: { id: string; name: string; checkedOutBy: string | null }) {
     const warning = list.checkedOutBy
       ? `This list is checked out by ${list.checkedOutBy}. Archiving it will release that checkout. Door results and volunteer stats are kept. Continue?`
@@ -276,11 +288,23 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                         ))}
                       </div>
                     </div>
-                    {view.perms.assignRoles ? (
+                    {view.perms.assignRoles || view.perms.add ? (
                       <div className="member-actions">
-                        <button className="btn btn-outline btn-sm" onClick={() => openEditRoles(m)}>
-                          <Icon name="pencil" size={13} /> Roles
-                        </button>
+                        {view.perms.assignRoles ? (
+                          <button className="btn btn-outline btn-sm" onClick={() => openEditRoles(m)}>
+                            <Icon name="pencil" size={13} /> Roles
+                          </button>
+                        ) : null}
+                        {view.perms.add ? (
+                          <button
+                            className="btn btn-outline btn-sm"
+                            style={{ color: "var(--critical)" }}
+                            disabled={pending}
+                            onClick={() => removeMember(m)}
+                          >
+                            Remove
+                          </button>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>

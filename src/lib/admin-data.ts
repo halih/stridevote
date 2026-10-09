@@ -97,6 +97,7 @@ export type TurfVisibility = "volunteers" | "assigned" | "draft";
 
 export interface CampaignAdminView {
   id: string;
+  viewerUserId: string;
   slug: string;
   name: string;
   office: string;
@@ -219,6 +220,7 @@ export async function getCampaignAdminView(
 
   return {
     id: campaign.id,
+    viewerUserId: user.id,
     slug: campaign.slug,
     name: campaign.name,
     office: campaign.office,
