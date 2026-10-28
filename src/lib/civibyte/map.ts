@@ -19,6 +19,8 @@ export interface CivibyteListMeta {
   lastPullAt?: string;
   lastPullApplied?: number;
   lastPullSkipped?: number;
+  /** Remote results skipped because they matched an attempt we had pushed. */
+  lastPullEchoed?: number;
   lastPushAt?: string;
   lastPushApplied?: number;
   lastPushRejected?: number;

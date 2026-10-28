@@ -8,6 +8,11 @@ import {
 } from "@/lib/minivan/map-canvass";
 import { ensureActiveProgram } from "@/lib/canvass/programs";
 import { isDoorOutcome } from "@/lib/canvass/outcomes";
+import { MINIVAN_PUSH_JOB_TYPES } from "@/lib/minivan/jobs";
+import {
+  stagePendingPushedOutcomes,
+  type MinivanPushedOutcomes,
+} from "@/lib/minivan/pushed-outcomes";
 
 /**
  * Build export_list_json-shaped payload for apply_and_sync.py.
@@ -32,7 +37,11 @@ export async function buildMinivanPushPayload(jobId: string): Promise<{
       list: true,
     },
   });
-  if (!job || job.type !== "push_canvass" || job.status !== "running") {
+  if (
+    !job ||
+    !(MINIVAN_PUSH_JOB_TYPES as readonly string[]).includes(job.type) ||
+    job.status !== "running"
+  ) {
     return { ok: false, error: "Job not found or not running" };
   }
   if (!job.list || job.list.deletedAt) {
@@ -101,6 +110,8 @@ export async function buildMinivanPushPayload(jobId: string): Promise<{
   const vanListId = listData.minivan?.listId ?? 0;
 
   const voters: Array<Record<string, unknown>> = [];
+  // What we are about to send per VanID, so the next pull can ignore echoes.
+  const pushedOutcomes: MinivanPushedOutcomes = {};
   for (const lv of listVoters) {
     const hh = lv.voter.householdLinks[0]?.household;
     const householdId = hh?.id;
@@ -111,6 +122,7 @@ export async function buildMinivanPushPayload(jobId: string): Promise<{
       const pushOutcome = minivanPushOutcome(attempt.outcome, attempt.people);
       const statusLabel = pushDoorToStatusLabel(adapter, pushOutcome);
       if (statusLabel) {
+        if (lv.vanId != null) pushedOutcomes[String(lv.vanId)] = pushOutcome;
         const person =
           attempt.people.find((p) => p.voterId === lv.voterId) ??
           attempt.people.find((p) => p.voterId != null);
@@ -166,6 +178,8 @@ export async function buildMinivanPushPayload(jobId: string): Promise<{
       van: { van_id: lv.vanId },
     });
   }
+
+  await stagePendingPushedOutcomes(jobId, pushedOutcomes);
 
   return {
     ok: true,

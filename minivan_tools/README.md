@@ -34,5 +34,12 @@ Jobs run **serially**. Downloading a list wipes the previous on-device list.
 | `import_list` | download + export people (phones/emails/party) | match-or-skip, create list |
 | `pull_canvass` | force download + `TeamCanvasses` only | door ResultIDs → attempts |
 | `push_canvass` | inject StrideVote results + Sync | builds portable JSON |
+| `sync_canvass` | force download → `TeamCanvasses` → inject + Sync (one session) | pull first, then push; job completes after the push |
+
+The app's **Sync** button enqueues `sync_canvass`. `pull_canvass` / `push_canvass`
+remain for already-queued jobs and manual use.
 
 The emulator is **not** a canvassing device. Pull never reads local `Canvasses`.
+Pull skips remote rows whose outcome matches what StrideVote last pushed for that
+VanID (`list.data.minivan.pushedOutcomes`), so our own results do not come back
+as new attempts.

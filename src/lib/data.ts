@@ -246,10 +246,11 @@ export interface ListVM {
   programName: string | null;
   checkoutId: string | null;
   nativeCanvass: boolean;
-  /** MiniVAN pull available (campaign gated + list sourced from MiniVAN). */
-  minivanPull: boolean;
-  /** Civibyte pull available (campaign gated + imported guest list). */
-  civibytePull: boolean;
+  /**
+   * External system this list can be synced (pull + push) with, when the
+   * linked campaign has that integration enabled. Null for native lists.
+   */
+  externalSync: "minivan" | "civibyte" | null;
   /** Admin assigned this list to the volunteer — already theirs, no checkout step. */
   assignedToMe: boolean;
   /** Door pins for map preview (coords + walk status; capped). */
@@ -483,12 +484,14 @@ export async function getCanvassBoard(user: User): Promise<ListVM[]> {
         programName: primaryLink?.program.name ?? null,
         checkoutId: mineCheckout?.id ?? null,
         nativeCanvass: l.source === "stridevote" || l._count.households > 0,
-        minivanPull:
+        externalSync:
           l.source === "minivan" &&
-          openLinks.some((cl) => cl.campaign.minivanEnabled),
-        civibytePull:
-          l.source === "civibyte" &&
-          openLinks.some((cl) => cl.campaign.civibyteEnabled),
+          openLinks.some((cl) => cl.campaign.minivanEnabled)
+            ? "minivan"
+            : l.source === "civibyte" &&
+                openLinks.some((cl) => cl.campaign.civibyteEnabled)
+              ? "civibyte"
+              : null,
         assignedToMe,
         doorPins,
         campaigns: openLinks.map((cl) => ({

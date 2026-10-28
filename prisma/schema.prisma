@@ -698,7 +698,7 @@ model ListVoter {
 // Local emulator worker queue. Next.js enqueues; minivan_tools/worker.py claims.
 model MiniVanJob {
   id            String    @id @default(cuid())
-  type          String // import_list | pull_canvass | push_canvass
+  type          String // import_list | pull_canvass | push_canvass | sync_canvass
   status        String    @default("pending") // pending | running | completed | failed
   campaignId    String
   listId        String?

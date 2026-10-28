@@ -53,7 +53,13 @@ export async function pullCivibyteCanvass(input: {
   listId: string;
   campaignId: string;
   requestedById: string;
-}): Promise<{ applied: number; skipped: number; total: number }> {
+}): Promise<{
+  applied: number;
+  skipped: number;
+  /** Remote results that only echoed an attempt StrideVote pushed earlier. */
+  echoed: number;
+  total: number;
+}> {
   const list = await prisma.list.findFirst({
     where: { id: input.listId, source: "civibyte", deletedAt: null },
     include: {
@@ -136,9 +142,33 @@ export async function pullCivibyteCanvass(input: {
     throw new Error("No user is available to attribute Civibyte attempts.");
 
   const linksByAddress = new Map<string, CivibyteDoorLink>();
-  for (const doorLink of Object.values(previousMeta.doors)) {
+  const importedDoorIdByAddress = new Map<string, string>();
+  for (const [doorId, doorLink] of Object.entries(previousMeta.doors)) {
     linksByAddress.set(doorLink.addressPk, doorLink);
+    importedDoorIdByAddress.set(doorLink.addressPk, doorId);
   }
+
+  // Outcome of each attempt we previously pushed, keyed by imported door id.
+  // A remote result with the same outcome is our own push coming back.
+  const pushedAttempts = previousMeta.pushedAttempts ?? {};
+  const pushedAttemptIds = Object.values(pushedAttempts);
+  const pushedOutcomeByAttemptId = new Map(
+    pushedAttemptIds.length
+      ? (
+          await prisma.canvassAttempt.findMany({
+            where: { clientAttemptId: { in: pushedAttemptIds } },
+            select: { clientAttemptId: true, outcome: true },
+          })
+        ).map((attempt) => [attempt.clientAttemptId, attempt.outcome])
+      : [],
+  );
+  const pushedOutcomeForDoor = (door: { id: string; addressPk: string }) => {
+    const importedDoorId = previousMeta.doors[door.id]
+      ? door.id
+      : importedDoorIdByAddress.get(door.addressPk);
+    const attemptId = importedDoorId ? pushedAttempts[importedDoorId] : undefined;
+    return attemptId ? pushedOutcomeByAttemptId.get(attemptId) ?? null : null;
+  };
 
   const listHouseholdIds = new Set(
     (
@@ -151,6 +181,7 @@ export async function pullCivibyteCanvass(input: {
 
   let applied = 0;
   let skipped = 0;
+  let echoed = 0;
   for (const door of completedDoors) {
     const outcome = civibyteDoorOutcome(door.doorResult);
     const attemptedAt = door.attemptedAt;
@@ -181,6 +212,10 @@ export async function pullCivibyteCanvass(input: {
     });
     if (existing) {
       skipped += 1;
+      continue;
+    }
+    if (pushedOutcomeForDoor(door) === outcome) {
+      echoed += 1;
       continue;
     }
 
@@ -248,6 +283,7 @@ export async function pullCivibyteCanvass(input: {
     lastPullAt: new Date().toISOString(),
     lastPullApplied: applied,
     lastPullSkipped: skipped,
+    lastPullEchoed: echoed,
   };
   await prisma.list.update({
     where: { id: list.id },
@@ -258,5 +294,5 @@ export async function pullCivibyteCanvass(input: {
   revalidatePath("/canvass");
   revalidatePath("/stats");
   revalidatePath(`/admin/${link.campaign.slug}`);
-  return { applied, skipped, total: completedDoors.length };
+  return { applied, skipped, echoed, total: completedDoors.length };
 }

@@ -205,12 +205,39 @@ def handle_push(job: dict) -> None:
     printed = payload.get("printedListNumber") or (job.get("list") or {}).get("sourceRef")
     if not printed:
         raise RuntimeError("push_canvass missing printedListNumber")
+    data = fetch_push_payload(job)
+    list_id = download_printed(printed)
+    inject_and_sync(job, list_id, data)
+
+
+def handle_sync(job: dict) -> None:
+    """Pull then push in one emulator session: one force download, TeamCanvasses
+    applied first, then StrideVote results injected + synced."""
+    payload = job.get("payload") or {}
+    printed = payload.get("printedListNumber") or (job.get("list") or {}).get("sourceRef")
+    if not printed:
+        raise RuntimeError("sync_canvass missing printedListNumber")
+    r = run_py("download_list.py", [printed, "--force"])
+    list_id = int(r.stdout.strip().splitlines()[-1])
+    exported = export_json(list_id)
+    team = exported.get("teamCanvasses") or []
+    # apply-pull leaves a sync job running; completion happens after the push.
+    api("POST", f"/api/minivan/jobs/{job['id']}/apply-pull", {"teamCanvasses": team})
+    # Payload is built after the pull so it reflects anything just imported.
+    data = fetch_push_payload(job)
+    inject_and_sync(job, list_id, data)
+
+
+def fetch_push_payload(job: dict) -> dict:
     push = api("GET", f"/api/minivan/jobs/{job['id']}/push-payload")
     data = push.get("data")
     if not data:
         raise RuntimeError(push.get("error") or "empty push payload")
+    return data
 
-    list_id = download_printed(printed)
+
+def inject_and_sync(job: dict, list_id: int, data: dict) -> None:
+    """Inject a StrideVote push payload into the on-device list and sync to VAN."""
     with tempfile.TemporaryDirectory() as tmp:
         json_path = os.path.join(tmp, "push.json")
         # Remap numeric support onto this list's script before apply_and_sync.
@@ -251,6 +278,8 @@ def process_job(job: dict) -> None:
         handle_pull(job)
     elif typ == "push_canvass":
         handle_push(job)
+    elif typ == "sync_canvass":
+        handle_sync(job)
     else:
         raise RuntimeError(f"unknown job type {typ}")
     print(f"done {job['id']}", flush=True)

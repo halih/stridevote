@@ -25,11 +25,9 @@ import {
   deleteList,
   denyMembership,
   enqueueMinivanListImport,
-  enqueueMinivanPull,
-  enqueueMinivanPush,
-  pullCivibyteList,
-  pushCivibyteList,
+  enqueueMinivanSync,
   removeMembership,
+  syncCivibyteList,
   setMemberRoles,
 } from "@/lib/admin-actions";
 
@@ -426,19 +424,10 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                         type="button"
                         className="btn btn-outline btn-sm"
                         disabled={pending}
-                        title="Pull from MiniVAN — door ResultIDs only (not survey answers)"
-                        onClick={() => run(() => enqueueMinivanPull(l.id))}
+                        title="Sync with MiniVAN — pulls door ResultIDs (not survey answers), then pushes StrideVote results"
+                        onClick={() => run(() => enqueueMinivanSync(l.id))}
                       >
-                        Pull
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        disabled={pending}
-                        title="Push StrideVote results to MiniVAN"
-                        onClick={() => run(() => enqueueMinivanPush(l.id))}
-                      >
-                        Push
+                        <Icon name="sync" size={14} /> Sync
                       </button>
                     </div>
                   ) : null}
@@ -450,19 +439,10 @@ export function ManageCampaignView({ view }: { view: CampaignAdminView }) {
                         type="button"
                         className="btn btn-outline btn-sm"
                         disabled={pending}
-                        title="Pull from Civibyte — imports new door dispositions and survey answers"
-                        onClick={() => run(() => pullCivibyteList(l.id))}
+                        title="Sync with CiviByte — pulls new door dispositions and survey answers, then pushes newer StrideVote results"
+                        onClick={() => run(() => syncCivibyteList(l.id))}
                       >
-                        Pull
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        disabled={pending}
-                        title="Push new StrideVote results to CiviByte"
-                        onClick={() => run(() => pushCivibyteList(l.id))}
-                      >
-                        Push
+                        <Icon name="sync" size={14} /> Sync
                       </button>
                     </div>
                   ) : null}

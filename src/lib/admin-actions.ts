@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import type { User } from "@/generated/prisma";
 import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
 import { can, canManageAnything, isPlatformAdmin } from "@/lib/authz";
@@ -30,7 +31,10 @@ import {
 import { programQuestionSchema } from "@/lib/canvass/outcomes";
 import { claimActiveCheckout } from "@/lib/canvass/checkout";
 import { getMinivanAdapter, listMinivanAdapters } from "@/lib/minivan/adapters";
-import { enqueueMinivanJob } from "@/lib/minivan/jobs";
+import {
+  enqueueMinivanJob,
+  hasOpenMinivanCanvassJob,
+} from "@/lib/minivan/jobs";
 import { importCivibyteList } from "@/lib/civibyte/import-list";
 import { pullCivibyteCanvass } from "@/lib/civibyte/pull-canvass";
 import { pushCivibyteCanvass } from "@/lib/civibyte/push-canvass";
@@ -1451,56 +1455,42 @@ export async function setCampaignCivibyte(
   };
 }
 
-/** Pull current Civibyte door dispositions into StrideVote attempts. */
-export async function pullCivibyteList(listId: string): Promise<AdminResult> {
-  const user = await getSessionUser();
-  if (!user) return fail("Please sign in.");
-
-  const list = await prisma.list.findFirst({
-    where: { id: listId, source: "civibyte", deletedAt: null },
-    include: {
-      campaignLinks: {
-        include: {
-          campaign: { select: { civibyteEnabled: true } },
-          program: { select: { status: true } },
-        },
-      },
-    },
+/**
+ * Who may sync an external (MiniVAN / CiviByte) list in both directions:
+ * list managers, or a canvasser who currently holds the list (active checkout
+ * or admin assignment). Volunteers never push results for lists they don't hold.
+ */
+async function canSyncList(
+  user: User,
+  listId: string,
+  campaignId: string,
+): Promise<boolean> {
+  if (await can(user, campaignId, "lists:manage")) return true;
+  if (!(await can(user, campaignId, "canvass:checkout"))) return false;
+  const checkout = await prisma.listCheckout.findFirst({
+    where: { listId, userId: user.id, status: "active" },
+    select: { id: true },
   });
-  if (!list) return fail("Not a Civibyte list.");
-  const link =
-    list.campaignLinks.find(
-      (candidate) =>
-        candidate.program.status === "active" &&
-        candidate.campaign.civibyteEnabled,
-    ) ??
-    list.campaignLinks.find((candidate) => candidate.campaign.civibyteEnabled);
-  if (!link) return fail("Civibyte is not enabled for this list's campaign.");
-  if (!(await can(user, link.campaignId, "canvass:checkout")) &&
-      !(await can(user, link.campaignId, "lists:manage"))) {
-    return fail("Not allowed.");
-  }
-
-  try {
-    const result = await pullCivibyteCanvass({
-      listId,
-      campaignId: link.campaignId,
-      requestedById: user.id,
-    });
-    return {
-      ok: true,
-      message: `Pulled ${result.applied} new Civibyte result${result.applied === 1 ? "" : "s"}; ${result.skipped} already present or unsupported.`,
-    };
-  } catch (error) {
-    return fail(error instanceof Error ? error.message : "Civibyte pull failed.");
-  }
+  if (checkout) return true;
+  const assignment = await prisma.listCampaign.findFirst({
+    where: { listId, campaignId, assignedUserId: user.id },
+    select: { id: true },
+  });
+  return Boolean(assignment);
 }
 
-/** Admin: push the latest StrideVote result per door through CiviByte guest sync. */
-export async function pushCivibyteList(listId: string): Promise<AdminResult> {
+function plural(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * Sync a CiviByte list: pull remote door results first, then push newer
+ * StrideVote results. Each step runs even if the other fails; the message
+ * reports both.
+ */
+export async function syncCivibyteList(listId: string): Promise<AdminResult> {
   const user = await getSessionUser();
   if (!user) return fail("Please sign in.");
-  if (!(await canManageList(user.id, listId))) return fail("Not allowed.");
 
   const list = await prisma.list.findFirst({
     where: { id: listId, source: "civibyte", deletedAt: null },
@@ -1522,25 +1512,53 @@ export async function pushCivibyteList(listId: string): Promise<AdminResult> {
     ) ??
     list.campaignLinks.find((candidate) => candidate.campaign.civibyteEnabled);
   if (!link) return fail("CiviByte is not enabled for this list's campaign.");
+  if (!(await canSyncList(user, listId, link.campaignId))) {
+    return fail("Not allowed.");
+  }
 
+  const parts: string[] = [];
+  let ok = true;
+
+  // 1) Pull: bring remote results in so the push below only sends what is newer.
   try {
-    const result = await pushCivibyteCanvass({
+    const pull = await pullCivibyteCanvass({
+      listId,
+      campaignId: link.campaignId,
+      requestedById: user.id,
+    });
+    const echoed = pull.echoed ? `, ${pull.echoed} echoed` : "";
+    parts.push(
+      `Pulled ${plural(pull.applied, "new result")} (${pull.skipped} already present${echoed})`,
+    );
+  } catch (error) {
+    ok = false;
+    parts.push(
+      `Pull failed: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
+  }
+
+  // 2) Push: send StrideVote results CiviByte does not have a newer answer for.
+  try {
+    const push = await pushCivibyteCanvass({
       listId,
       campaignId: link.campaignId,
     });
-    const rejected = result.rejected
-      ? `; ${result.rejected} rejected by CiviByte`
+    const rejected = push.rejected ? `, ${push.rejected} rejected` : "";
+    const blocked = push.blocked
+      ? `, ${push.blocked} held for a missing required answer`
       : "";
-    const blocked = result.blocked
-      ? `; ${result.blocked} held back for a missing required survey answer`
-      : "";
-    return {
-      ok: result.rejected === 0,
-      message: `Pushed ${result.applied} CiviByte result${result.applied === 1 ? "" : "s"}${rejected}${blocked}; ${result.skipped} unchanged, remote-newer, or unsupported.`,
-    };
+    parts.push(
+      `pushed ${plural(push.applied, "result")} (${push.skipped} unchanged or remote-newer${rejected}${blocked})`,
+    );
+    if (push.rejected) ok = false;
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "CiviByte push failed.");
+    ok = false;
+    parts.push(
+      `push failed: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
   }
+
+  return { ok, message: `${parts.join("; ")}.` };
 }
 
 const printedListNumberSchema = z
@@ -1603,8 +1621,11 @@ export async function enqueueMinivanListImport(
   };
 }
 
-/** Enqueue pull of TeamCanvasses dispositions into StrideVote. */
-export async function enqueueMinivanPull(listId: string): Promise<AdminResult> {
+/**
+ * Enqueue a MiniVAN sync: the worker pulls TeamCanvasses dispositions into
+ * StrideVote, then injects StrideVote results into VAN, in one emulator session.
+ */
+export async function enqueueMinivanSync(listId: string): Promise<AdminResult> {
   const user = await getSessionUser();
   if (!user) return fail("Please sign in.");
 
@@ -1629,14 +1650,21 @@ export async function enqueueMinivanPull(listId: string): Promise<AdminResult> {
 
   const link = list.campaignLinks.find((l) => l.campaign.minivanEnabled);
   if (!link) return fail("MiniVAN is not enabled for this list's campaign.");
-  if (!(await can(user, link.campaignId, "canvass:checkout")) &&
-      !(await can(user, link.campaignId, "lists:manage"))) {
+  if (!(await canSyncList(user, listId, link.campaignId))) {
     return fail("Not allowed.");
   }
+  if (!getMinivanAdapter(link.campaign.minivanAdapterKey)) {
+    return fail("Configure a MiniVAN adapter before syncing.");
+  }
   if (!list.sourceRef) return fail("This list has no MiniVAN printed list number.");
+  if (await hasOpenMinivanCanvassJob(listId)) {
+    return fail(
+      "A MiniVAN sync is already queued for this list. Refresh in a couple of minutes.",
+    );
+  }
 
   const job = await enqueueMinivanJob({
-    type: "pull_canvass",
+    type: "sync_canvass",
     campaignId: link.campaignId,
     listId,
     requestedById: user.id,
@@ -1648,55 +1676,7 @@ export async function enqueueMinivanPull(listId: string): Promise<AdminResult> {
   return {
     ok: true,
     message:
-      "Pull queued. This can take a couple of minutes — refresh to see updates.",
-    id: job.id,
-  };
-}
-
-/** Admin: enqueue push of StrideVote attempts into MiniVAN via emulator inject. */
-export async function enqueueMinivanPush(listId: string): Promise<AdminResult> {
-  const user = await getSessionUser();
-  if (!user) return fail("Please sign in.");
-  if (!(await canManageList(user.id, listId))) return fail("Not allowed.");
-
-  const list = await prisma.list.findFirst({
-    where: { id: listId, deletedAt: null },
-    include: {
-      campaignLinks: {
-        include: {
-          campaign: {
-            select: {
-              id: true,
-              slug: true,
-              minivanEnabled: true,
-              minivanAdapterKey: true,
-            },
-          },
-        },
-      },
-    },
-  });
-  if (!list || list.source !== "minivan") return fail("Not a MiniVAN list.");
-  const link = list.campaignLinks.find((l) => l.campaign.minivanEnabled);
-  if (!link) return fail("MiniVAN is not enabled for this list's campaign.");
-  if (!getMinivanAdapter(link.campaign.minivanAdapterKey)) {
-    return fail("Configure a MiniVAN adapter before pushing.");
-  }
-  if (!list.sourceRef) return fail("This list has no MiniVAN printed list number.");
-
-  const job = await enqueueMinivanJob({
-    type: "push_canvass",
-    campaignId: link.campaignId,
-    listId,
-    requestedById: user.id,
-    payload: { printedListNumber: list.sourceRef },
-  });
-
-  revalidateCampaign(link.campaign.slug);
-  return {
-    ok: true,
-    message:
-      "Push queued. This can take a couple of minutes — refresh to see updates.",
+      "Sync queued. This can take a couple of minutes — refresh to see updates.",
     id: job.id,
   };
 }

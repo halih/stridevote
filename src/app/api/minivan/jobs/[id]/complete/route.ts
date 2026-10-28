@@ -3,7 +3,7 @@ import {
   authorizeMinivanWorker,
   unauthorizedMinivan,
 } from "@/lib/minivan/worker-auth";
-import { completeMinivanJob } from "@/lib/minivan/jobs";
+import { completeMinivanPush } from "@/lib/minivan/pushed-outcomes";
 import type { Prisma } from "@/generated/prisma";
 
 export async function POST(
@@ -15,7 +15,9 @@ export async function POST(
   const body = (await req.json().catch(() => ({}))) as {
     result?: Prisma.InputJsonValue;
   };
-  await completeMinivanJob(
+  // Push/sync jobs commit their staged pushed-outcomes here; other job types
+  // are completed with the raw summary.
+  await completeMinivanPush(
     id,
     body.result ?? (body as Prisma.InputJsonValue),
   );

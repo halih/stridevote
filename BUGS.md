@@ -174,9 +174,9 @@ Jargon used below:
 
   `matchMinivanPeople` (`src/lib/minivan/match.ts`) falls back from a full first-name match to a first-initial match whenever exactly one candidate at the same (lastName, streetNo, zip) shares the initial, and treats that as confirmed (`matched_initial`). Import then writes MiniVAN phone/email/`likelyParty` (and can seed talk score) onto that record. "J. Smith" from MiniVAN can bind to "Jane Smith" when the real contact was "John Smith," permanently corrupting a different voter's master data with no reconciliation path.
 
-- [ ] **Civibyte pull and push can act on an arbitrary campaign link when a list is shared**
+- [ ] **Civibyte sync can act on an arbitrary campaign link when a list is shared**
 
-  `pullCivibyteList` and `pushCivibyteList` (`src/lib/admin-actions.ts`) both pick `campaignLinks.find(active && enabled) ?? campaignLinks.find(enabled)` — independent of which campaign the admin is actually working in. If a Civibyte list is linked to two or more campaigns and none has the currently active wave, the choice is whatever order Prisma returns. An admin can get a spurious "Not allowed" on their own campaign's list, or push results into / pull results tagged to a campaign other than the one they intended. Same defect class as the MiniVAN wrong-wave item above, but a distinct mechanism (campaign, not program) and code path.
+  `syncCivibyteList` (`src/lib/admin-actions.ts`, formerly separate `pullCivibyteList` / `pushCivibyteList`) picks `campaignLinks.find(active && enabled) ?? campaignLinks.find(enabled)` — independent of which campaign the admin is actually working in. If a Civibyte list is linked to two or more campaigns and none has the currently active wave, the choice is whatever order Prisma returns. An admin can get a spurious "Not allowed" on their own campaign's list, or push results into / pull results tagged to a campaign other than the one they intended. Same defect class as the MiniVAN wrong-wave item above, but a distinct mechanism (campaign, not program) and code path.
 
 - [ ] **MiniVAN job complete/fail endpoints don’t validate the job’s current status**
 

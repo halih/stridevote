@@ -4,15 +4,14 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ListEditView as ListEditData } from "@/lib/admin-data";
 import { useToast } from "@/components/Toast";
+import { Icon } from "@/components/Icon";
 import { Map } from "@/components/map/Map";
 import { MapHelp, type MapHelpItem } from "@/components/map/MapHelp";
 import {
   deleteList,
-  enqueueMinivanPull,
-  enqueueMinivanPush,
-  pullCivibyteList,
-  pushCivibyteList,
+  enqueueMinivanSync,
   setListCampaigns,
+  syncCivibyteList,
   updateList,
 } from "@/lib/admin-actions";
 import { doorPinColor, DOOR_PIN_COLORS } from "@/lib/canvass/outcomes";
@@ -166,33 +165,25 @@ export function ListEditView({ list }: { list: ListEditData }) {
               </button>
             </div>
             {list.minivanEnabled && list.source === "minivan" ? (
-              <div className="form-actions" style={{ marginTop: 8, gap: 8 }}>
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  disabled={pending}
-                  title="Pull from MiniVAN — door ResultIDs only"
-                  onClick={() => run(() => enqueueMinivanPull(list.id))}
-                >
-                  Pull
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  disabled={pending}
-                  title="Push StrideVote results to MiniVAN"
-                  onClick={() => run(() => enqueueMinivanPush(list.id))}
-                >
-                  Push
-                </button>
-              </div>
-            ) : null}
-            {list.minivanEnabled && list.source === "minivan" ? (
-              <p className="sheet-sub">
-                Pull imports door dispositions only (Canvassed, Not Home, …). Survey
-                answers stay on volunteer phones. Push sends StrideVote results to VAN
-                via the local emulator worker.
-              </p>
+              <>
+                <div className="form-actions" style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    disabled={pending}
+                    title="Sync with MiniVAN — pull door ResultIDs, then push StrideVote results"
+                    onClick={() => run(() => enqueueMinivanSync(list.id))}
+                  >
+                    <Icon name="sync" size={14} /> Sync
+                  </button>
+                </div>
+                <p className="sheet-sub">
+                  Sync first imports door dispositions from VAN (Canvassed, Not Home,
+                  …; survey answers stay on volunteer phones), then sends StrideVote
+                  results to VAN via the local emulator worker. Results VAN already
+                  has from a previous sync are not re-imported.
+                </p>
+              </>
             ) : null}
             {list.civibyteEnabled && list.source === "civibyte" ? (
               <>
@@ -201,24 +192,17 @@ export function ListEditView({ list }: { list: ListEditData }) {
                     type="button"
                     className="btn btn-outline"
                     disabled={pending}
-                    title="Pull from Civibyte — imports new door dispositions and survey answers"
-                    onClick={() => run(() => pullCivibyteList(list.id))}
+                    title="Sync with CiviByte — pull new door dispositions and survey answers, then push newer StrideVote results"
+                    onClick={() => run(() => syncCivibyteList(list.id))}
                   >
-                    Pull
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    disabled={pending}
-                    title="Push new StrideVote results to CiviByte"
-                    onClick={() => run(() => pushCivibyteList(list.id))}
-                  >
-                    Push
+                    <Icon name="sync" size={14} /> Sync
                   </button>
                 </div>
                 <p className="sheet-sub">
-                  Pull imports new door dispositions and available survey answers.
-                  Push sends newer StrideVote results through the CiviByte guest API.
+                  Sync first imports new door dispositions and available survey
+                  answers, then sends newer StrideVote results through the CiviByte
+                  guest API. Where CiviByte already has a newer result for a door,
+                  the local one is not pushed.
                 </p>
               </>
             ) : null}

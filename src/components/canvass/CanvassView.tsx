@@ -7,7 +7,7 @@ import { Icon } from "@/components/Icon";
 import { Map } from "@/components/map/Map";
 import { useToast } from "@/components/Toast";
 import { checkoutList, releaseList, toggleWatch, previewListSplit, splitList } from "@/lib/actions";
-import { enqueueMinivanPull, pullCivibyteList } from "@/lib/admin-actions";
+import { enqueueMinivanSync, syncCivibyteList } from "@/lib/admin-actions";
 import { ListSheets, type SheetState } from "./ListSheets";
 import { externalListOpen } from "@/lib/canvass/external";
 import { downloadPacket, getOutboxCount, purgePacketIfSynced, deletePacket } from "@/lib/canvass/offline-store";
@@ -292,16 +292,12 @@ export function CanvassView({
               onSplit={() => onSplit(l)}
               onWatch={() => onWatch(l)}
               onOpen={() => onOpen(l)}
-              onPullMinivan={
-                l.minivanPull
-                  ? () =>
-                      run(() => enqueueMinivanPull(l.id))
-                  : undefined
-              }
-              onPullCivibyte={
-                l.civibytePull
-                  ? () => run(() => pullCivibyteList(l.id))
-                  : undefined
+              onSync={
+                l.externalSync === "minivan"
+                  ? () => run(() => enqueueMinivanSync(l.id))
+                  : l.externalSync === "civibyte"
+                    ? () => run(() => syncCivibyteList(l.id))
+                    : undefined
               }
             />
           ))
@@ -339,8 +335,7 @@ function ListCard({
   onSplit,
   onWatch,
   onOpen,
-  onPullMinivan,
-  onPullCivibyte,
+  onSync,
 }: {
   list: ListVM;
   pending: boolean;
@@ -351,9 +346,13 @@ function ListCard({
   onSplit: () => void;
   onWatch: () => void;
   onOpen: () => void;
-  onPullMinivan?: () => void;
-  onPullCivibyte?: () => void;
+  /** Two-way sync with the external system; only offered on lists the volunteer holds. */
+  onSync?: () => void;
 }) {
+  const syncTitle =
+    l.externalSync === "minivan"
+      ? "Sync with MiniVAN — pulls door results (not survey answers), then pushes your StrideVote results"
+      : "Sync with CiviByte — pulls new door results, then pushes your StrideVote results";
   const pct =
     l.progressTotal > 0 ? Math.round((l.progressDone / l.progressTotal) * 100) : 0;
   const allDoorsComplete =
@@ -436,7 +435,7 @@ function ListCard({
           {external && !l.nativeCanvass ? (
             <p className="taken-note">
               {external.hint}
-              {l.source === "minivan" ? " Pull imports door results only." : ""}
+              {l.source === "minivan" ? " Sync imports door results only." : ""}
             </p>
           ) : null}
           {allDoorsComplete ? (
@@ -449,24 +448,13 @@ function ListCard({
               <button type="button" className="btn btn-outline btn-sm" onClick={onPreview}>
                 <Icon name="map" size={14} /> Preview
               </button>
-              {onPullMinivan ? (
+              {onSync ? (
                 <button
                   type="button"
                   className="btn btn-outline btn-sm"
                   disabled={pending}
-                  title="Sync from MiniVAN — door ResultIDs only, not survey answers"
-                  onClick={onPullMinivan}
-                >
-                  <Icon name="sync" size={14} /> Sync
-                </button>
-              ) : null}
-              {onPullCivibyte ? (
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
-                  disabled={pending}
-                  title="Sync from Civibyte — imports new door results"
-                  onClick={onPullCivibyte}
+                  title={syncTitle}
+                  onClick={onSync}
                 >
                   <Icon name="sync" size={14} /> Sync
                 </button>
@@ -514,28 +502,6 @@ function ListCard({
             <button type="button" className="btn btn-outline btn-sm" onClick={onPreview}>
               <Icon name="map" size={14} /> Preview
             </button>
-            {onPullMinivan ? (
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                disabled={pending}
-                title="Sync from MiniVAN — door ResultIDs only, not survey answers"
-                onClick={onPullMinivan}
-              >
-                <Icon name="sync" size={14} /> Sync
-              </button>
-            ) : null}
-            {onPullCivibyte ? (
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                disabled={pending}
-                title="Sync from Civibyte — imports new door results"
-                onClick={onPullCivibyte}
-              >
-                <Icon name="sync" size={14} /> Sync
-              </button>
-            ) : null}
           </div>
           <button className="btn btn-primary btn-sm" disabled={pending} onClick={onCheckout}>
             Check out

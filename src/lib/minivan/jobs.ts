@@ -5,6 +5,19 @@ export const MINIVAN_JOB_TYPES = [
   "import_list",
   "pull_canvass",
   "push_canvass",
+  /** Pull then push in one emulator session (single download). */
+  "sync_canvass",
+] as const;
+
+/** Job types that read TeamCanvasses into StrideVote. */
+export const MINIVAN_PULL_JOB_TYPES = ["pull_canvass", "sync_canvass"] as const;
+/** Job types that inject StrideVote results into MiniVAN. */
+export const MINIVAN_PUSH_JOB_TYPES = ["push_canvass", "sync_canvass"] as const;
+/** Any job that touches canvass results for a list (used to dedupe queueing). */
+export const MINIVAN_CANVASS_JOB_TYPES = [
+  "pull_canvass",
+  "push_canvass",
+  "sync_canvass",
 ] as const;
 
 export type MinivanJobType = (typeof MINIVAN_JOB_TYPES)[number];
@@ -132,6 +145,19 @@ export async function failMinivanJob(jobId: string, error: string) {
       completedAt: new Date(),
     },
   });
+}
+
+/** True when a pull/push/sync job for this list is still pending or running. */
+export async function hasOpenMinivanCanvassJob(listId: string) {
+  const open = await prisma.miniVanJob.findFirst({
+    where: {
+      listId,
+      type: { in: [...MINIVAN_CANVASS_JOB_TYPES] },
+      status: { in: ["pending", "running"] },
+    },
+    select: { id: true },
+  });
+  return Boolean(open);
 }
 
 export async function getLatestListMinivanJob(listId: string) {

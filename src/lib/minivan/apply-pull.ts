@@ -2,12 +2,17 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requireMinivanAdapter } from "@/lib/minivan/adapters";
-import { completeMinivanJob, failMinivanJob } from "@/lib/minivan/jobs";
+import {
+  completeMinivanJob,
+  failMinivanJob,
+  MINIVAN_PULL_JOB_TYPES,
+} from "@/lib/minivan/jobs";
 import {
   minivanClientAttemptId,
   pullDoorToPersonOutcome,
   pullDispositionToDoor,
 } from "@/lib/minivan/map-canvass";
+import { readMinivanPushedOutcomes } from "@/lib/minivan/pushed-outcomes";
 import { applyFieldWriteback } from "@/lib/canvass/field-layer";
 import { ensureActiveProgram } from "@/lib/canvass/programs";
 
@@ -18,14 +23,26 @@ export interface TeamCanvassRow {
   dateCreated: string;
 }
 
+export interface MinivanPullSummary {
+  applied: number;
+  skipped: number;
+  /** Remote rows that only echoed a result StrideVote pushed earlier. */
+  echoed: number;
+  total: number;
+}
+
 /**
  * Apply TeamCanvasses dispositions only (no survey/notes).
  * The emulator is never the recording device.
+ *
+ * For `pull_canvass` jobs this completes the job. For `sync_canvass` jobs it
+ * records the pull summary on the job and leaves it running so the worker can
+ * continue with the push step.
  */
 export async function applyMinivanPull(
   jobId: string,
   rows: TeamCanvassRow[],
-): Promise<{ ok: boolean; error?: string; applied?: number; skipped?: number }> {
+): Promise<{ ok: boolean; error?: string; applied?: number; skipped?: number; echoed?: number }> {
   const job = await prisma.miniVanJob.findUnique({
     where: { id: jobId },
     include: {
@@ -40,9 +57,14 @@ export async function applyMinivanPull(
       list: true,
     },
   });
-  if (!job || job.type !== "pull_canvass" || job.status !== "running") {
+  if (
+    !job ||
+    !(MINIVAN_PULL_JOB_TYPES as readonly string[]).includes(job.type) ||
+    job.status !== "running"
+  ) {
     return { ok: false, error: "Job not found or not running" };
   }
+  const isSync = job.type === "sync_canvass";
   if (!job.listId || !job.list || job.list.deletedAt) {
     await failMinivanJob(jobId, "Pull job has no list");
     return { ok: false, error: "No list" };
@@ -133,6 +155,10 @@ export async function applyMinivanPull(
 
   let applied = 0;
   let skipped = 0;
+  let echoed = 0;
+  // Door outcomes StrideVote already pushed to VAN, keyed by VanID. A remote
+  // row with the same outcome is our own result coming back, not new work.
+  const pushedOutcomes = readMinivanPushedOutcomes(job.list.data);
 
   // Lit-dropped: expand to every list voter at the same household.
   const householdVanIds = new Map<string, number[]>();
@@ -184,7 +210,6 @@ export async function applyMinivanPull(
       skipped += 1;
       continue;
     }
-
     const capturedAt = parseMinivanDate(row.dateCreated);
     const personOutcome = pullDoorToPersonOutcome(outcome);
     const clientAttemptId = minivanClientAttemptId(
@@ -196,6 +221,10 @@ export async function applyMinivanPull(
     const existing = await prisma.canvassAttempt.findUnique({
       where: { clientAttemptId },
     });
+    if (!existing && pushedOutcomes[String(vanId)] === outcome) {
+      echoed += 1;
+      continue;
+    }
     if (existing) {
       // Older pulls created only a door attempt. Repair the missing person row,
       // but preserve its historical user attribution.
@@ -267,17 +296,32 @@ export async function applyMinivanPull(
     lastPullAt: new Date().toISOString(),
     lastPullApplied: applied,
     lastPullSkipped: skipped,
+    lastPullEchoed: echoed,
   };
   await prisma.list.update({
     where: { id: job.listId },
     data: { data: { ...listData, minivan: minivanMeta } },
   });
 
-  await completeMinivanJob(jobId, { applied, skipped, total: rows.length });
+  const summary = {
+    applied,
+    skipped,
+    echoed,
+    total: rows.length,
+  } satisfies MinivanPullSummary;
+  if (isSync) {
+    // Push step still to come; stash the pull summary for the final result.
+    await prisma.miniVanJob.update({
+      where: { id: jobId },
+      data: { result: { pull: summary } },
+    });
+  } else {
+    await completeMinivanJob(jobId, summary);
+  }
   revalidatePath("/canvass");
   revalidatePath("/stats");
   revalidatePath(`/admin/${job.campaign.slug}`);
-  return { ok: true, applied, skipped };
+  return { ok: true, applied, skipped, echoed };
 }
 
 function parseMinivanDate(raw: string): Date {
