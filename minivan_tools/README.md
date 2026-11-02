@@ -19,11 +19,13 @@ Next.js enqueues `MiniVanJob` rows; `worker.py` claims them with `MINIVAN_WORKER
 ## Run
 
 ```bash
-./start_emulator.sh          # optional helper
 export STRIDEVOTE_URL=http://localhost:3000
 export MINIVAN_WORKER_TOKEN=dev-minivan-worker-token
 python3 worker.py
 ```
+
+`worker.py` boots the `minivan` AVD when no emulator is attached, then pins GPS
+(`start_emulator.sh`). That script can still be run on its own.
 
 Jobs run **serially**. Downloading a list wipes the previous on-device list.
 

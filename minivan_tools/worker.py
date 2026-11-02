@@ -3,6 +3,8 @@
 worker.py — poll StrideVote MiniVAN job APIs and drive the local emulator.
 
 Never run ADB from Next.js. This sidecar owns download / export / inject / sync.
+Before claiming a job it boots the MiniVAN AVD (start_emulator.sh) when no
+emulator is attached, so a dead emulator does not fail the job.
 
 Env:
   STRIDEVOTE_URL          default http://localhost:3000
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -55,6 +58,45 @@ def api(method: str, path: str, body: dict | None = None) -> dict:
                 "after `npx prisma generate` / migrate)"
             )
         raise RuntimeError(f"{method} {path} -> {e.code}: {err_body}{hint}") from e
+
+
+def adb_bin() -> str:
+    found = shutil.which("adb")
+    if found:
+        return found
+    sdk = os.environ.get("ANDROID_HOME", "/opt/homebrew/share/android-commandlinetools")
+    return os.path.join(sdk, "platform-tools", "adb")
+
+
+def emulator_ready() -> bool:
+    """True when an emulator is online and finished booting."""
+    adb = adb_bin()
+    devices = subprocess.run([adb, "devices"], capture_output=True, text=True)
+    online = False
+    for line in devices.stdout.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].startswith("emulator-") and parts[1] == "device":
+            online = True
+            break
+    if not online:
+        return False
+    boot = subprocess.run(
+        [adb, "shell", "getprop", "sys.boot_completed"],
+        capture_output=True,
+        text=True,
+    )
+    return boot.stdout.strip() == "1"
+
+
+def ensure_emulator() -> None:
+    """Boot the MiniVAN AVD if it is not already up. Leaves pending jobs unclaimed."""
+    if emulator_ready():
+        return
+    print("emulator not attached; booting AVD...", flush=True)
+    script = os.path.join(HERE, "start_emulator.sh")
+    r = subprocess.run(["bash", script], cwd=HERE)
+    if r.returncode != 0 or not emulator_ready():
+        raise RuntimeError("emulator failed to start; see /tmp/minivan-emulator.log")
 
 
 def run_py(script: str, args: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -289,6 +331,12 @@ def main() -> None:
     print(f"MiniVAN worker polling {BASE} every {POLL}s", flush=True)
     while True:
         try:
+            try:
+                ensure_emulator()
+            except Exception as e:
+                print(f"emulator: {e}", file=sys.stderr, flush=True)
+                time.sleep(POLL)
+                continue
             resp = api("POST", "/api/minivan/claim", {})
             job = resp.get("job")
             if not job:
