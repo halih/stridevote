@@ -53,7 +53,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
     "kill-port": "^2.0.1",
-    "prisma": "^6.19.3",
+    "prisma": "^7.10.1",
     "shapefile": "^0.6.6",
     "tsx": "^4.19.2",
     "typescript": "^5"
